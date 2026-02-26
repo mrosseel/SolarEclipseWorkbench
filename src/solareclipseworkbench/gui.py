@@ -20,7 +20,8 @@ import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction, QDoubleValidator, QIntValidator, QCloseEvent
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, \
-    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QTableView
+    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QTableView, QDialog, QDialogButtonBox, \
+    QFormLayout
 from apscheduler.job import Job
 from apscheduler.schedulers import SchedulerNotRunningError
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -1021,15 +1022,34 @@ class SolarEclipseController(Observer):
             if self.model.reference_moments and os.path.exists(filename):
                 try:
                     from solareclipseworkbench.utils import observe_solar_eclipse
-                    self.scheduler: BackgroundScheduler \
+                    cameras = self.model.camera_overview.camera_overview_dict or {}
+                    self.scheduler, unmatched \
                         = observe_solar_eclipse(self.model.reference_moments, filename,
-                                                self.model.camera_overview.camera_overview_dict, self,
+                                                cameras, self,
                                                 self.sim_reference_moment, self.sim_offset_minutes)
+
+                    if unmatched:
+                        mapping = self._show_camera_mapping_dialog(unmatched, cameras.keys())
+                        if mapping is None:
+                            self.scheduler.shutdown(wait=False)
+                            self.scheduler = None
+                            return
+                        mapped_cameras = {script_name: cameras[real_name]
+                                          for script_name, real_name in mapping.items()}
+                        all_cameras = {**cameras, **mapped_cameras}
+                        self.scheduler.shutdown(wait=False)
+                        self.scheduler, unmatched = observe_solar_eclipse(
+                            self.model.reference_moments, filename,
+                            all_cameras, self,
+                            self.sim_reference_moment, self.sim_offset_minutes)
 
                     self.jobs_model = JobsTableModel(self.scheduler, self)
                     self.view.jobs_table.setModel(self.jobs_model)
                     self.jobs_model.add_observer(self.view.jobs_table)
                     self.view.jobs_table.resizeColumnsToContents()
+
+                    from apscheduler.events import EVENT_JOB_ERROR
+                    self.scheduler.add_listener(self._on_job_error, EVENT_JOB_ERROR)
 
                     self.view.camera_action.setDisabled(True)
 
@@ -1067,6 +1087,40 @@ class SolarEclipseController(Observer):
         """
 
         self.model.check_camera_state()
+
+    def _on_job_error(self, event):
+        LOGGER.error('Scheduled job %s failed: %s', event.job_id, event.exception)
+        if hasattr(self, 'jobs_model') and self.jobs_model:
+            self.jobs_model.mark_job_failed(event.job_id, str(event.exception))
+
+    def _show_camera_mapping_dialog(self, unmatched: set, detected_names) -> dict | None:
+        """Show a dialog to map unmatched script camera names to detected cameras.
+
+        Returns a dict {script_name: detected_name} or None if the user cancels.
+        """
+        detected = list(detected_names)
+        dialog = QDialog(self.view)
+        dialog.setWindowTitle("Camera Name Mismatch")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("The script contains camera names not found among detected cameras.\n"
+                                "Map each script name to a detected camera:"))
+        form = QFormLayout()
+        combos = {}
+        for name in sorted(unmatched):
+            combo = QComboBox()
+            combo.addItems(detected)
+            combos[name] = combo
+            form.addRow(f"Script: {name}", combo)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+
+        return {name: combo.currentText() for name, combo in combos.items()}
 
     def load_settings(self):
         """ Load the UI settings.
@@ -1759,6 +1813,7 @@ class JobsTableColumnNames(Enum):
     COUNTDOWN = "Countdown"
     COMMAND = "Command"
     DESCRIPTION = "Description"
+    STATUS = "Status"
 
 
 class JobsTableModel(QAbstractTableModel, Observable):
@@ -1843,13 +1898,26 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 formatted_execution_time_local = format_time(execution_time_local, self.time_format)
 
                 data.append([countdown, formatted_execution_time_local, formatted_execution_time_utc, job_string,
-                             description])
+                             description, "Pending"])
 
         self._data = pd.DataFrame(data, columns=[JobsTableColumnNames.COUNTDOWN.value,
                                                  JobsTableColumnNames.EXEC_TIME_LOCAL.value,
                                                  JobsTableColumnNames.EXEC_TIME_UTC.value,
                                                  JobsTableColumnNames.COMMAND.value,
-                                                 JobsTableColumnNames.DESCRIPTION.value])
+                                                 JobsTableColumnNames.DESCRIPTION.value,
+                                                 JobsTableColumnNames.STATUS.value])
+
+        self._job_id_to_row = {}
+        for idx, job in enumerate(scheduler.get_jobs()):
+            if job.next_run_time:
+                self._job_id_to_row[job.id] = idx
+
+    def mark_job_failed(self, job_id: str, error_msg: str):
+        row = self._job_id_to_row.get(job_id)
+        if row is not None:
+            self.beginResetModel()
+            self._data.loc[row, JobsTableColumnNames.STATUS.value] = f"FAILED: {error_msg}"
+            self.endResetModel()
 
     def update_countdown(self):
         """ Update the countdown until execution time."""
@@ -1865,6 +1933,7 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 if new_countdown.total_seconds() >= 0:
                     if int(new_countdown.total_seconds()) == 0:
                         self.notify_observers(row)
+                        self._data.loc[row, JobsTableColumnNames.STATUS.value] = "Done"
                     new_countdown = format_countdown(new_countdown)
                 else:
                     new_countdown = "-"

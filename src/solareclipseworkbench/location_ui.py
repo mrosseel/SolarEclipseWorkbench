@@ -61,6 +61,7 @@ class ConfigManager:
                 "camera": None,
                 "location": None,
             },
+            "fuji_sdk_path": None,
         }
 
     def save_config(self):
@@ -167,6 +168,19 @@ class ConfigManager:
     def get_last_used_location(self) -> Optional[str]:
         """Return the most-recently used location name, or None."""
         return self.config["last_used"].get("location")
+
+    # ------------------------------------------------------------------
+    # Fuji SDK path
+    # ------------------------------------------------------------------
+
+    def get_fuji_sdk_path(self) -> Optional[str]:
+        """Return the configured Fuji SDK path, or None."""
+        return self.config.get("fuji_sdk_path")
+
+    def set_fuji_sdk_path(self, path: str) -> None:
+        """Store the Fuji SDK library path."""
+        self.config["fuji_sdk_path"] = path
+        self.save_config()
 
 
 # ---------------------------------------------------------------------------

@@ -288,20 +288,28 @@ class EquipmentPage(QWizardPage):
         # Camera selection
         camera_select_group = QGroupBox("Camera Selection")
         camera_select_layout = QVBoxLayout()
-        
+
         camera_select_h_layout = QHBoxLayout()
         camera_select_h_layout.addWidget(QLabel("Select Camera:"))
         self.camera_select_combo = QComboBox()
-        self.camera_select_combo.addItem("New Camera...")
+        self.camera_select_combo.addItem("Free text...")
         # Add saved cameras
         for camera in self.config_manager.get_cameras():
             self.camera_select_combo.addItem(camera["name"])
-        
-        camera_select_h_layout.addWidget(self.camera_select_combo)
+
+        camera_select_h_layout.addWidget(self.camera_select_combo, 1)
+
+        self.detect_btn = QPushButton("Detect")
+        self.detect_btn.setToolTip("Detect connected cameras")
+        self.detect_btn.clicked.connect(self._detect_cameras)
+        camera_select_h_layout.addWidget(self.detect_btn)
+
         camera_select_layout.addLayout(camera_select_h_layout)
-        
+
         camera_select_group.setLayout(camera_select_layout)
         layout.addWidget(camera_select_group)
+
+        self._detected_names: set = set()
         
         # Camera details group
         camera_details_group = QGroupBox("Camera Details")
@@ -470,10 +478,27 @@ class EquipmentPage(QWizardPage):
         
         sync_group.setLayout(sync_layout)
         layout.addWidget(sync_group)
-        
+
+        # Fuji SDK path (optional)
+        fuji_group = QGroupBox("Fuji X SDK (Optional)")
+        fuji_layout = QHBoxLayout()
+        fuji_layout.addWidget(QLabel("SDK Path:"))
+        self.fuji_sdk_path_edit = QLineEdit()
+        self.fuji_sdk_path_edit.setPlaceholderText("Path to Fuji X Shooting SDK libraries")
+        apply_dark_to_lineedit(self.fuji_sdk_path_edit)
+        saved_path = self.config_manager.get_fuji_sdk_path()
+        if saved_path:
+            self.fuji_sdk_path_edit.setText(saved_path)
+        fuji_layout.addWidget(self.fuji_sdk_path_edit, 1)
+        self.fuji_sdk_browse_btn = QPushButton("Browse...")
+        self.fuji_sdk_browse_btn.clicked.connect(self._browse_fuji_sdk)
+        fuji_layout.addWidget(self.fuji_sdk_browse_btn)
+        fuji_group.setLayout(fuji_layout)
+        layout.addWidget(fuji_group)
+
         layout.addStretch()
         self.setLayout(layout)
-        
+
         # Register fields
         self.registerField("camera_name*", self.camera_name_edit)
         self.registerField("focal_length", self.focal_length_spin, "value")
@@ -497,8 +522,7 @@ class EquipmentPage(QWizardPage):
     
     def _on_camera_selected(self, camera_name):
         """Load selected camera configuration."""
-        if camera_name == "New Camera...":
-            # Clear all fields
+        if camera_name == "Free text...":
             self.camera_name_edit.clear()
             self.focal_length_spin.setValue(400)
             self.aperture_min_spin.setValue(5.6)
@@ -508,27 +532,48 @@ class EquipmentPage(QWizardPage):
             self.iso_max_combo.setCurrentText("1600")
             self.camera_name_edit.setReadOnly(False)
             self.camera_name_edit.setStyleSheet("")
+        elif camera_name in self._detected_names:
+            self.camera_name_edit.setText(camera_name)
+            self.camera_name_edit.setReadOnly(True)
+            self.camera_name_edit.setStyleSheet("QLineEdit:read-only { background-color: #f0f0f0; }")
         else:
-            # Load camera configuration
+            # Load saved camera configuration
             camera = self.config_manager.get_camera(camera_name)
             if camera:
                 self.camera_name_edit.setText(camera["name"])
                 self.focal_length_spin.setValue(camera["focal_length"])
                 self.aperture_min_spin.setValue(camera["aperture_min"])
                 self.aperture_max_spin.setValue(camera["aperture_max"])
-                
-                # Set ISO values (with defaults for backward compatibility)
                 self.preferred_iso_combo.setCurrentText(str(camera.get("preferred_iso", 400)))
                 self.iso_min_combo.setCurrentText(str(camera.get("iso_min", 100)))
                 self.iso_max_combo.setCurrentText(str(camera.get("iso_max", 1600)))
-                
-                # Make camera name read-only for saved cameras (not disabled, so validation works)
                 self.camera_name_edit.setReadOnly(True)
                 self.camera_name_edit.setStyleSheet("QLineEdit:read-only { background-color: #f0f0f0; }")
-        
-        # Emit signal to re-validate page completeness
+
         self.completeChanged.emit()
-    
+
+    def _detect_cameras(self):
+        """Detect connected cameras and add them to the combo box."""
+        try:
+            from solareclipseworkbench.camera import get_camera_dict
+            cameras = get_camera_dict()
+        except Exception as e:
+            QMessageBox.warning(self, "Detection Failed", f"Could not detect cameras: {e}")
+            return
+
+        if not cameras:
+            QMessageBox.information(self, "No Cameras Found", "No cameras were detected. Use 'Free text...' to enter a name manually.")
+            return
+
+        for name in cameras:
+            if name not in self._detected_names and self.camera_select_combo.findText(name) < 0:
+                self.camera_select_combo.addItem(name)
+                self._detected_names.add(name)
+
+        # Select the first detected camera
+        first = next(iter(cameras))
+        self.camera_select_combo.setCurrentText(first)
+
     def _save_camera(self):
         """Save current camera configuration."""
         camera_name = self.camera_name_edit.text().strip()
@@ -562,6 +607,15 @@ class EquipmentPage(QWizardPage):
         self.camera_name_edit.setReadOnly(True)
         self.camera_name_edit.setStyleSheet("QLineEdit:read-only { background-color: #f0f0f0; }")
     
+    def _browse_fuji_sdk(self):
+        """Open a directory picker for the Fuji SDK path."""
+        path = QFileDialog.getExistingDirectory(
+            self, "Select Fuji X SDK Directory",
+            self.fuji_sdk_path_edit.text() or str(Path.home()),
+        )
+        if path:
+            self.fuji_sdk_path_edit.setText(path)
+
     def _on_sync_enabled_changed(self, state):
         """Enable/disable camera sync interval selection."""
         enabled = state == Qt.CheckState.Checked.value
@@ -574,7 +628,7 @@ class EquipmentPage(QWizardPage):
         self.camera_name_edit.setStyleSheet(dark_lineedit_style())
         # If a camera is selected, trigger the selection handler to ensure fields are populated
         current_camera = self.camera_select_combo.currentText()
-        if current_camera and current_camera != "New Camera...":
+        if current_camera and current_camera != "Free text...":
             self._on_camera_selected(current_camera)
     
     def isComplete(self):
@@ -585,11 +639,16 @@ class EquipmentPage(QWizardPage):
     
     def validatePage(self):
         """Validate page and save last used camera."""
-        # Save last used camera if not "New Camera..."
+        # Save last used camera if not "Free text..."
         camera_name = self.camera_select_combo.currentText()
-        if camera_name != "New Camera...":
+        if camera_name != "Free text...":
             self.config_manager.set_last_used_camera(camera_name)
-        
+
+        # Save Fuji SDK path if set
+        fuji_path = self.fuji_sdk_path_edit.text().strip()
+        if fuji_path:
+            self.config_manager.set_fuji_sdk_path(fuji_path)
+
         return True
 
 

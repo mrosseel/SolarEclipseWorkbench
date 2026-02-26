@@ -19,7 +19,6 @@ COMMANDS = {
     'command': execute_command
 }
 
-
 def calculate_next_solar_eclipses(count: int) -> list:
     """ Calculate the next solar eclipses, starting from today.
 
@@ -40,7 +39,7 @@ def calculate_next_solar_eclipses(count: int) -> list:
 
 def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: dict,
                           controller: SolarEclipseController, reference_moment: str,
-                          minutes_to_reference_moment: float) -> BackgroundScheduler:
+                          minutes_to_reference_moment: float) -> tuple:
     """ Observe (and photograph) the solar eclipse, as per given files.
 
     Args:
@@ -54,7 +53,8 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
                             sunset, and MAX.  None if no simulation should be used
         - minutes_to_reference_moment: Minutes to reference moment when simulating, None if no simulation should be used
 
-    Returns: Scheduler that is used to schedule the commands.
+    Returns: Tuple of (scheduler, unmatched_camera_names) where unmatched_camera_names is a set
+             of camera names found in the script but not in the cameras dict.
     """
 
     scheduler = start_scheduler()
@@ -66,9 +66,9 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
         simulated_start = None
 
     # Schedule commands
-    schedule_commands(commands_filename, scheduler, ref_moments, cameras, controller, reference_moment, simulated_start)
+    unmatched = schedule_commands(commands_filename, scheduler, ref_moments, cameras, controller, reference_moment, simulated_start)
 
-    return scheduler
+    return scheduler, unmatched
 
 
 def start_scheduler():
@@ -84,7 +84,7 @@ def start_scheduler():
 
 
 def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_moments: dict,
-                      cameras: dict, controller: SolarEclipseController, reference_moment, simulated_start: datetime):
+                      cameras: dict, controller: SolarEclipseController, reference_moment, simulated_start: datetime) -> set:
     """ Schedule commands as specified in the given file.
 
     Args:
@@ -100,15 +100,20 @@ def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_m
         - simulated_start: datetime with the time to simulate relative to the reference moment.
                             None if no simulation is to be used.
 
-    Returns: Scheduler that is used to schedule the commands.
+    Returns: Set of camera names found in the script but not in the cameras dict.
     """
+    unmatched = set()
     script_file = scripts.convert_script(filename, reference_moments)
     script_file.seek(0)
 
     # Loop over all lines in script file
     for cmd_str in script_file:
-        schedule_command(
+        missed = schedule_command(
             scheduler, reference_moments, cmd_str, cameras, controller, reference_moment, simulated_start)
+        if missed:
+            unmatched.add(missed)
+
+    return unmatched
 
 
 def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cmd_str: str, cameras: dict,
@@ -153,23 +158,24 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
 
     if func_name != "voice_prompt" and func_name != "command":
         if cameras is not None:
-            try:
+            if func_name == "sync_cameras":
+                args = [controller]
+            else:
+                cam_name = args[0].strip()
+                camera = cameras.get(cam_name)
+                if camera is None:
+                    logging.warning('Skipping %s: camera "%s" not found (available: %s)',
+                                    func_name, cam_name, list(cameras.keys()))
+                    return cam_name
                 if func_name == "take_picture":
-                    settings = CameraSettings(args[0].strip(), args[1].strip(), args[2].strip(), int(args[3].strip()))
-                    new_args = [cameras[args[0].strip()], settings]
-                    args = new_args
+                    settings = CameraSettings(cam_name, args[1].strip(), args[2].strip(), int(args[3].strip()))
+                    args = [camera, settings]
                 elif func_name == "take_burst":
-                    settings = CameraSettings(args[0].strip(), args[1].strip(), args[2].strip(), int(args[3].strip()))
-                    new_args = [cameras[args[0].strip()], settings, float(args[4].strip())]
-                    args = new_args
+                    settings = CameraSettings(cam_name, args[1].strip(), args[2].strip(), int(args[3].strip()))
+                    args = [camera, settings, float(args[4].strip())]
                 elif func_name == "take_bracket":
-                    settings = CameraSettings(args[0].strip(), args[1].strip(), args[2].strip(), int(args[3].strip()))
-                    new_args = [cameras[args[0].strip()], settings, str(args[4].strip())]
-                    args = new_args
-                elif func_name == "sync_cameras":
-                    args = [controller]
-            except KeyError:
-                return
+                    settings = CameraSettings(cam_name, args[1].strip(), args[2].strip(), int(args[3].strip()))
+                    args = [camera, settings, str(args[4].strip())]
         else:
             return
 
@@ -207,7 +213,9 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
                               second=execution_time.second, timezone=pytz.utc)
 
         scheduler.add_job(func, trigger=trigger, args=args, name=description)
-    except KeyError:
+    except KeyError as e:
+        logging.warning('Skipping command "%s": missing key %s (ref_moment=%s)',
+                        description, e, ref_moment)
         return
 
 # Main
