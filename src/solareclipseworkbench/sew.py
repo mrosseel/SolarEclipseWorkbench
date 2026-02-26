@@ -3,15 +3,15 @@ from time import sleep
 
 from astropy.time import Time
 
-import camera
-from solareclipseworkbench import gui
-from solareclipseworkbench.reference_moments import calculate_reference_moments
-from solareclipseworkbench.utils import observe_solar_eclipse
+from solareclipseworkbench.camera import get_camera_dict
+from solareclipseworkbench.ui.app import main as gui_main
+from solareclipseworkbench.eclipse.reference_moments import calculate_reference_moments
+from solareclipseworkbench.scheduling.engine import observe_solar_eclipse
 
 
 def main(args):
     if args.gui:
-        gui.main()
+        gui_main()
     else:
         # Check for all needed parameters
         if args.date and args.longitude and args.latitude and args.altitude and args.script:
@@ -21,7 +21,7 @@ def main(args):
 
             filename = args.script
 
-            cameras = camera.get_camera_dict(
+            cameras = get_camera_dict(
                 is_simulator=args.virtual_camera,
             )
 
