@@ -16,7 +16,7 @@ from solareclipseworkbench.scheduling import scripts
 from solareclipseworkbench.eclipse.solar_eclipse import get_solar_eclipses
 
 if TYPE_CHECKING:
-    from solareclipseworkbench.gui import SolarEclipseController
+    from solareclipseworkbench.ui.controller import SolarEclipseController
 
 COMMANDS = {
     'voice_prompt': voice_prompt,

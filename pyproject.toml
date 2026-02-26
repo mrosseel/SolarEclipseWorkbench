@@ -11,6 +11,7 @@ include = [
     "solareclipseworkbench/sound/**",
     "solareclipseworkbench/example_scripts/**",
     "solareclipseworkbench/img/**",
+    "solareclipseworkbench/eclipse/*.csv",
 ]
 
 [tool.poetry.dependencies]
@@ -36,8 +37,8 @@ geopy = "^2.4.1"
 requests = "^2.31.0"
 
 [tool.poetry.scripts]
-sew = "solareclipseworkbench.gui:main"
-sew_wizard = "solareclipseworkbench.wizard:main"
+sew = "solareclipseworkbench.ui.app:main"
+sew_wizard = "solareclipseworkbench.ui.wizard:main"
 
 [build-system]
 requires = ["poetry-core"]

@@ -26,8 +26,8 @@ from .qt_utils import apply_system_color_scheme, _is_dark_mode_preferred, _build
 
 # Import eclipse-specific modules
 from astropy.time import Time
-from solareclipseworkbench.exposure_calculator import (
-    calculate_eclipse_exposures, 
+from solareclipseworkbench.eclipse.exposure_calculator import (
+    calculate_eclipse_exposures,
     format_shutter_speed,
     parse_shutter_speed,
     calculate_sun_altitude_at_time,
@@ -35,7 +35,7 @@ from solareclipseworkbench.exposure_calculator import (
     get_exposure_bracket,
     round_to_camera_shutter_speed
 )
-from solareclipseworkbench.reference_moments import calculate_reference_moments
+from solareclipseworkbench.eclipse.reference_moments import calculate_reference_moments
 from datetime import timedelta
 
 
@@ -180,7 +180,7 @@ class EclipseConfigPage(QWizardPage):
     def _populate_eclipses(self):
         """Populate the eclipse dropdown with upcoming eclipses."""
         try:
-            from solareclipseworkbench.utils import calculate_next_solar_eclipses
+            from solareclipseworkbench.scheduling.engine import calculate_next_solar_eclipses
             eclipses = calculate_next_solar_eclipses(20)
             
             self.eclipse_data = []
