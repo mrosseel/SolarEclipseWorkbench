@@ -1,3 +1,4 @@
+import logging
 import subprocess
 import sys
 from enum import Enum
@@ -95,12 +96,14 @@ def voice_prompt(notification: str) -> None:
     Args:
         - notification: Notification
     """
-
-    sound_file = str(SOUND_PATH) + "/" + Notifications[notification.lstrip()].value
-    if sys.platform == "darwin":
-        subprocess.run(["afplay", sound_file], check=True)
-    else:
-        playsound(sound_file)
+    try:
+        sound_file = str(SOUND_PATH) + "/" + Notifications[notification.lstrip()].value
+        if sys.platform == "darwin":
+            subprocess.run(["afplay", sound_file], check=True)
+        else:
+            playsound(sound_file)
+    except Exception:
+        logging.exception('voice_prompt failed for "%s"', notification)
 
 
 def main():

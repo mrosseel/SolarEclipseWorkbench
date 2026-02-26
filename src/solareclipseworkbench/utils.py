@@ -1,14 +1,19 @@
+from __future__ import annotations
+
 import logging
 import csv
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_bracket, sync_cameras, scripts, execute_command
 from solareclipseworkbench.camera import CameraSettings
-from solareclipseworkbench.gui import SolarEclipseController
 from solareclipseworkbench.solar_eclipse import get_solar_eclipses
+
+if TYPE_CHECKING:
+    from solareclipseworkbench.gui import SolarEclipseController
 
 COMMANDS = {
     'voice_prompt': voice_prompt,

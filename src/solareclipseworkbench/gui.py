@@ -876,6 +876,11 @@ class SolarEclipseController(Observer):
         if self.jobs_model:
             self.jobs_model.update_countdown()
 
+        if self.scheduler:
+            for job in self.scheduler.get_jobs():
+                if job.next_run_time is None:
+                    job.remove()
+
     def do(self, actions):
         pass
 
@@ -1023,6 +1028,13 @@ class SolarEclipseController(Observer):
                 try:
                     from solareclipseworkbench.utils import observe_solar_eclipse
                     cameras = self.model.camera_overview.camera_overview_dict or {}
+
+                    for cam_name, cam_obj in cameras.items():
+                        try:
+                            get_battery_level(cam_obj)
+                        except Exception:
+                            LOGGER.warning('Camera "%s" failed health check — may be disconnected', cam_name)
+
                     self.scheduler, unmatched \
                         = observe_solar_eclipse(self.model.reference_moments, filename,
                                                 cameras, self,
@@ -2020,6 +2032,15 @@ def main():
     console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     logging.getLogger().addHandler(console_handler)
     LOGGER.info("Starting up Solar Eclipse Workbench")
+
+    pkg_dir = os.path.dirname(__file__)
+    missing = []
+    if not os.path.exists(os.path.join(pkg_dir, 'eclipse_besselian.csv')):
+        missing.append('eclipse_besselian.csv (expected in package directory)')
+    if not os.path.exists('de440s.bsp'):
+        missing.append('de440s.bsp (expected in working directory)')
+    if missing:
+        LOGGER.warning('Missing data files: %s', ', '.join(missing))
 
     parser = argparse.ArgumentParser(description="Solar Eclipse Workbench")
     parser.add_argument(

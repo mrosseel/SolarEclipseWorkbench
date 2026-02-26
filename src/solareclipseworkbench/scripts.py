@@ -66,7 +66,7 @@ def convert_command(line, ref_moment, sign, time_delta, extra_comment, output_fi
             sound_file = ref_moment + "_IN_" + sound_file
         command = "voice_prompt"
     else:
-        # Unknown command
+        logging.warning('Unknown command "%s" in script, skipping', command_parts[0])
         return output_file
 
     # Remove the double quote from the comment
