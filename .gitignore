@@ -164,3 +164,8 @@ cython_debug/
 #.idea/
 
 de421.bsp
+de440s.bsp
+*.bsp
+*.raf
+*.sync-conflict-*
+SDK/
