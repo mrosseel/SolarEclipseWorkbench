@@ -6,6 +6,7 @@ import ctypes
 import logging
 import os
 import platform
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -83,17 +84,19 @@ class Camera:
 
     @staticmethod
     def _check_ld_path(sdk_path: str | Path):
-        """Ensure LD_LIBRARY_PATH is set; raise if re-exec is needed."""
+        """Ensure LD_LIBRARY_PATH is set; re-exec if needed.
+
+        On Linux, glibc caches LD_LIBRARY_PATH at process startup.
+        If we need to add paths, the only way to make dlopen() see them
+        is to re-exec the current process.
+        """
         if platform.system() != "Linux":
             return
         if not ensure_ld_library_path(sdk_path):
-            raise RuntimeError(
-                "LD_LIBRARY_PATH was not set. It has been updated in the "
-                "environment, but the process must be restarted for it to "
-                "take effect. Re-run your script, or set LD_LIBRARY_PATH "
-                f"before starting Python:\n"
-                f"  export LD_LIBRARY_PATH=\"{os.environ['LD_LIBRARY_PATH']}\""
+            logging.info(
+                "LD_LIBRARY_PATH updated, re-executing process for SDK libs"
             )
+            os.execvp(sys.executable, [sys.executable] + sys.argv)
 
     @classmethod
     def _release_lib(cls):
