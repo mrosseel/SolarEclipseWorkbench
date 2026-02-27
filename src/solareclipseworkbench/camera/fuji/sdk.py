@@ -418,7 +418,13 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
             # LD_LIBRARY_PATH was updated — must restart process
             import sys
             logging.info('LD_LIBRARY_PATH updated, restarting process')
-            os.execvp(sys.executable, [sys.executable] + sys.argv)
+            # Reconstruct command: detect if launched via `python -m`
+            main_spec = getattr(sys.modules.get('__main__'), '__spec__', None)
+            if main_spec and main_spec.name:
+                args = [sys.executable, '-m', main_spec.name] + sys.argv[1:]
+            else:
+                args = [sys.executable] + sys.argv
+            os.execvp(sys.executable, args)
         except Exception as e:
             logging.debug('Fuji SDK detect attempt %d failed: %s', attempt + 1, e)
         time.sleep(2)
