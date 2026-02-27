@@ -54,13 +54,11 @@ def find_library(sdk_path: str | Path) -> Path:
         if path.exists():
             return path
 
-    # Try recursive search one level deep
+    # Try recursive search
     for name in candidates:
-        for child in sdk_path.iterdir():
-            if child.is_dir():
-                path = child / name
-                if path.exists():
-                    return path
+        matches = list(sdk_path.rglob(name))
+        if matches:
+            return matches[0]
 
     raise FileNotFoundError(
         f"Cannot find XAPI library in {sdk_path}. "
@@ -112,7 +110,12 @@ def ensure_ld_library_path(sdk_lib_dir: str | Path) -> bool:
     if platform.system() == "Darwin":
         return True
 
-    sdk_dir = str(Path(sdk_lib_dir).resolve())
+    # Resolve to the actual directory containing XAPI.so
+    try:
+        xapi_path = find_library(sdk_lib_dir)
+        sdk_dir = str(xapi_path.parent.resolve())
+    except FileNotFoundError:
+        sdk_dir = str(Path(sdk_lib_dir).resolve())
     ld_path = os.environ.get("LD_LIBRARY_PATH", "")
     paths = ld_path.split(":") if ld_path else []
 
