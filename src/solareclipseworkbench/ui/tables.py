@@ -80,8 +80,19 @@ class CameraOverviewTableModel(QAbstractTableModel):
             else:
                 return Qt.AlignmentFlag.AlignRight
 
-    def update_camera_overview(self):
-        """ Update the camera overview. """
+    def update_camera_overview(self, on_ready=None):
+        """ Update the camera overview.
+
+        Args:
+            on_ready: Optional callback invoked on the main thread after detection
+                      and UI update are complete.
+        """
+        # Prevent concurrent workers from double-clicking Camera(s)
+        if getattr(self, '_worker_running', False):
+            logging.debug('CameraOverview: worker already running, ignoring')
+            return
+        self._worker_running = True
+
         logging.debug('CameraOverviewTableModel.update_camera_overview(): start (scheduling worker)')
         try:
             print('CameraOverview: scheduling worker to probe cameras', flush=True)
@@ -96,6 +107,7 @@ class CameraOverviewTableModel(QAbstractTableModel):
         # start background worker to probe cameras
         # prepare a slot for pending data written by the worker
         self._pending_data = None
+        self._on_ready_callback = on_ready
 
         worker = threading.Thread(target=self._gather_camera_info, daemon=True)
         worker.start()
@@ -107,12 +119,22 @@ class CameraOverviewTableModel(QAbstractTableModel):
         try:
             is_sim = getattr(self.view, 'is_simulator', False) and getattr(self.view, 'virtual_camera_enabled', False)
             vc_fps = getattr(self.view, 'virtual_camera_fps', 1)
-            # Reuse existing camera objects if available to avoid opening a new USB
-            # connection while a previous connection (e.g. from take_picture) is still held.
-            existing_map = getattr(self, 'camera_overview_dict', None)
-            if existing_map and all(v is not None for v in existing_map.values()):
+            existing_map = getattr(self, 'camera_overview_dict', None) or {}
+
+            # Check if we already have a working FujiCamera (SDK connection).
+            # Re-opening SDK sessions fails while the old session is still
+            # open, so we must reuse them.
+            has_fuji_sdk = False
+            try:
+                from solareclipseworkbench.camera.fuji.sdk import FujiCamera as _FC
+                has_fuji_sdk = any(isinstance(v, _FC) for v in existing_map.values())
+            except ImportError:
+                pass
+
+            if has_fuji_sdk:
                 camera_dict = existing_map
-                logging.debug('CameraOverview: reusing %d existing camera object(s)', len(camera_dict))
+                logging.debug('CameraOverview: reusing %d existing camera(s) (FujiCamera present)',
+                              len(camera_dict))
             else:
                 camera_dict = get_camera_dict(is_simulator=is_sim)
 
@@ -142,6 +164,7 @@ class CameraOverviewTableModel(QAbstractTableModel):
                 logging.exception('Worker: could not set pending data')
         except Exception:
             logging.exception('Worker: failed to gather camera info')
+            self._worker_running = False
 
     def _on_data_ready(self, data):
         try:
@@ -186,6 +209,17 @@ class CameraOverviewTableModel(QAbstractTableModel):
                 print('CameraOverview: view updated', flush=True)
         except Exception:
             logging.exception('Could not update camera overview view after data ready')
+
+        self._worker_running = False
+
+        # Notify caller that detection is complete
+        callback = getattr(self, '_on_ready_callback', None)
+        if callback:
+            self._on_ready_callback = None
+            try:
+                callback()
+            except Exception:
+                logging.exception('on_ready callback failed')
 
     def _try_apply_pending(self):
         """Poll for pending data written by the background worker and apply it on the GUI thread."""

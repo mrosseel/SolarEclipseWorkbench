@@ -130,26 +130,40 @@ def get_camera_dict(is_simulator: bool = False) -> dict:
         vc.connect()
         return {vc.name: vc}
 
+    cameras = dict()
+
+    # Fuji SDK cameras first — must claim USB before gphoto2 does.
+    # If the SDK path is configured we always skip gphoto for Fuji cameras,
+    # even if SDK detection returned 0 cameras (gphoto can't claim USB
+    # either and would just produce a broken adapter).
+    skip_fuji_gphoto = False
+    try:
+        from .fuji.sdk import detect_fuji_cameras, find_fuji_sdk_path
+        sdk_path = find_fuji_sdk_path()
+        if sdk_path:
+            skip_fuji_gphoto = True  # SDK path configured → never use gphoto for Fuji
+            logging.debug('Fuji SDK path: %s', sdk_path)
+            fuji_cams = detect_fuji_cameras(sdk_path)
+            if fuji_cams:
+                cameras.update(fuji_cams)
+                logging.info('Fuji SDK detected %d camera(s)', len(fuji_cams))
+        else:
+            logging.debug('Fuji SDK path not found, skipping SDK detection')
+    except Exception:
+        logging.debug('Fuji SDK detection failed', exc_info=True)
+
     camera_names = get_cameras()
-    # Print detected cameras to terminal for user visibility
     try:
         print("Found cameras:", camera_names, flush=True)
     except Exception:
         logging.debug('Could not print found cameras to terminal')
 
-    cameras = dict()
     for camera_name in camera_names:
-        cameras[camera_name[0]] = get_camera(camera_name[0])
-
-    # Fuji SDK cameras
-    try:
-        from .fuji_adapter import detect_fuji_cameras, find_fuji_sdk_path
-        sdk_path = find_fuji_sdk_path()
-        if sdk_path:
-            fuji_cams = detect_fuji_cameras(sdk_path)
-            cameras.update(fuji_cams)
-    except Exception:
-        logging.debug('Fuji SDK detection skipped', exc_info=True)
+        name = camera_name[0]
+        if skip_fuji_gphoto and 'fuji' in name.lower():
+            logging.debug('Skipping gphoto for %s (using Fuji SDK)', name)
+            continue
+        cameras[name] = get_camera(name)
 
     return cameras
 

@@ -1011,6 +1011,22 @@ IMAGE_QUALITY_NAMES: dict[int, str] = {
 # --------------------------------------------------------------------------
 # Shutter speed name lookup (value -> human-readable string)
 # --------------------------------------------------------------------------
+MF_ASSIST_MODE_NAMES: dict[int, str] = {
+    MF_ASSIST_STANDARD: "Standard",
+    MF_ASSIST_DIGITAL_SPLIT: "Digital Split Image",
+}
+
+LIVEVIEW_SIZE_NAMES: dict[int, str] = {
+    LIVEVIEW_SIZE_XGA: "XGA (1024x768)",
+    LIVEVIEW_SIZE_VGA: "VGA (640x480)",
+    LIVEVIEW_SIZE_QVGA: "QVGA (320x240)",
+}
+
+LIVEVIEW_QUALITY_NAMES: dict[int, str] = {
+    LIVEVIEW_QUALITY_FINE: "Fine",
+    LIVEVIEW_QUALITY_NORMAL: "Normal",
+}
+
 SHUTTER_SPEED_NAMES: dict[int, str] = {
     SHUTTER_UNKNOWN: "Unknown",
     SHUTTER_1_180000: '1/180000"',

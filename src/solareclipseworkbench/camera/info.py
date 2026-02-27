@@ -151,7 +151,8 @@ def get_shooting_mode(camera_name: str, camera: Camera) -> str:
         else:
             return ""
     except gphoto2.GPhoto2Error as e:
-        logging.warning('gphoto2 error reading shooting mode for %s: %s', getattr(camera, 'name', str(camera)), e)
+        if getattr(e, 'code', None) != -53:
+            logging.warning('gphoto2 error reading shooting mode for %s: %s', getattr(camera, 'name', str(camera)), e)
         return "Manual"
     except Exception:
         # For virtual/non-gphoto cameras assume Manual shooting mode
@@ -172,7 +173,8 @@ def get_focus_mode(camera: Camera) -> str:
     try:
         return camera.get_config().get_child_by_name('focusmode').get_value()
     except gphoto2.GPhoto2Error as e:
-        logging.warning('gphoto2 error reading focus mode for %s: %s', getattr(camera, 'name', str(camera)), e)
+        if getattr(e, 'code', None) != -53:
+            logging.warning('gphoto2 error reading focus mode for %s: %s', getattr(camera, 'name', str(camera)), e)
         return "Manual"
     except Exception:
         # For virtual/non-gphoto cameras assume Manual focus
@@ -278,11 +280,19 @@ def get_time(camera: Camera) -> str:
 
 def set_time(camera: Camera) -> None:
     """ Set the computer time on the selected camera """
-    # For physical gphoto cameras we set the camera clock; for virtual or
-    # non-gphoto cameras this is a no-op.
+    # For non-gphoto cameras (FujiCamera, VirtualCamera), time sync is a no-op
+    # — FujiCamera clock is set via the SDK, not gphoto2.
+    if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+        return
     try:
         config = camera.get_config()
     except gphoto2.GPhoto2Error as e:
+        # -53 = USB claimed by another driver (e.g. Fuji SDK owns the device).
+        # No point retrying — the SDK camera handles its own clock.
+        if getattr(e, 'code', None) == -53:
+            logging.debug('Camera %s USB owned by SDK, skipping time sync',
+                          getattr(camera, 'name', str(camera)))
+            return
         logging.warning('gphoto2 error getting config for %s: %s', getattr(camera, 'name', str(camera)), e)
         # Attempt reinitialisation and retry once
         try:
@@ -293,8 +303,7 @@ def set_time(camera: Camera) -> None:
                 config = camera.get_config()
         except Exception:
             logging.exception('Reinitialisation attempt failed for %s', getattr(camera, 'name', str(camera)))
-            # propagate error to caller
-            raise
+            return
     except Exception:
         # VirtualCamera or other adapters may not expose get_config(); skip
         return

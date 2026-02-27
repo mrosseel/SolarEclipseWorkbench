@@ -261,13 +261,33 @@ def print_validation_report(cam: Camera) -> list[CameraIssue]:
 class LiveViewStream:
     """Stream live view JPEG frames from camera for focus preview."""
 
-    def __init__(self, camera: Camera, size: int = C.LIVEVIEW_SIZE_XGA):
+    _LIVE_FORMATS = {
+        C.IMAGEFORMAT_LIVE,
+        C.IMAGEFORMAT_LIVE_90,
+        C.IMAGEFORMAT_LIVE_180,
+        C.IMAGEFORMAT_LIVE_270,
+    }
+
+    def __init__(
+        self,
+        camera: Camera,
+        size: int = C.LIVEVIEW_SIZE_XGA,
+        quality: int = C.LIVEVIEW_QUALITY_FINE,
+    ):
         self.camera = camera
         self.size = size
+        self.quality = quality
         self._running = False
 
     def start(self):
-        self.camera.set_live_view_size(self.size)
+        try:
+            self.camera.set_live_view_size(self.size)
+        except XSDKError as e:
+            log.warning("Could not set live view size: %s", e)
+        try:
+            self.camera.set_live_view_quality(self.quality)
+        except XSDKError as e:
+            log.warning("Could not set live view quality: %s", e)
         self.camera.start_live_view()
         self._running = True
 
@@ -284,7 +304,8 @@ class LiveViewStream:
             return None
         try:
             info = self.camera.read_image_info()
-            if info.format == C.IMAGEFORMAT_LIVE and info.data_size > 0:
+            fmt = info.format & 0xFF
+            if fmt == (C.IMAGEFORMAT_LIVE & 0xFF) and info.data_size > 0:
                 return self.camera.read_image(info.data_size)
         except XSDKError:
             pass

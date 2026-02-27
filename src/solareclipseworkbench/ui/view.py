@@ -44,6 +44,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.date_action = QAction("Date", self)
         self.reference_moments_action = QAction("Reference moments", self)
         self.camera_action = QAction("Camera(s)", self)
+        self.live_view_action = QAction("Live View", self)
         self.simulator_action = QAction("Simulator", self)
         self.file_action = QAction("File", self)
         self.shutdown_scheduler_action = QAction("Stop", self)
@@ -310,6 +311,10 @@ class SolarEclipseView(QMainWindow, Observable):
         self.camera_action.setIcon(QIcon(str(ICON_PATH / "camera.png")))
         self.camera_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.camera_action)
+
+        self.live_view_action.setStatusTip("Live View")
+        self.live_view_action.triggered.connect(self.on_toolbar_button_click)
+        self.toolbar.addAction(self.live_view_action)
 
         if self.is_simulator:
             self.simulator_action.setStatusTip("Configure simulator")

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
+import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -319,6 +322,15 @@ class FujiCamera(BaseCamera):
             self._shooter = EclipseShooter(self._sdk_cam)
         return self._shooter
 
+    @property
+    def supports_live_view(self) -> bool:
+        return True
+
+    def open_live_view_window(self, parent=None):
+        """Create and return a LiveViewWindow for this camera."""
+        from solareclipseworkbench.ui.liveview import LiveViewWindow
+        return LiveViewWindow(self._sdk_cam, parent=parent)
+
     def validate(self) -> list[CameraIssue]:
         return validate_for_eclipse(self._sdk_cam)
 
@@ -370,20 +382,50 @@ class FujiCamera(BaseCamera):
 # Detection
 # ======================================================================
 
+def _kill_ptp_daemon():
+    """Kill macOS ptpcamerad which claims USB cameras before the SDK can."""
+    if platform.system() != "Darwin":
+        return
+    try:
+        subprocess.run(["killall", "ptpcamerad"],
+                       capture_output=True, timeout=2)
+        logging.debug("Killed ptpcamerad to free USB device")
+    except Exception:
+        pass
+
+
 def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
-    """Detect Fuji cameras via SDK. Returns {name: FujiCamera} dict."""
+    """Detect Fuji cameras via SDK. Returns {name: FujiCamera} dict.
+
+    Retries detection up to 3 times with a delay after killing ptpcamerad,
+    because the USB device needs time to become available.
+    """
     if not FUJIXSDK_AVAILABLE:
         return {}
 
-    try:
-        cameras = SDKCamera.detect(sdk_path)
-    except Exception as e:
-        logging.debug('Fuji SDK detection failed: %s', e)
+    _kill_ptp_daemon()
+
+    # Retry — after killing ptpcamerad the USB device needs a moment
+    cameras = []
+    for attempt in range(3):
+        try:
+            cameras = SDKCamera.detect(sdk_path)
+            logging.info('Fuji SDK detect attempt %d returned %d camera(s)',
+                         attempt + 1, len(cameras))
+            if cameras:
+                break
+        except Exception as e:
+            logging.debug('Fuji SDK detect attempt %d failed: %s', attempt + 1, e)
+        time.sleep(2)
+
+    if not cameras:
+        logging.warning('Fuji SDK found no cameras after retries')
         return {}
 
     result = {}
     for info in cameras:
-        name = f"Fujifilm {info.product}" if info.product != "(unknown)" else f"Fujifilm Camera ({info.device_name})"
+        # Use "Fuji Fujifilm <model>" to match gphoto2's naming convention
+        name = f"Fuji Fujifilm {info.product}" if info.product != "(unknown)" else f"Fuji Camera ({info.device_name})"
         try:
             sdk_cam = SDKCamera(sdk_path, info.device_name)
             fuji_cam = FujiCamera(sdk_cam, name, sdk_path, info.device_name)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import os
+import platform
 import threading
 import time
 from dataclasses import dataclass
@@ -71,13 +72,18 @@ class Camera:
 
     @classmethod
     def _lib_handle(cls) -> ctypes.c_void_p:
-        """Return the dlopen handle for XSDK_Init."""
-        return ctypes.c_void_p(cls._lib._lib._handle)
+        """Return the dlopen handle for XSDK_Init.
+
+        On Linux, passing the dlopen handle helps the SDK find model libraries.
+        On macOS/Windows, pass NULL (0) as per the official SDK samples.
+        """
+        if platform.system() == "Linux":
+            return ctypes.c_void_p(cls._lib._lib._handle)
+        return ctypes.c_void_p(0)
 
     @staticmethod
     def _check_ld_path(sdk_path: str | Path):
         """Ensure LD_LIBRARY_PATH is set; raise if re-exec is needed."""
-        import platform
         if platform.system() != "Linux":
             return
         if not ensure_ld_library_path(sdk_path):
@@ -113,62 +119,57 @@ class Camera:
         Returns:
             List of CameraInfo for each detected camera.
         """
-        Camera._check_ld_path(sdk_path)
-        lib = XAPILibrary(sdk_path)
-        rc = lib.XSDK_Init(ctypes.c_void_p(lib._lib._handle))
+        # Use the shared library to avoid macOS SDK bug where USB enumeration
+        # fails after XSDK_Exit() is called.
+        lib = Camera._ensure_lib(sdk_path)
+
+        count = ctypes.c_long(0)
+        rc = lib.XSDK_Detect(
+            ctypes.c_long(interface), None, None, ctypes.byref(count)
+        )
         check_result(rc)
 
-        try:
-            count = ctypes.c_long(0)
+        if count.value == 0:
+            return []
 
-            rc = lib.XSDK_Detect(
-                ctypes.c_long(interface), None, None, ctypes.byref(count)
+        # For USB, the SDK uses "ENUM:N" as device identifiers.
+        # We open each camera briefly to read its device info.
+        results = []
+        for i in range(count.value):
+            device_name = f"ENUM:{i}"
+            cam_handle = ctypes.c_void_p()
+            cam_mode = ctypes.c_long()
+
+            rc = lib.XSDK_OpenEx(
+                device_name.encode("utf-8"),
+                ctypes.byref(cam_handle),
+                ctypes.byref(cam_mode),
+                None,
             )
-            check_result(rc)
+            if rc != 0:
+                results.append(CameraInfo(
+                    product="(unknown)",
+                    serial_no="",
+                    ip_address="",
+                    framework="USB",
+                    device_name=device_name,
+                ))
+                continue
 
-            if count.value == 0:
-                return []
+            try:
+                info = DeviceInformation()
+                lib.XSDK_GetDeviceInfo(cam_handle, ctypes.byref(info))
+                results.append(CameraInfo(
+                    product=info.product,
+                    serial_no=info.serial_no,
+                    ip_address="",
+                    framework="USB",
+                    device_name=device_name,
+                ))
+            finally:
+                lib.XSDK_Close(cam_handle)
 
-            # For USB, the SDK uses "ENUM:N" as device identifiers.
-            # We open each camera briefly to read its device info.
-            results = []
-            for i in range(count.value):
-                device_name = f"ENUM:{i}"
-                cam_handle = ctypes.c_void_p()
-                cam_mode = ctypes.c_long()
-
-                rc = lib.XSDK_OpenEx(
-                    device_name.encode("utf-8"),
-                    ctypes.byref(cam_handle),
-                    ctypes.byref(cam_mode),
-                    None,
-                )
-                if rc != 0:
-                    results.append(CameraInfo(
-                        product="(unknown)",
-                        serial_no="",
-                        ip_address="",
-                        framework="USB",
-                        device_name=device_name,
-                    ))
-                    continue
-
-                try:
-                    info = DeviceInformation()
-                    lib.XSDK_GetDeviceInfo(cam_handle, ctypes.byref(info))
-                    results.append(CameraInfo(
-                        product=info.product,
-                        serial_no=info.serial_no,
-                        ip_address="",
-                        framework="USB",
-                        device_name=device_name,
-                    ))
-                finally:
-                    lib.XSDK_Close(cam_handle)
-
-            return results
-        finally:
-            lib.XSDK_Exit()
+        return results
 
     def __init__(
         self,
@@ -177,6 +178,7 @@ class Camera:
         interface: int = C.IF_USB,
     ):
         self._sdk_path = sdk_path
+        self._device_name = device_name
         self._interface = interface
         self._handle = ctypes.c_void_p()
         self._camera_mode = ctypes.c_long()
@@ -295,6 +297,33 @@ class Camera:
                 pass
             self._lib_inst.XSDK_Close(self._handle)
             self._release_lib()
+
+    def reconnect(self):
+        """Close and reopen the SDK session to clear a stuck camera state."""
+        device_name = getattr(self, '_device_name', 'ENUM:0')
+        log.info("Reconnecting camera (device=%s)...", device_name)
+        # Force-close without draining (camera is stuck anyway)
+        if not self._closed:
+            self._closed = True
+            try:
+                self._lib_inst.XSDK_Close(self._handle)
+            except Exception:
+                pass
+        # Reopen
+        self._closed = False
+        self._handle = ctypes.c_void_p()
+        self._camera_mode = ctypes.c_long()
+        count = ctypes.c_long(0)
+        self._lib_inst.XSDK_Detect(
+            ctypes.c_long(self._interface), None, None, ctypes.byref(count))
+        rc = self._lib_inst.XSDK_OpenEx(
+            device_name.encode("utf-8"),
+            ctypes.byref(self._handle),
+            ctypes.byref(self._camera_mode),
+            None,
+        )
+        check_result(rc)
+        log.info("Camera reconnected successfully")
 
     def __enter__(self):
         return self
@@ -809,6 +838,79 @@ class Camera:
         val = ctypes.c_long()
         self.get_prop(C.API_CODE_GetLiveViewStatus, 0, ctypes.byref(val))
         return val.value
+
+    # ------------------------------------------------------------------
+    # MF Assist mode (extended API)
+    # ------------------------------------------------------------------
+    def get_mf_assist_mode(self) -> int:
+        val = ctypes.c_long()
+        self.get_prop(C.API_CODE_GetMFAssistMode, 0, ctypes.byref(val))
+        return val.value
+
+    def set_mf_assist_mode(self, mode: int):
+        self.set_prop(C.API_CODE_SetMFAssistMode, 0, ctypes.c_long(mode))
+
+    def get_supported_mf_assist_modes(self) -> list[int]:
+        num = ctypes.c_long()
+        values = (ctypes.c_long * 64)()
+        self.cap_prop(C.API_CODE_CapMFAssistMode, 0, ctypes.byref(num), values)
+        return [values[i] for i in range(num.value)]
+
+    # ------------------------------------------------------------------
+    # Focus Check mode (peaking toggle, extended API)
+    # ------------------------------------------------------------------
+    def get_focus_check_mode(self) -> int:
+        val = ctypes.c_long()
+        self.get_prop(C.API_CODE_GetFocusCheckMode, 0, ctypes.byref(val))
+        return val.value
+
+    def set_focus_check_mode(self, mode: int):
+        self.set_prop(C.API_CODE_SetFocusCheckMode, 0, ctypes.c_long(mode))
+
+    def get_supported_focus_check_modes(self) -> list[int]:
+        num = ctypes.c_long()
+        values = (ctypes.c_long * 64)()
+        self.cap_prop(C.API_CODE_CapFocusCheckMode, 0, ctypes.byref(num), values)
+        return [values[i] for i in range(num.value)]
+
+    # ------------------------------------------------------------------
+    # Focus position (extended API)
+    # ------------------------------------------------------------------
+    def get_focus_pos(self) -> int:
+        val = ctypes.c_long()
+        self.get_prop(C.API_CODE_GetFocusPos, 0, ctypes.byref(val))
+        return val.value
+
+    def set_focus_pos(self, pos: int):
+        self.set_prop(C.API_CODE_SetFocusPos, 0, ctypes.c_long(pos))
+
+    # ------------------------------------------------------------------
+    # Through-Image Zoom (extended API)
+    # ------------------------------------------------------------------
+    def get_through_image_zoom(self) -> int:
+        val = ctypes.c_long()
+        self.get_prop(C.API_CODE_GetThroughImageZoom, 0, ctypes.byref(val))
+        return val.value
+
+    def set_through_image_zoom(self, zoom: int):
+        self.set_prop(C.API_CODE_SetThroughImageZoom, 0, ctypes.c_long(zoom))
+
+    def get_supported_through_image_zoom(self) -> list[int]:
+        num = ctypes.c_long()
+        values = (ctypes.c_long * 64)()
+        self.cap_prop(C.API_CODE_CapThroughImageZoom, 0, ctypes.byref(num), values)
+        return [values[i] for i in range(num.value)]
+
+    # ------------------------------------------------------------------
+    # Live view quality (extended API)
+    # ------------------------------------------------------------------
+    def get_live_view_quality(self) -> int:
+        val = ctypes.c_long()
+        self.get_prop(C.API_CODE_GetLiveViewImageQuality, 0, ctypes.byref(val))
+        return val.value
+
+    def set_live_view_quality(self, quality: int):
+        self.set_prop(C.API_CODE_SetLiveViewImageQuality, 0, ctypes.c_long(quality))
 
     # ------------------------------------------------------------------
     # Battery info (extended API)

@@ -6,9 +6,9 @@ import os.path
 from pathlib import Path
 from typing import Union
 
-from PyQt6.QtCore import QTimer, QSettings
+from PyQt6.QtCore import Qt, QTimer, QSettings
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import QFileDialog, QDialog, QVBoxLayout, QLabel, QComboBox, QFormLayout, QDialogButtonBox
+from PyQt6.QtWidgets import QFileDialog, QDialog, QMessageBox, QVBoxLayout, QLabel, QComboBox, QFormLayout, QDialogButtonBox
 from apscheduler.schedulers import SchedulerNotRunningError
 from apscheduler.schedulers.background import BackgroundScheduler
 from astropy.time import Time
@@ -57,6 +57,7 @@ class SolarEclipseController(Observer):
         self.eclipse_popup: Union[EclipsePopup, None] = None
         self.simulator_popup: Union[SimulatorPopup, None] = None
         self.settings_popup: Union[SettingsPopup, None] = None
+        self._live_view_window = None
 
         self.time_display_timer = QTimer()
         self.time_display_timer.timeout.connect(self.update_time)
@@ -196,28 +197,19 @@ class SolarEclipseController(Observer):
                 reference_moments, magnitude, eclipse_type = self.model.get_reference_moments()
                 self.view.show_reference_moments(reference_moments, magnitude, eclipse_type)
 
+        elif text == "Live View":
+            self._open_live_view()
+
         elif text == "Camera(s)":
             logging.debug('User requested Camera(s) update')
             try:
                 logging.debug('Calling model.camera_overview.update_camera_overview()')
-                self.model.camera_overview.update_camera_overview()
+                self.model.camera_overview.update_camera_overview(
+                    on_ready=self._after_camera_detect,
+                )
                 logging.debug('Returned from update_camera_overview()')
             except Exception:
                 logging.exception('Exception while updating camera overview')
-
-            try:
-                logging.debug('Calling sync_camera_time()')
-                self.sync_camera_time()
-                logging.debug('Returned from sync_camera_time()')
-            except Exception:
-                logging.exception('Exception while syncing camera time')
-
-            try:
-                logging.debug('Calling check_camera_state()')
-                self.check_camera_state()
-                logging.debug('Returned from check_camera_state()')
-            except Exception:
-                logging.exception('Exception while checking camera state')
 
         elif text == "Simulator":
             self.simulator_popup = SimulatorPopup(self)
@@ -288,6 +280,22 @@ class SolarEclipseController(Observer):
         elif text == "Save":
             self.view.save_settings()
 
+    def _after_camera_detect(self):
+        """Called on the main thread after camera detection worker finishes."""
+        try:
+            logging.debug('Calling sync_camera_time()')
+            self.sync_camera_time()
+            logging.debug('Returned from sync_camera_time()')
+        except Exception:
+            logging.exception('Exception while syncing camera time')
+
+        try:
+            logging.debug('Calling check_camera_state()')
+            self.check_camera_state()
+            logging.debug('Returned from check_camera_state()')
+        except Exception:
+            logging.exception('Exception while checking camera state')
+
     def sync_camera_time(self):
         """ Set the time of all connected cameras to the time of the computer."""
 
@@ -297,6 +305,34 @@ class SolarEclipseController(Observer):
         """ Check whether the focus mode and shooting mode of all connected cameras is set to 'Manual'. """
 
         self.model.check_camera_state()
+
+    def _open_live_view(self):
+        """Open a dockable live view window for the first Fuji SDK camera found."""
+        # If already created, just show/raise it
+        if self._live_view_window is not None:
+            self._live_view_window.show()
+            self._live_view_window.raise_()
+            return
+
+        cameras = self.model.camera_overview.camera_overview_dict or {}
+        if not cameras:
+            QMessageBox.warning(
+                self.view, "Live View",
+                "No cameras detected. Click Camera(s) first to connect.")
+            return
+        for cam in cameras.values():
+            if hasattr(cam, 'supports_live_view') and cam.supports_live_view:
+                self._live_view_window = cam.open_live_view_window(parent=self.view)
+                self.view.addDockWidget(
+                    Qt.DockWidgetArea.BottomDockWidgetArea,
+                    self._live_view_window,
+                )
+                self._live_view_window.show()
+                return
+        QMessageBox.information(
+            self.view, "Live View",
+            "Live View requires a Fuji camera connected via the native SDK.\n"
+            "Make sure FUJI_SDK_PATH is set and click Camera(s) to detect.")
 
     def _on_job_error(self, event):
         LOGGER.error('Scheduled job %s failed: %s', event.job_id, event.exception)
