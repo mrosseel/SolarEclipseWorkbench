@@ -19,7 +19,7 @@ from .eclipse import (
     validate_for_eclipse,
 )
 from ._constants import *  # noqa: F401,F403
-from ._errors import XSDKError
+from ._errors import LDPathError, XSDKError
 from ._library import ensure_ld_library_path
 
 __all__ = [
@@ -28,6 +28,7 @@ __all__ = [
     "CameraIssue",
     "EclipseShooter",
     "LiveViewStream",
+    "LDPathError",
     "XSDKError",
     "ensure_ld_library_path",
     "print_validation_report",

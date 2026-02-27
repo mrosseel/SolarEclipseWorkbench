@@ -414,6 +414,11 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
                          attempt + 1, len(cameras))
             if cameras:
                 break
+        except fujixsdk.LDPathError:
+            # LD_LIBRARY_PATH was updated — must restart process
+            import sys
+            logging.info('LD_LIBRARY_PATH updated, restarting process')
+            os.execvp(sys.executable, [sys.executable] + sys.argv)
         except Exception as e:
             logging.debug('Fuji SDK detect attempt %d failed: %s', attempt + 1, e)
         time.sleep(2)

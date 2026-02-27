@@ -5,6 +5,22 @@ from __future__ import annotations
 from . import _constants as C
 
 
+class LDPathError(RuntimeError):
+    """LD_LIBRARY_PATH was updated and the process must restart.
+
+    On Linux, glibc caches LD_LIBRARY_PATH at process startup.
+    The caller should re-exec the process (os.execvp) or inform the user.
+    """
+
+    def __init__(self, new_path: str):
+        self.new_path = new_path
+        super().__init__(
+            f"LD_LIBRARY_PATH was updated but the process must be restarted "
+            f"for changes to take effect. Set before starting Python:\n"
+            f"  export LD_LIBRARY_PATH=\"{new_path}\""
+        )
+
+
 class XSDKError(Exception):
     """Base exception for all SDK errors."""
 

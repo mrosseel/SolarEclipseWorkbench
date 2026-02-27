@@ -6,7 +6,6 @@ import ctypes
 import logging
 import os
 import platform
-import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -14,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import _constants as C
-from ._errors import BusyError, check_result, raise_for_error_code
+from ._errors import BusyError, LDPathError, check_result, raise_for_error_code
 
 log = logging.getLogger(__name__)
 from ._library import XAPILibrary, ensure_ld_library_path
@@ -84,19 +83,16 @@ class Camera:
 
     @staticmethod
     def _check_ld_path(sdk_path: str | Path):
-        """Ensure LD_LIBRARY_PATH is set; re-exec if needed.
+        """Ensure LD_LIBRARY_PATH includes the SDK library directory.
 
-        On Linux, glibc caches LD_LIBRARY_PATH at process startup.
-        If we need to add paths, the only way to make dlopen() see them
-        is to re-exec the current process.
+        Raises LDPathError if the path was missing and the process needs
+        to be restarted for the changes to take effect (glibc caches
+        LD_LIBRARY_PATH at startup).
         """
         if platform.system() != "Linux":
             return
         if not ensure_ld_library_path(sdk_path):
-            logging.info(
-                "LD_LIBRARY_PATH updated, re-executing process for SDK libs"
-            )
-            os.execvp(sys.executable, [sys.executable] + sys.argv)
+            raise LDPathError(os.environ["LD_LIBRARY_PATH"])
 
     @classmethod
     def _release_lib(cls):
