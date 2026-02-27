@@ -39,7 +39,11 @@ def find_library(sdk_path: str | Path) -> Path:
     if system == "Linux":
         candidates = ["XAPI.so", "libXAPI.so"]
     elif system == "Darwin":
+        # macOS SDK uses .bundle format
         candidates = ["XAPI.dylib", "libXAPI.dylib"]
+        bundle_path = sdk_path / "XAPI.bundle" / "Contents" / "MacOS" / "XAPI"
+        if bundle_path.exists():
+            return bundle_path
     elif system == "Windows":
         candidates = ["XAPI.dll"]
     else:
@@ -60,7 +64,7 @@ def find_library(sdk_path: str | Path) -> Path:
 
     raise FileNotFoundError(
         f"Cannot find XAPI library in {sdk_path}. "
-        f"Expected one of: {', '.join(candidates)}"
+        f"Expected one of: {', '.join(candidates)} or XAPI.bundle"
     )
 
 
@@ -74,14 +78,20 @@ def find_model_libraries(sdk_path: str | Path) -> list[Path]:
 
     if system == "Linux":
         ext = ".so"
+        return sorted(p for p in sdk_path.rglob(f"*API{ext}") if p.name != f"XAPI{ext}")
     elif system == "Darwin":
-        ext = ".dylib"
+        # macOS uses .bundle directories; the binary is inside Contents/MacOS/
+        libs = []
+        for bundle in sdk_path.glob("FF*API.bundle"):
+            binary = bundle / "Contents" / "MacOS" / bundle.stem
+            if binary.exists():
+                libs.append(binary)
+        return sorted(libs)
     elif system == "Windows":
         ext = ".dll"
+        return sorted(p for p in sdk_path.rglob(f"*API{ext}") if p.name != f"XAPI{ext}")
     else:
         return []
-
-    return sorted(p for p in sdk_path.rglob(f"*API{ext}") if p.name != f"XAPI{ext}")
 
 
 _linux_deps_loaded = False
@@ -98,6 +108,10 @@ def ensure_ld_library_path(sdk_lib_dir: str | Path) -> bool:
     (caller may need to re-exec the process for changes to take effect
     with the dynamic linker).
     """
+    # macOS doesn't use LD_LIBRARY_PATH; bundles are loaded via @rpath/dlopen
+    if platform.system() == "Darwin":
+        return True
+
     sdk_dir = str(Path(sdk_lib_dir).resolve())
     ld_path = os.environ.get("LD_LIBRARY_PATH", "")
     paths = ld_path.split(":") if ld_path else []

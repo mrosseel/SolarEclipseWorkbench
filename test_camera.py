@@ -2,10 +2,15 @@
 """Quick integration test — connect to X-T4, read info, take a photo."""
 
 import os
+import platform
 import sys
 from pathlib import Path
 
-SDK_LIBS = Path(__file__).resolve().parent / "SDK/SDK13410/REDISTRIBUTABLES/Linux/Linux64PC"
+_base = Path(__file__).resolve().parent / "SDK/SDK13410/REDISTRIBUTABLES"
+if platform.system() == "Darwin":
+    SDK_LIBS = _base / "macOS/SDK_13400"
+else:
+    SDK_LIBS = _base / "Linux/Linux64PC"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # The SDK needs LD_LIBRARY_PATH set before the process starts.
@@ -157,8 +162,13 @@ with Camera(str(SDK_LIBS), cameras[0].device_name) as cam:
     cam.delete_image()
     print(f"  Saved! ({out_path.stat().st_size} bytes)")
 
-    # Return control
-    cam.set_priority(PRIORITY_CAMERA)
-    print("\nReturned priority to camera.")
+    # Return control (retry on busy)
+    for attempt in range(5):
+        try:
+            cam.set_priority(PRIORITY_CAMERA)
+            print("\nReturned priority to camera.")
+            break
+        except BusyError:
+            time.sleep(0.5)
 
 print("\nDone!")

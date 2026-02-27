@@ -12,11 +12,16 @@
 
 import ctypes
 import os
+import platform
 import sys
 import time
 from pathlib import Path
 
-SDK_PATH = str(Path(__file__).resolve().parent / "SDK/SDK13410/REDISTRIBUTABLES/Linux/Linux64PC")
+_base = Path(__file__).resolve().parent / "SDK/SDK13410/REDISTRIBUTABLES"
+if platform.system() == "Darwin":
+    SDK_PATH = str(_base / "macOS/SDK_13400")
+else:
+    SDK_PATH = str(_base / "Linux/Linux64PC")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fujixsdk import Camera, ensure_ld_library_path
