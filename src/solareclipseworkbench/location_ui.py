@@ -12,6 +12,7 @@ Provides:
 import json
 import time
 import requests
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional, Dict, List
 
@@ -415,6 +416,9 @@ class LocationWidget(QWidget):
     * Optional address-search bar (requires the *geopy* package).
     * Editable coordinate fields (longitude, latitude, altitude).
     * "Save Location" button that persists the entered coordinates.
+    * "Get GPS from Phone" button (phone browser via local HTTPS server).
+    * "Get GPS from USB Device" button (reads NMEA directly from a USB GPS
+      receiver such as the VK-162 G-Mouse, no gpsd required).
 
     The widget exposes the individual ``QLineEdit`` widgets as public
     attributes so that callers (wizard field-registration, plot callbacks,
@@ -422,6 +426,12 @@ class LocationWidget(QWidget):
 
         ``longitude_edit``, ``latitude_edit``, ``altitude_edit``,
         ``location_name_edit``, ``location_combo``
+
+    After a USB GPS fix the measured GPS-time offset is available as:
+
+        ``gps_time_offset``  (``timedelta``, GPS UTC − computer UTC)
+
+    and the ``gps_time_offset_changed`` signal is emitted.
 
     Usage
     -----
@@ -435,6 +445,10 @@ class LocationWidget(QWidget):
         lon, lat, alt = w.get_coordinates()   # raises ValueError if invalid
     """
 
+    # Emitted when a USB GPS fix provides a GPS–computer time offset.
+    # Carries the timedelta (GPS UTC − computer UTC); zero if no GPS fix yet.
+    gps_time_offset_changed = pyqtSignal(object)
+
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(parent)
         self._config_manager = config_manager
@@ -443,7 +457,13 @@ class LocationWidget(QWidget):
         self._gps_dialog: Optional[QDialog] = None
         self._gps_status_label: Optional[QLabel] = None
         self._gps_url_label: Optional[QLabel] = None
+        self._usb_gps_worker = None
+        self._usb_gps_dialog: Optional[QDialog] = None
+        self._usb_gps_status_label: Optional[QLabel] = None
         self._elevation_worker: Optional[ElevationWorker] = None
+        # GPS–computer time offset measured by the USB GPS worker.
+        # Zero (timedelta(0)) until a USB GPS fix is acquired.
+        self.gps_time_offset: timedelta = timedelta(0)
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -589,6 +609,16 @@ class LocationWidget(QWidget):
         )
         self.gps_btn.clicked.connect(self._start_gps_capture)
         layout.addWidget(self.gps_btn)
+
+        # --- USB GPS button ---
+        self.usb_gps_btn = QPushButton("\U0001F6F0  Get GPS from USB Device")
+        self.usb_gps_btn.setToolTip(
+            "Read coordinates and precise UTC time from a connected USB GPS\n"
+            "receiver (e.g. VK-162 G-Mouse). No gpsd required.\n"
+            "Linux/WSL: user must be in the 'dialout' group."
+        )
+        self.usb_gps_btn.clicked.connect(self._start_usb_gps_capture)
+        layout.addWidget(self.usb_gps_btn)
 
         # Connect combo *after* creating all sub-widgets.
         self.location_combo.currentTextChanged.connect(self._on_location_changed)
@@ -755,6 +785,138 @@ class LocationWidget(QWidget):
             self._gps_dialog.reject()
             self._gps_dialog = None
         self.gps_btn.setEnabled(True)
+
+    # ------------------------------------------------------------------
+    # USB GPS capture
+    # ------------------------------------------------------------------
+
+    def _start_usb_gps_capture(self) -> None:
+        """Start reading from a USB GPS receiver and show a progress dialog."""
+        try:
+            from solareclipseworkbench.usb_gps import get_usb_gps_worker_class
+            UsbGpsWorker = get_usb_gps_worker_class()
+        except Exception as exc:
+            QMessageBox.critical(self, "USB GPS Error",
+                                 f"Could not load USB GPS module:\n{exc}")
+            return
+
+        self._usb_gps_dialog = QDialog(self)
+        self._usb_gps_dialog.setWindowTitle("Get GPS from USB Device")
+        self._usb_gps_dialog.setMinimumWidth(480)
+        dlg_layout = QVBoxLayout(self._usb_gps_dialog)
+        dlg_layout.setContentsMargins(16, 16, 16, 16)
+        dlg_layout.setSpacing(10)
+
+        self._usb_gps_status_label = QLabel(
+            "\u23f3 Scanning for USB GPS device\u2026"
+        )
+        self._usb_gps_status_label.setWordWrap(True)
+        dlg_layout.addWidget(self._usb_gps_status_label)
+
+        note = QLabel(
+            "<small><i>"
+            "Plug in the GPS receiver and wait for a satellite fix.<br>"
+            "This may take 1\u20133\u00a0minutes in open sky (cold start).<br>"
+            "Linux/WSL: user must be in the <b>dialout</b> group \u2014 see README."
+            "</i></small>"
+        )
+        note.setWordWrap(True)
+        dlg_layout.addWidget(note)
+
+        dlg_layout.addStretch()
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        btn_box.rejected.connect(self._cancel_usb_gps_capture)
+        dlg_layout.addWidget(btn_box)
+
+        self._usb_gps_worker = UsbGpsWorker(fix_timeout=120.0, parent=self)
+        self._usb_gps_worker.status.connect(self._on_usb_gps_status)
+        self._usb_gps_worker.location_received.connect(
+            self._on_usb_gps_location_received
+        )
+        self._usb_gps_worker.error.connect(self._on_usb_gps_error)
+        self._usb_gps_worker.start()
+
+        self.usb_gps_btn.setEnabled(False)
+        self._usb_gps_dialog.exec()
+
+    def _on_usb_gps_status(self, message: str) -> None:
+        """Update the dialog status label with a progress message."""
+        if self._usb_gps_status_label:
+            self._usb_gps_status_label.setText(message)
+
+    def _on_usb_gps_location_received(self, data: dict) -> None:
+        """Fill coordinate fields with fix data and store the GPS time offset."""
+        self.location_combo.setCurrentText("Custom")
+        self._set_fields_editable(True)
+
+        lat = data.get("lat")
+        lon = data.get("lon")
+        alt = data.get("alt")
+        gps_time = data.get("gps_time")
+        time_offset: timedelta = data.get("time_offset", timedelta(0))
+
+        if lat is not None:
+            self.latitude_edit.setText(f"{lat:.6f}")
+        if lon is not None:
+            self.longitude_edit.setText(f"{lon:.6f}")
+        if alt is not None and alt != 0.0:
+            self.altitude_edit.setText(f"{alt:.1f}")
+        elif lat is not None and lon is not None:
+            self.altitude_edit.setPlaceholderText("Fetching elevation\u2026")
+            self._elevation_worker = ElevationWorker(lat, lon)
+            self._elevation_worker.finished.connect(self._on_elevation_received)
+            self._elevation_worker.error.connect(self._on_elevation_error)
+            self._elevation_worker.start()
+
+        # Store the measured GPS\u2013computer time offset
+        self.gps_time_offset = time_offset
+        self.gps_time_offset_changed.emit(time_offset)
+
+        if self._usb_gps_dialog:
+            self._usb_gps_dialog.accept()
+            self._usb_gps_dialog = None
+        self.usb_gps_btn.setEnabled(True)
+
+        if self._usb_gps_worker:
+            self._usb_gps_worker.stop()
+            self._usb_gps_worker = None
+
+        # Show the user what was measured
+        offset_secs = time_offset.total_seconds()
+        if abs(offset_secs) < 0.5:
+            offset_msg = "GPS time matches computer clock (offset < 0.5\u00a0s)."
+        else:
+            direction = "ahead of" if offset_secs > 0 else "behind"
+            offset_msg = (
+                f"GPS time is {abs(offset_secs):.1f}\u00a0s {direction} the computer clock.\n"
+                "Scheduled actions will be corrected automatically."
+            )
+        if gps_time:
+            offset_msg += f"\nGPS UTC: {gps_time.strftime('%H:%M:%S')}"
+
+        QMessageBox.information(self, "USB GPS Fix Received", offset_msg)
+
+    def _on_usb_gps_error(self, message: str) -> None:
+        """Show an error and close the USB GPS dialog."""
+        if self._usb_gps_dialog:
+            self._usb_gps_dialog.reject()
+            self._usb_gps_dialog = None
+        self.usb_gps_btn.setEnabled(True)
+        if self._usb_gps_worker:
+            self._usb_gps_worker = None
+        QMessageBox.critical(self, "USB GPS Error", message)
+
+    def _cancel_usb_gps_capture(self) -> None:
+        """Called when the user cancels the USB GPS dialog."""
+        if self._usb_gps_worker:
+            self._usb_gps_worker.stop()
+            self._usb_gps_worker.quit()
+            self._usb_gps_worker = None
+        if self._usb_gps_dialog:
+            self._usb_gps_dialog.reject()
+            self._usb_gps_dialog = None
+        self.usb_gps_btn.setEnabled(True)
 
     # ------------------------------------------------------------------
     # Slots

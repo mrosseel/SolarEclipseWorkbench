@@ -119,6 +119,10 @@ class SolarEclipseModel:
 
         self.camera_overview: CameraOverviewTableModel = CameraOverviewTableModel()
 
+        # GPS–computer time offset: set when the user acquires a USB GPS fix.
+        # timedelta(0) means "use computer clock", which is the default.
+        self.gps_time_offset: datetime.timedelta = datetime.timedelta(0)
+
     def set_position(self, longitude: float, latitude: float, altitude: float):
         """ Set the geographical position of the observing location.
 
@@ -1018,6 +1022,9 @@ class SolarEclipseController(Observer):
 
             self.model.set_position(longitude, latitude, altitude)
 
+            # Carry over any GPS–computer time offset measured by the USB GPS
+            self.model.gps_time_offset = changed_object.location_widget.gps_time_offset
+
             self.view.longitude_label.setText(str(longitude))
             self.view.latitude_label.setText(str(latitude))
             self.view.altitude_label.setText(str(altitude))
@@ -1159,7 +1166,8 @@ class SolarEclipseController(Observer):
                 self.scheduler: BackgroundScheduler \
                     = observe_solar_eclipse(self.model.reference_moments, filename,
                                             self.model.camera_overview.camera_overview_dict, self,
-                                            self.sim_reference_moment, self.sim_offset_minutes)
+                                            self.sim_reference_moment, self.sim_offset_minutes,
+                                            gps_time_offset=self.model.gps_time_offset)
 
                 self.jobs_model = JobsTableModel(self.scheduler, self)
                 self.view.jobs_table.setModel(self.jobs_model)
@@ -1226,23 +1234,16 @@ class SolarEclipseController(Observer):
             logging.exception('Exception while syncing camera time')
         try:
             logging.debug('_on_cameras_ready: checking camera state')
-            self.check_camera_state()
+            warnings = self.model.check_camera_state()
+            if warnings:
+                QMessageBox.warning(
+                    self.view,
+                    "Camera Settings Warning",
+                    "One or more cameras require attention before shooting:\n\n"
+                    + "\n\n".join(f"\u26a0\ufe0f  {w}" for w in warnings)
+                )
         except Exception:
             logging.exception('Exception while checking camera state')
-
-        """ Check whether the focus mode and shooting mode of all connected cameras is set to 'Manual'.
-
-        Shows a warning dialog for any camera that is not in Manual mode.
-        """
-
-        warnings = self.model.check_camera_state()
-        if warnings:
-            QMessageBox.warning(
-                self.view,
-                "Camera Settings Warning",
-                "One or more cameras require attention before shooting:\n\n"
-                + "\n\n".join(f"\u26a0\ufe0f  {w}" for w in warnings)
-            )
 
     def _open_live_view(self):
         """Open (or bring to front) the live view window.

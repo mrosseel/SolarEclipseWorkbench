@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.9.0] - 2026-04-17
+
+### Added
+- **USB GPS support**: A new **🛰 Get GPS from USB Device** button in the Location pop-up
+  reads coordinates and precise UTC time directly from a USB GPS receiver (e.g. VK-162
+  G-Mouse, u-blox 7/8/9, Prolific PL2303, Silicon Labs CP210x).  No `gpsd` installation
+  is required — NMEA sentences are parsed directly via `pyserial` and `pynmea2`.
+  Works on Linux, macOS, and WSL.
+
+- **GPS–computer time offset correction**: When a USB GPS fix is acquired, the offset
+  between GPS satellite time and the computer's system clock is measured.  Every
+  subsequently scheduled action (photo, burst, voice prompt, etc.) is shifted by this
+  offset so that it fires at the correct astronomical moment, even when the laptop clock
+  is several seconds off.  If no GPS fix is available the computer clock is used
+  unchanged (offset = 0).
+
+- **New module `usb_gps.py`**: Self-contained module providing `find_gps_device()`,
+  `check_serial_permission()`, and `UsbGpsWorker` (QThread) that emits
+  `location_received(dict)`, `status(str)`, and `error(str)` signals.  The worker
+  automatically discovers the GPS port, checks `dialout` group membership on Linux, and
+  times out gracefully if no fix is received within 120 seconds.
+
+- **`pynmea2`** added as a project dependency (`pyproject.toml`).
+
+### Changed
+- `observe_solar_eclipse`, `schedule_commands`, and `schedule_command` in `utils.py`
+  each gained an optional `gps_time_offset: timedelta` keyword argument (default
+  `timedelta(0)`) so existing call sites remain unaffected.
+- `SolarEclipseModel` in `gui.py` gained a `gps_time_offset` attribute that is populated
+  when the user accepts a location obtained via USB GPS.
+
 ## [1.8.1] - 2026-04-15
 
 ### Added

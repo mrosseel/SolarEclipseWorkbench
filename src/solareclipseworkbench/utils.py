@@ -41,7 +41,8 @@ def calculate_next_solar_eclipses(count: int) -> list:
 
 def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: dict,
                           controller: SolarEclipseController, reference_moment: str,
-                          minutes_to_reference_moment: float) -> BackgroundScheduler:
+                          minutes_to_reference_moment: float,
+                          gps_time_offset: timedelta = timedelta(0)) -> BackgroundScheduler:
     """ Observe (and photograph) the solar eclipse, as per given files.
 
     Args:
@@ -54,6 +55,10 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
         - reference_moment: Reference moment to use for the simulation.  Possible values are C1, C2, C3, C4, sunrise,
                             sunset, and MAX.  None if no simulation should be used
         - minutes_to_reference_moment: Minutes to reference moment when simulating, None if no simulation should be used
+        - gps_time_offset: Offset between GPS UTC time and computer system time (GPS − computer).
+                           When the GPS is ahead of the computer by D seconds the computer fires D seconds
+                           late; subtracting this offset from every scheduled time compensates for the drift.
+                           Defaults to timedelta(0) (use computer clock as-is).
 
     Returns: Scheduler that is used to schedule the commands.
     """
@@ -72,7 +77,8 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
         controller.view.eclipse_visualization.set_offset(timedelta(minutes=0))
 
     # Schedule commands
-    schedule_commands(commands_filename, scheduler, ref_moments, cameras, controller, reference_moment, simulated_start)
+    schedule_commands(commands_filename, scheduler, ref_moments, cameras, controller, reference_moment, simulated_start,
+                      gps_time_offset=gps_time_offset)
 
     return scheduler
 
@@ -93,7 +99,8 @@ def start_scheduler():
 
 
 def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_moments: dict,
-                      cameras: dict, controller: SolarEclipseController, reference_moment, simulated_start: datetime):
+                      cameras: dict, controller: SolarEclipseController, reference_moment, simulated_start: datetime,
+                      gps_time_offset: timedelta = timedelta(0)):
     """ Schedule commands as specified in the given file.
 
     Args:
@@ -108,6 +115,7 @@ def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_m
                             sunset, LAST and MAX. None if no simulation should be used.
         - simulated_start: datetime with the time to simulate relative to the reference moment.
                             None if no simulation is to be used.
+        - gps_time_offset: GPS–computer time offset (see observe_solar_eclipse).  Defaults to timedelta(0).
 
     Returns: Scheduler that is used to schedule the commands.
     """
@@ -117,12 +125,14 @@ def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_m
     # Loop over all lines in script file
     for cmd_str in script_file:
         schedule_command(
-            scheduler, reference_moments, cmd_str, cameras, controller, reference_moment, simulated_start)
+            scheduler, reference_moments, cmd_str, cameras, controller, reference_moment, simulated_start,
+            gps_time_offset=gps_time_offset)
 
 
 def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cmd_str: str, cameras: dict,
                      controller: SolarEclipseController, reference_moment_for_simulation: str,
-                     simulated_start: datetime):
+                     simulated_start: datetime,
+                     gps_time_offset: timedelta = timedelta(0)):
     """ Schedule the given command with the given scheduler and reference moments.
 
     Args:
@@ -135,6 +145,9 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
                             C4, sunrise, sunset, LAST and MAX. None if no simulation should be used.
         - simulated_start: datetime with the time to simulate relative to the reference moment.
                             None if no simulation is to be used.
+        - gps_time_offset: GPS–computer time offset (GPS UTC − computer UTC).  When positive the computer
+                            is slow; execution times are shifted earlier by this amount so that actions
+                            fire at the correct GPS-referenced wall-clock time.  Defaults to timedelta(0).
     """
     # Use CSV reader to properly handle quoted fields with commas
     try:
@@ -224,6 +237,12 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
         if reference_moment_for_simulation:
             diff = reference_moments[reference_moment_for_simulation.upper()].time_utc - simulated_start
             execution_time = execution_time - diff
+
+        # Compensate for the GPS–computer time offset.
+        # If GPS time is ahead of the computer (offset > 0), the computer is slow
+        # and would fire the shutter late.  Scheduling earlier on the computer clock
+        # by subtracting the offset ensures the action happens at the correct moment.
+        execution_time = execution_time - gps_time_offset
 
         trigger = CronTrigger(year=execution_time.year, month=execution_time.month, day=execution_time.day,
                               hour=execution_time.hour, minute=execution_time.minute,

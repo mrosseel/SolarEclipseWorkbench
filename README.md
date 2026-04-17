@@ -27,6 +27,7 @@
       - [Saving settings](#saving-settings)
       - [Live view](#live-view)
   - [Running the Configuration Wizard](#running-the-configuration-wizard)
+  - [USB GPS device](#usb-gps-device)
   - [Using two cameras of the same model, or one camera with multiple setups](#using-two-cameras-of-the-same-model-or-one-camera-with-multiple-setups)
   - [Script file format](#script-file-format)
     - [General remarks](#general-remarks)
@@ -374,6 +375,7 @@ The functionality of the toolbar buttons is as follows (from left to right):
 - When pressing the "Plot" button, the specified location (longitude, latitude) will be marked with a red dot on the world map.  Note that this plot is not updated automatically when you change the values.
 - When pressing the "OK" button, the data are accepted and will be filled out in the top section of the UI.
 - **GPS from phone**: Click the **📱 Get GPS from Phone** button to capture your exact coordinates from your smartphone's GPS — no app required. A local HTTPS server starts on your laptop; open the displayed URL in your phone's browser and tap **Get My Location**. Works over WiFi or with your phone acting as a hotspot (useful at remote eclipse sites with no WiFi). See [docs/GPS_PHONE.md](docs/GPS_PHONE.md) for step-by-step instructions.
+- **GPS from USB device**: Click the **🛰 Get GPS from USB Device** button to read coordinates and precise UTC time directly from a USB GPS receiver (such as the VK-162 G-Mouse) connected to your laptop. No gpsd installation is required. See [USB GPS device](#usb-gps-device) below for setup details.
 
 ![location pop-up](src/solareclipseworkbench/img/location-popup.png)
 
@@ -492,6 +494,77 @@ python -m solareclipseworkbench.wizard
 
 For a detailed walkthrough of each wizard step, see the [Wizard Guide](docs/WIZARD_GUIDE.md).
 For capturing your GPS coordinates from your smartphone (works over WiFi or phone hotspot — no internet required at the eclipse site), see [docs/GPS_PHONE.md](docs/GPS_PHONE.md).
+
+## USB GPS device
+
+Solar Eclipse Workbench can read your position **and** the precise UTC time directly from a
+USB GPS receiver, such as the widely available **VK-162 G-Mouse** (u-blox 7 chipset).
+No `gpsd` installation is required — the software communicates with the device directly.
+
+### Supported hardware
+
+Any USB GPS receiver that presents as a serial port and outputs standard NMEA 0183
+sentences works.  Devices known to work include:
+
+| Device | Chipset | USB ID |
+|--------|---------|--------|
+| VK-162 G-Mouse | u-blox 7 | 1546:01A7 |
+| Generic u-blox 8 | u-blox 8 | 1546:01A8 |
+| Prolific USB-Serial adapters | PL2303 | 067B:2303 |
+| Silicon Labs CP210x | CP210x | 10C4:EA60 |
+
+### One-time setup on Linux / WSL
+
+The GPS receiver appears as `/dev/ttyACM0` (or `/dev/ttyUSB0`).  Your user must be in the
+`dialout` group to open it without sudo:
+
+```bash
+sudo usermod -aG dialout $USER
+```
+
+Log out and back in (or reboot) for the change to take effect.  You only need to do this
+once.
+
+**WSL users**: the USB device must also be attached to WSL using `usbipd`.  Open a
+**PowerShell** terminal as administrator:
+
+```powershell
+usbipd list                  # find your GPS device, note its BUSID (e.g. 3:4)
+usbipd bind --busid 3:4      # one-time: mark the device as shareable
+usbipd attach --busid 3:4 --wsl   # attach before each session
+```
+
+### macOS
+
+The GPS receiver appears as `/dev/cu.usbmodemXXXX` or `/dev/cu.usbserialXXXX`.
+No group setup is required — the device is ready to use immediately.
+
+### How to use
+
+1. Plug in the GPS receiver.
+2. Open the **Location** pop-up (Location icon in the toolbar).
+3. Click **🛰 Get GPS from USB Device**.
+4. A dialog appears.  Wait for the satellite fix — this takes **1–3 minutes** in open sky
+   on a cold start (faster if the receiver was recently used).
+5. Once a fix is acquired, the longitude, latitude, and altitude fields are filled in
+   automatically.
+6. A message shows the **GPS–computer time offset** (difference between GPS UTC and your
+   laptop's clock).  All scheduled actions are automatically corrected by this offset so
+   they fire at exactly the right moment even if your computer clock is off by several
+   seconds.
+7. Click **OK** to confirm the location.
+
+> **Tip**: if no altitude is reported by the GPS sentence, Solar Eclipse Workbench
+> automatically fetches it from the Open-Elevation API as a fallback.
+
+### GPS time correction
+
+Every scheduled action (taking a photo, playing a voice prompt, etc.) uses the GPS–computer
+time offset to compensate for any discrepancy between your laptop's clock and the satellite
+network.  For example, if your computer is 3 seconds slow, all actions will be triggered
+3 seconds earlier on the computer clock so that they happen at the correct astronomical time.
+
+If no USB GPS fix was obtained, the computer clock is used as-is (offset = 0).
 
 ## Using two cameras of the same model, or one camera with multiple setups
 
