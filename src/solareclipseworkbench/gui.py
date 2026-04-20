@@ -40,7 +40,8 @@ from skyfield.api import load, wgs84
 import threading
 
 from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get_free_space, get_space, \
-    get_shooting_mode, get_focus_mode, set_time, CameraSettings, LiveViewThread
+    get_shooting_mode, get_focus_mode, set_time, CameraSettings, LiveViewThread, \
+    sony_save_destination_needs_downloader
 from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
@@ -2127,6 +2128,14 @@ class LiveViewWindow(QWidget):
             jpeg_bytes, ts = self._frame_queue.get_nowait()
         except queue.Empty:
             return
+        if isinstance(jpeg_bytes, memoryview):
+            jpeg_bytes = jpeg_bytes.tobytes()
+        elif isinstance(jpeg_bytes, bytearray):
+            jpeg_bytes = bytes(jpeg_bytes)
+        elif not isinstance(jpeg_bytes, bytes):
+            LOGGER.warning("Live view frame had unsupported type: %s", type(jpeg_bytes).__name__)
+            return
+
         image = QImage.fromData(jpeg_bytes)
         if image.isNull():
             return
@@ -2479,11 +2488,11 @@ class CameraOverviewTableModel(QAbstractTableModel):
                                 pass
                             continue
                         dest = get_sony_save_destination(cam)
-                        # If the save-destination widget is not exposed via gphoto2
-                        # (dest is None) the camera may still be in PC-only mode
-                        # and we should start the downloader. Also start when the
-                        # camera explicitly reports 'PC Only'.
-                        if dest is None or 'pc only' in dest.lower():
+                        # Start downloader only when destination clearly says
+                        # PC-only. If destination is unavailable (common with
+                        # localized camera menus), avoid downloading to protect
+                        # shot timing.
+                        if sony_save_destination_needs_downloader(dest):
                             try:
                                 cam.start_background_downloader()
                             except Exception:

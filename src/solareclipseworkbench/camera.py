@@ -16,6 +16,18 @@ class CameraError(Exception):
     pass
 
 
+def _is_sony_model(name: str) -> bool:
+    """Return True when a camera model string represents a Sony body.
+
+    gphoto2 may report Sony cameras either with an explicit "Sony" prefix
+    (for example "Sony Alpha-A7 IV") or as ILCE model codes
+    (for example "ILCE-7M5"). Treat both as Sony so vendor-specific
+    behavior is applied consistently.
+    """
+    upper_name = (name or "").upper()
+    return "SONY" in upper_name or upper_name.startswith("ILCE-")
+
+
 def _set_gp_config(camera, config, context):
     """Set camera config using underlying gphoto object when wrapped by adapter."""
     target = camera._camera if hasattr(camera, '_camera') else camera
@@ -36,6 +48,13 @@ def _normalise_aperture(value: str) -> str:
     except ValueError:
         pass
     return value
+
+
+# Per-camera aperture verification cache.  Maps camera_name -> set of aperture strings
+# that have already been checked via a read-back round-trip.  Once an aperture value
+# has been verified (or a mismatch has been warned about) for a given camera, subsequent
+# shots skip the extra USB get_config call to avoid adding latency to tight sequences.
+_aperture_verified: dict[str, set] = {}
 
 
 class CameraSettings:
@@ -246,7 +265,7 @@ class GPhotoCameraAdapter(BaseCamera):
             self.vendor = 'Canon'
         elif 'Nikon' in name:
             self.vendor = 'Nikon'
-        elif 'Sony' in name:
+        elif _is_sony_model(name):
             self.vendor = 'Sony'
         else:
             self.vendor = None
@@ -398,7 +417,7 @@ def _raise_camera_init_error(camera_name: str, error: Exception) -> None:
         sony_note = (
             "\nNOTE: Sony cameras must have PC Remote mode enabled on the camera: "
             "Menu → Network → PC Remote Settings → PC Remote → On."
-            if 'Sony' in camera_name else ''
+            if _is_sony_model(camera_name) else ''
         )
         raise CameraError(
             f"Cannot claim USB device for '{camera_name}' (gphoto2 error -53 — device busy).\n"
@@ -730,7 +749,9 @@ class LiveViewThread(threading.Thread):
     def run(self):
         # If the camera provides a capture_preview() method (e.g. VirtualCamera
         # in simulator mode), use that path — no gphoto2 calls or USB lock needed.
-        _has_virtual_preview = callable(getattr(self._camera, 'capture_preview', None))
+        # Do not use this path for wrapped gphoto2 cameras: delegated
+        # capture_preview() may return a CameraFile object (not JPEG bytes).
+        _has_virtual_preview = isinstance(self._camera, VirtualCamera)
 
         target = None
         context = None
@@ -745,6 +766,10 @@ class LiveViewThread(threading.Thread):
             if _has_virtual_preview:
                 try:
                     jpeg_bytes = self._camera.capture_preview()
+                    if isinstance(jpeg_bytes, memoryview):
+                        jpeg_bytes = jpeg_bytes.tobytes()
+                    elif isinstance(jpeg_bytes, bytearray):
+                        jpeg_bytes = bytes(jpeg_bytes)
                     if jpeg_bytes:
                         self._frame_callback(jpeg_bytes)
                 except Exception:
@@ -1021,6 +1046,36 @@ def __adapt_camera_settings(camera, camera_settings):
                 raise
         _set_gp_config(target, config, context)
         logging.debug('Set aperture to %s', camera_settings.aperture)
+
+        # Read-back check: verify the camera actually applied the requested aperture.
+        # Some Sony Alpha bodies (and other cameras) silently accept set_config via PTP
+        # without changing the physical aperture — no error is raised, but the setting
+        # is ignored.  Reading the value back catches this case and emits a warning.
+        #
+        # The check is skipped once a particular (camera, aperture) pair has already been
+        # verified to avoid an extra USB round-trip on every shot in a tight sequence.
+        cam_key = camera_settings.camera_name
+        ap_key = str(camera_settings.aperture)
+        if ap_key not in _aperture_verified.get(cam_key, set()):
+            try:
+                config_rb = gp.check_result(gp.gp_camera_get_config(target, context))
+                widget_name = 'aperture' if vendor == 'Canon' else 'f-number'
+                rb_widget = gp.check_result(gp.gp_widget_get_child_by_name(config_rb, widget_name))
+                actual = str(gp.check_result(gp.gp_widget_get_value(rb_widget)))
+
+                def _strip_f(v: str) -> str:
+                    return v[2:] if v.startswith('f/') else v
+
+                if _strip_f(actual) != _strip_f(ap_key):
+                    logging.warning(
+                        'Aperture read-back mismatch on %s: requested f/%s but camera reports %s. '
+                        'The camera may not support remote aperture control via USB — '
+                        'set the aperture manually on the lens/camera body.',
+                        cam_key, _strip_f(ap_key), actual)
+                # Mark as checked regardless — mismatch or not, no point repeating the warning.
+                _aperture_verified.setdefault(cam_key, set()).add(ap_key)
+            except gphoto2.GPhoto2Error:
+                pass  # Read-back failure is non-fatal
     except gphoto2.GPhoto2Error:
         # Read-only or absent aperture widget (telescope, fixed-aperture lens) — ignore.
         logging.debug('Aperture widget not settable (telescope/fixed lens) — skipping')
@@ -1132,8 +1187,15 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         except gphoto2.GPhoto2Error as e:
             logging.warning('Could not reset Nikon burstnumber to 1 after burst: %s', e)
     elif getattr(camera, 'vendor', None) == 'Sony':
-        # Sony burst: enable continuous capture mode, fire N gp_camera_trigger_capture
+        # Sony burst: enable continuous capture mode, fire N trigger_capture
         # calls (duration = number of frames), then reset to single-shot mode.
+        # Sony Alpha bodies do not emit GP_EVENT_CAPTURE_COMPLETE, so reusing
+        # _wait_for_capture_complete here adds an unnecessary ~3 s timeout after
+        # every frame.  That stretches a 30-frame C2 burst into ~90 s, causing
+        # nearby scheduled jobs to be dropped by the USB-lock timing guard.
+        # Keep burst handling aligned with the Sony take_picture path instead:
+        # drain stale queued events before each trigger, then drain the short
+        # initial property-change burst without waiting for card-write events.
         n_frames = max(1, int(round(duration)))
         target = camera._camera if hasattr(camera, '_camera') else camera
 
@@ -1154,9 +1216,10 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         # Fire N individually-triggered captures
         for i in range(n_frames):
             try:
+                _sony_drain_events(target, context)
                 gp.check_result(gp.gp_camera_trigger_capture(target, context))
                 logging.debug('Sony burst: triggered capture %d/%d', i + 1, n_frames)
-                _wait_for_capture_complete(target, context)
+                _drain_camera_events(target, context, timeout_ms=100, max_events=60)
             except gphoto2.GPhoto2Error as e:
                 logging.warning('Sony burst: capture %d/%d failed: %s', i + 1, n_frames, e)
                 try:
@@ -1535,7 +1598,7 @@ def get_camera(camera_name: str):
     elif "Nikon" in camera_name:
         logging.debug('Wrapping camera %s as NikonCamera', camera_name)
         return NikonCamera(camera, camera_name)
-    elif "Sony" in camera_name:
+    elif _is_sony_model(camera_name):
         logging.debug('Wrapping camera %s as SonyCamera', camera_name)
         return SonyCamera(camera, camera_name)
     else:
@@ -1612,7 +1675,7 @@ def get_camera_by_port(model_name: str, port: str, alias: Optional[str] = None) 
     elif "Nikon" in model_name:
         logging.debug('Wrapping camera %s as NikonCamera (alias=%s)', model_name, alias)
         return NikonCamera(camera, display_name)
-    elif "Sony" in model_name:
+    elif _is_sony_model(model_name):
         logging.debug('Wrapping camera %s as SonyCamera (alias=%s)', model_name, alias)
         return SonyCamera(camera, display_name)
     else:
@@ -1852,7 +1915,12 @@ def get_focus_mode(camera: Camera) -> str:
     """
 
     try:
-        return camera.get_config().get_child_by_name('focusmode').get_value()
+        value = camera.get_config().get_child_by_name('focusmode').get_value()
+        # gphoto2 may return localized strings (e.g. German "Manuell") or "undefined"
+        # when the camera reports manual focus via the lens/body switch.
+        if value is None or value.lower() in ('manuell', 'undefined', 'manual'):
+            return 'Manual'
+        return value
     except gphoto2.GPhoto2Error as e:
         logging.warning('gphoto2 error reading focus mode for %s: %s', getattr(camera, 'name', str(camera)), e)
         return "Manual"
@@ -2372,6 +2440,34 @@ def get_sony_save_destination(camera) -> str | None:
         return _walk(cfg)
     except Exception:
         return None
+
+
+def sony_save_destination_needs_downloader(destination: Optional[str]) -> bool:
+    """Return True only when destination string clearly indicates PC-only save.
+
+    Destination values differ across camera firmwares and locales.  This helper
+    intentionally errs on the side of *not* downloading when unclear, to avoid
+    stealing USB bandwidth from scheduled captures.
+    """
+    if destination is None:
+        return False
+
+    value = str(destination).strip().lower()
+    if not value:
+        return False
+
+    has_pc = ('pc' in value) or ('computer' in value)
+    has_camera_or_card = any(
+        token in value
+        for token in ('camera', 'camara', 'kamera', 'card', 'sd')
+    )
+
+    # Explicit mixed destinations like "PC+Camera" or "PC/Camera".
+    if has_pc and has_camera_or_card:
+        return False
+
+    # Any destination mentioning only PC/computer should enable downloading.
+    return has_pc and not has_camera_or_card
 
 
 if __name__ == "__main__":

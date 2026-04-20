@@ -4,6 +4,64 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.9.1] - 2026-04-20
+
+### Fixed
+- **Sony ILCE model detection in camera vendor classification**: SEW now treats
+  ILCE-prefixed model names (for example `ILCE-7M5`) as Sony everywhere vendor
+  detection is used. This ensures Sony-specific adapter selection and behavior
+  are applied even when gphoto2 reports the model without a literal `Sony`
+  prefix.
+
+- **Focus mode check accepts localized and firmware-specific values**: `get_focus_mode()` now
+  normalises values returned by gphoto2 that vary by camera firmware language or version.
+  Sony cameras with German firmware report `"Manuell"` instead of `"Manual"`, and some Sony
+  firmware versions report `"undefined"` when the lens/body switch is in the manual focus
+  position. Both are now treated as `"Manual"` so no spurious warning is shown.
+
+- **Sony downloader no longer starts on unknown/localized save-destination values**: the GUI
+  previously auto-started the Sony background downloader when the camera's PC-Remote **Save
+  Destination** could not be read via gphoto2. On localized firmware this could make SEW assume
+  the camera was in PC-only mode and start copying files to `~/Pictures/SolarEclipseWorkbench`,
+  stealing USB bandwidth from scheduled captures. The downloader is now started only when the
+  destination is confidently identified as PC-only; unknown values are treated conservatively as
+  no-download.
+
+- **Live preview crash on Nikon/Sony adapters**: Fixed a `TypeError` in `LiveViewWindow._poll_frame`
+  where `QImage.fromData(...)` could receive a `gphoto2.file.CameraFile` object instead of raw bytes.
+  `LiveViewThread` now uses the virtual-preview path only for `VirtualCamera` instances. Wrapped
+  gphoto2 cameras (including Nikon and Sony adapters) now always use the gphoto preview path that
+  extracts JPEG bytes correctly.
+
+- **Defensive live-preview frame handling in GUI**: `_poll_frame` now normalises `memoryview` and
+  `bytearray` frames to `bytes`, and safely logs/skips unsupported frame types instead of crashing.
+
+- **Sony burst timing and sequencing around C2/C3**: `take_burst()` for Sony no longer waits on
+  `_wait_for_capture_complete()` (Sony cameras do not emit `GP_EVENT_CAPTURE_COMPLETE`). The burst
+  loop now uses Sony-specific event draining (`_sony_drain_events` before each trigger and
+  `_drain_camera_events` after), matching the `take_picture()` path. This prevents long per-frame
+  waits that could stretch 30-frame bursts and cause nearby scheduled shots to be dropped or delayed.
+
+### Added
+- **Regression test for preview frame types**: Added `tests/test_live_view_preview_types.py` to
+  verify that non-virtual cameras exposing a delegated `capture_preview()` method still use the
+  gphoto preview path and deliver `bytes` to the GUI.
+
+- **Regression test for Sony save-destination downloader logic**: Added
+  `tests/test_sony_save_destination.py` to verify that the background downloader is enabled only
+  for clearly PC-only destinations, and not for mixed or unavailable values.
+
+- **Regression test for Sony burst event handling**: Added `tests/test_sony_burst.py` to verify
+  that Sony burst capture uses the non-blocking event-drain path and does not call
+  `_wait_for_capture_complete()`.
+
+- **Aperture read-back check**: After setting the aperture via gphoto2, SEW now reads
+  the value back from the camera and logs a `WARNING` if the camera reports a different
+  f-number than was requested. Sony Alpha bodies (and cameras with a fixed-aperture
+  lens) silently accept the PTP set-config command without applying it — the read-back
+  check makes this visible in the log and console so the user knows to set the aperture
+  manually on the lens or camera body.
+
 ## [1.9.0] - 2026-04-17
 
 ### Added

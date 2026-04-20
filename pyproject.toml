@@ -1,6 +1,6 @@
 [project]
 name = "solareclipseworkbench"
-version = "1.9.0"
+version = "1.9.1"
 
 description = "Tools to photograph solar eclipses"
 readme = "README.md"
