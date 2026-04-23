@@ -10,6 +10,7 @@
   - [Table of contents](#table-of-contents)
   - [Installation instructions](#installation-instructions)
     - [Installation on macOS](#installation-on-macos)
+    - [Installation on Ubuntu 26.04](#installation-on-ubuntu-2604)
     - [Installation on Ubuntu 24.04](#installation-on-ubuntu-2404)
     - [Installation on Windows 11](#installation-on-windows-11)
   - [Upgrading Solar Eclipse Workbench](#upgrading-solar-eclipse-workbench)
@@ -79,6 +80,56 @@ source solareclipseworkbench/bin/activate
 ```bash
 pip install solareclipseworkbench
 ```
+
+### Installation on Ubuntu 26.04
+
+- Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
+
+```bash
+sudo apt-get update
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo2-dev python3.14-venv
+```
+
+- Install gphoto2 to be able to access the cameras by executing the following line in the terminal
+
+```bash
+sudo apt-get install gphoto2 libgphoto2-dev python3-gphoto2
+```
+
+- Make sure that gvfs is not started automatically. Use `systemctl --user mask` to properly disable the gvfs gphoto2 services. **Do not use `chmod -x`** — removing the execute bit causes the Files (Nautilus) application to hang on open because GVFS still attempts to launch the binaries and waits for a timeout before giving up.
+
+  Mask the systemd user services so they are never started.  Execute this as a normal user (not with sudo):
+
+  ```bash
+  systemctl --user mask gvfs-gphoto2-volume-monitor.service
+  ```
+
+  To verify:
+
+  ```bash
+  systemctl --user status gvfs-gphoto2-volume-monitor.service
+  ```
+
+  Both should show `masked`.
+
+- Install `gdal-config`, required by `geopandas` (especially on Raspberry Pi):
+
+```bash
+sudo apt install libgdal-dev gdal-bin python3-pip```
+
+- Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
+
+```bash
+python3 -m venv solareclipseworkbench
+source solareclipseworkbench/bin/activate
+```
+
+- Install the Solar Eclipse Workbench:
+
+```bash
+pip install solareclipseworkbench
+```
+
 
 ### Installation on Ubuntu 24.04
 
