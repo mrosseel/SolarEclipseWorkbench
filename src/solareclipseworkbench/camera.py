@@ -28,6 +28,13 @@ def _is_sony_model(name: str) -> bool:
     return "SONY" in upper_name or upper_name.startswith("ILCE-")
 
 
+def _is_sony_camera_instance(camera: object) -> bool:
+    """Return True when a camera object represents a Sony body."""
+    vendor = str(getattr(camera, 'vendor', '') or '').upper()
+    name = str(getattr(camera, 'name', '') or '')
+    return vendor == 'SONY' or _is_sony_model(name)
+
+
 def _set_gp_config(camera, config, context):
     """Set camera config using underlying gphoto object when wrapped by adapter."""
     target = camera._camera if hasattr(camera, '_camera') else camera
@@ -1722,6 +1729,18 @@ def get_free_space(camera: Camera) -> float:
             pass
         return result
     except gphoto2.GPhoto2Error as e:
+        # Some Sony bodies (for example ZV-E10 in PC-Remote mode) expose
+        # an empty "Storage Devices Summary" over PTP and return -1 for
+        # storage info queries. Treat this as unknown storage instead of
+        # forcing a camera reinitialisation that can trigger -53 (device busy).
+        if getattr(e, 'code', None) == -1 and _is_sony_camera_instance(camera):
+            cached = getattr(camera, '_cached_free_space', None)
+            if cached is not None:
+                return cached
+            logging.info(
+                'Camera %s does not expose storage info via PTP (Sony -1); returning -1.0',
+                getattr(camera, 'name', str(camera)))
+            return -1.0
         # Error -53 means the OS has reclaimed the USB device (common on macOS when
         # ptpcamerad / Image Capture grabs the camera after gphoto2 releases it).
         if getattr(e, 'code', None) == -53:
@@ -1813,6 +1832,16 @@ def get_space(camera: Camera) -> float:
             pass
         return result
     except gphoto2.GPhoto2Error as e:
+        # See note in get_free_space(): Sony PTP can legitimately return -1
+        # for storage info while still allowing capture control.
+        if getattr(e, 'code', None) == -1 and _is_sony_camera_instance(camera):
+            cached = getattr(camera, '_cached_total_space', None)
+            if cached is not None:
+                return cached
+            logging.info(
+                'Camera %s does not expose storage capacity via PTP (Sony -1); returning -1.0',
+                getattr(camera, 'name', str(camera)))
+            return -1.0
         # Error -53: OS reclaimed the USB device (macOS ptpcamerad / Image Capture).
         # Return previously cached value if available.
         if getattr(e, 'code', None) == -53:

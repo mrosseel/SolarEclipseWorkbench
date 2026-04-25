@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.9.2] - 2026-04-25
+
+### Fixed
+- **Sony storage-info fallback no longer triggers USB reinit loops**: some Sony bodies
+  (including ZV-E10 in PC Remote mode) can expose an empty storage summary over PTP, causing
+  `get_storageinfo()` to return gphoto2 error `-1`. SEW now treats this as "storage unknown"
+  for Sony cameras and returns `-1.0` (shown as `N/A` in the UI) instead of forcing camera
+  reinitialisation. This prevents follow-up `-53` USB-claim errors during camera overview
+  polling.
+
+### Added
+- **Regression tests for Sony storage-info handling**: added
+  `tests/test_sony_storageinfo.py` to verify that Sony `-1` storage responses are handled
+  gracefully without reinitialising the camera, while non-Sony behavior remains unchanged.
+
 ## [1.9.1] - 2026-04-20
 
 ### Fixed
