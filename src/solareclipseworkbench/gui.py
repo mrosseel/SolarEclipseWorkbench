@@ -25,7 +25,7 @@ import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, \
-    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QTableView, QMessageBox
+    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, QMessageBox
 from PyQt6 import QtWidgets
 from apscheduler.job import Job
 from apscheduler.schedulers import SchedulerNotRunningError
@@ -2075,18 +2075,47 @@ class LiveViewWindow(QWidget):
         self._status_label = QLabel()
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Buttons
+        # Buttons and zoom control
         self._toggle_btn = QPushButton("Disable Live View")
         self._toggle_btn.clicked.connect(self._on_toggle)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.close)
 
+        # Zoom control: Fit / 5x / 10x
+        self._zoom_combo = QComboBox()
+        self._zoom_combo.addItems(["Fit", "5x", "10x"])
+        self._zoom_combo.setCurrentIndex(0)
+        self._zoom_factor = 1.0
+        self._zoom_combo.currentIndexChanged.connect(self._on_zoom_changed)
+
+        # Pan controls (hidden until a zoom > 1 is selected)
+        self._last_pixmap: Union[QPixmap, None] = None
+        self._last_ts: Union[datetime.datetime, None] = None
+        self._h_slider = QSlider(Qt.Orientation.Horizontal)
+        self._h_slider.setRange(0, 0)
+        self._h_slider.setVisible(False)
+        self._h_slider.valueChanged.connect(self._on_pan_changed)
+
+        self._v_slider = QSlider(Qt.Orientation.Vertical)
+        self._v_slider.setRange(0, 0)
+        self._v_slider.setVisible(False)
+        self._v_slider.setFixedWidth(18)
+        self._v_slider.valueChanged.connect(self._on_pan_changed)
+
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(self._toggle_btn)
         btn_layout.addWidget(close_btn)
+        btn_layout.addStretch(1)
+        btn_layout.addWidget(QLabel("Zoom:"))
+        btn_layout.addWidget(self._zoom_combo)
 
+        # Image area with optional vertical pan slider
         layout = QVBoxLayout()
-        layout.addWidget(self._image_label, stretch=1)
+        image_area = QHBoxLayout()
+        image_area.addWidget(self._image_label, stretch=1)
+        image_area.addWidget(self._v_slider)
+        layout.addLayout(image_area)
+        layout.addWidget(self._h_slider)
         layout.addWidget(self._timestamp_label)
         layout.addWidget(self._status_label)
         layout.addLayout(btn_layout)
@@ -2140,22 +2169,9 @@ class LiveViewWindow(QWidget):
         if image.isNull():
             return
         pixmap = QPixmap.fromImage(image)
-        scaled = pixmap.scaled(
-            self._image_label.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        # Draw blue crosshair at the centre of the scaled pixmap
-        w, h = scaled.width(), scaled.height()
-        painter = QPainter(scaled)
-        pen = QPen(QColor(0, 120, 255))
-        pen.setWidth(1)
-        painter.setPen(pen)
-        painter.drawLine(0, h // 2, w, h // 2)  # horizontal
-        painter.drawLine(w // 2, 0, w // 2, h)  # vertical
-        painter.end()
-        self._image_label.setPixmap(scaled)
-        self._timestamp_label.setText("Last frame: " + ts.strftime("%Y-%m-%d  %H:%M:%S"))
+        # Store and render using the centralized renderer so pan/zoom UI
+        # remains in sync with the latest frame.
+        self._render_pixmap(pixmap, ts)
 
     def _apply_state(self):
         """Push the user+totality state into the thread and refresh the button."""
@@ -2200,6 +2216,98 @@ class LiveViewWindow(QWidget):
     def _on_toggle(self):
         self._user_enabled = not self._user_enabled
         self._apply_state()
+
+    def _on_zoom_changed(self, index: int):
+        """Slot for zoom combo box changes."""
+        text = self._zoom_combo.currentText() if hasattr(self, "_zoom_combo") else "Fit"
+        if text == "Fit":
+            self._zoom_factor = 1.0
+        else:
+            try:
+                # e.g. '5x' -> 5.0
+                self._zoom_factor = float(text.rstrip('x'))
+            except Exception:
+                self._zoom_factor = 1.0
+        # Re-render the last frame with the new zoom (if any)
+        if getattr(self, "_last_pixmap", None) is not None:
+            self._render_pixmap(self._last_pixmap, getattr(self, "_last_ts", datetime.datetime.now()))
+
+    def _on_pan_changed(self, _value: int):
+        """Called when either pan slider moves; re-render using last pixmap."""
+        if getattr(self, "_last_pixmap", None) is not None:
+            self._render_pixmap(self._last_pixmap, getattr(self, "_last_ts", datetime.datetime.now()))
+
+    def _render_pixmap(self, pixmap: QPixmap, ts: datetime.datetime):
+        """Render the given QPixmap into the image label respecting zoom and pan.
+
+        Stores the last pixmap/timestamp so slider updates can trigger re-renders.
+        """
+        self._last_pixmap = pixmap
+        self._last_ts = ts
+
+        zoom = getattr(self, "_zoom_factor", 1.0)
+        ow, oh = pixmap.width(), pixmap.height()
+
+        if zoom and zoom > 1.0 and ow > 0 and oh > 0:
+            crop_w = max(1, int(ow / zoom))
+            crop_h = max(1, int(oh / zoom))
+            max_x = max(0, ow - crop_w)
+            max_y = max(0, oh - crop_h)
+
+            # Update slider ranges and make visible
+            self._h_slider.blockSignals(True)
+            self._v_slider.blockSignals(True)
+            self._h_slider.setRange(0, max_x)
+            self._h_slider.setPageStep(max(1, crop_w))
+            self._v_slider.setRange(0, max_y)
+            self._v_slider.setPageStep(max(1, crop_h))
+
+            # If sliders were previously hidden, default to centred view
+            if not self._h_slider.isVisible():
+                self._h_slider.setValue(max_x // 2)
+            if not self._v_slider.isVisible():
+                self._v_slider.setValue(max_y // 2)
+
+            self._h_slider.setVisible(True)
+            self._v_slider.setVisible(True)
+            self._h_slider.blockSignals(False)
+            self._v_slider.blockSignals(False)
+
+            x0 = min(self._h_slider.value(), max_x) if max_x > 0 else 0
+            y0 = min(self._v_slider.value(), max_y) if max_y > 0 else 0
+
+            try:
+                crop = pixmap.copy(x0, y0, crop_w, crop_h)
+            except Exception:
+                crop = pixmap
+
+            disp = crop.scaled(
+                self._image_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        else:
+            # Hide pan controls when not zoomed
+            self._h_slider.setVisible(False)
+            self._v_slider.setVisible(False)
+            disp = pixmap.scaled(
+                self._image_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+
+        # Draw blue crosshair at the centre of the displayed pixmap
+        w, h = disp.width(), disp.height()
+        painter = QPainter(disp)
+        pen = QPen(QColor(0, 120, 255))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawLine(0, h // 2, w, h // 2)  # horizontal
+        painter.drawLine(w // 2, 0, w // 2, h)  # vertical
+        painter.end()
+
+        self._image_label.setPixmap(disp)
+        self._timestamp_label.setText("Last frame: " + ts.strftime("%Y-%m-%d  %H:%M:%S"))
 
     def closeEvent(self, event):
         self._poll_timer.stop()
