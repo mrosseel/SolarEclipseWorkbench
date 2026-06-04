@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.10.0] - 2026-06-04
+
+### Added
+- **Live view zoom & pan**: The Live View window now includes a `Zoom` control with `Fit`, `5x`, and `10x` options. When zoomed in the preview displays a centre-cropped magnification and exposes horizontal and vertical pan sliders to move the crop region. The existing blue centre crosshair is preserved.
+
 ## [1.9.2] - 2026-04-25
 
 ### Fixed
