@@ -1249,14 +1249,62 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
             logging.warning('Could not reset Sony capturemode to Single after burst: %s', e)
 
 
+def _parse_bracket_steps(steps: str) -> int:
+    """Parse a bracket steps string to the number of 1/3-stop index increments.
+
+    The camera's shutter speed list from gphoto2 uses 1/3-stop steps, so
+    '+/- 1 2/3' (1⅔ stops) maps to 5 index positions away from the base speed.
+
+    Supported formats (with optional '+/-' prefix):
+        '+/- 1/3'   → 1,  '+/- 2/3'   → 2,  '+/- 1'     → 3
+        '+/- 1 1/3' → 4,  '+/- 1 2/3' → 5,  '+/- 2'     → 6
+        '+/- 2 1/3' → 7,  '+/- 2 2/3' → 8,  '+/- 3'     → 9
+
+    Args:
+        steps: Bracket step string, e.g. '+/- 1 2/3'.
+
+    Returns:
+        Number of 1/3-stop shutter speed index steps for each side of the bracket.
+
+    Raises:
+        ValueError: If the string cannot be parsed.
+    """
+    s = steps.strip()
+    if s.startswith('+/-'):
+        s = s[3:].strip()
+
+    whole = 0
+    frac_num = 0
+    frac_den = 3  # denominator assumed to be 3 for all valid bracket fractions
+
+    for part in s.split():
+        if '/' in part:
+            num, den = part.split('/', 1)
+            frac_num = int(num)
+            frac_den = int(den)
+        else:
+            whole = int(part)
+
+    thirds = whole * 3 + (frac_num * 3 // frac_den)
+    if thirds <= 0:
+        raise ValueError(f"Could not parse bracket steps '{steps}' to a positive stop count")
+    return thirds
+
 @_serialised_on_camera
 def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) -> None:
     """ Take a bracketing of images with the selected camera.
 
+    For Canon, the built-in AEB widget is used ('aeb') and 5 frames are fired.
+    For Nikon, bracketing is implemented in software: the shutter speed is
+    shifted by the requested number of stops for each side of the bracket.
+    No manual camera AEB setup is required for Nikon.
+
     Args:
         - camera_name: Camera object
         - camera_settings: Settings of the camera (exposure, f, iso)
-        - steps: Steps for each bracketing step (e.g. +/- 1 2/3)
+        - steps: Bracket half-width, e.g. '+/- 1 2/3' fires 5 shots at
+                 base-2*1⅔, base-1⅔, base, base+1⅔, base+2*1⅔ stops.
+                 Supported: '+/- 1/3' through '+/- 3'.
     """
     context, config = __adapt_camera_settings(camera, camera_settings)
 
@@ -1296,6 +1344,58 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
         # set config
         _set_gp_config(camera, config, context)
 
+    elif getattr(camera, 'vendor', None) == 'Nikon':
+        # Nikon does not expose an AEB widget via gphoto2.  Software bracketing:
+        # fire 5 shots at base-2*step, base-step, base, base+step, base+2*step,
+        # matching the Canon 5-frame bracket count.
+        step_count = _parse_bracket_steps(steps)
+
+        choices = _get_shutter_speed_choices(config)
+        base_speed = camera_settings.shutter_speed.strip()
+        if base_speed not in choices:
+            choices_lower = [c.lower() for c in choices]
+            if base_speed.lower() in choices_lower:
+                base_speed = choices[choices_lower.index(base_speed.lower())]
+            else:
+                raise CameraError(
+                    f"Shutter speed '{base_speed}' is not supported by this camera. "
+                    f"Supported speeds: {choices}"
+                )
+
+        base_idx = choices.index(base_speed)
+        # choices is sorted fastest→slowest; smaller index = less exposure (under)
+        indices = [
+            max(0, base_idx - 2 * step_count),
+            max(0, base_idx - step_count),
+            base_idx,
+            min(len(choices) - 1, base_idx + step_count),
+            min(len(choices) - 1, base_idx + 2 * step_count),
+        ]
+
+        logging.info(
+            'take_bracket (Nikon): 5-shot sequence: %s',
+            [choices[i] for i in indices],
+        )
+
+        target = camera._camera if hasattr(camera, '_camera') else camera
+        speed_widget = gp.check_result(gp.gp_widget_get_child_by_name(config, 'shutterspeed'))
+
+        for idx in indices:
+            speed = choices[idx]
+            try:
+                gp.gp_widget_set_value(speed_widget, speed)
+                gp.gp_camera_set_config(target, config, context)
+                gp.check_result(gp.gp_camera_trigger_capture(target, context))
+                logging.debug('take_bracket (Nikon): triggered capture at %s', speed)
+            except gphoto2.GPhoto2Error as e:
+                logging.error('take_bracket (Nikon): capture failed at speed %s: %s', speed, e)
+                raise
+            _wait_for_capture_complete(target, context)
+
+        # Restore base shutter speed
+        gp.gp_widget_set_value(speed_widget, choices[base_idx])
+        _set_gp_config(camera, config, context)
+        logging.info('take_bracket (Nikon): bracket complete')
 
 def _parse_shutter_speed_seconds(speed_str: str) -> float:
     """Parse a gphoto2 shutter speed string to seconds as a float.
