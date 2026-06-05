@@ -13,6 +13,10 @@
     - [Installation on Ubuntu 26.04](#installation-on-ubuntu-2604)
     - [Installation on Ubuntu 24.04](#installation-on-ubuntu-2404)
     - [Installation on Windows 11](#installation-on-windows-11)
+    - [Make cameras accessible in wsl](#make-cameras-accessible-in-wsl)
+      - [Replace the Windows USB driver with WinUSB (required for gphoto2)](#replace-the-windows-usb-driver-with-winusb-required-for-gphoto2)
+    - [Sony PC Remote settings (recommended)](#sony-pc-remote-settings-recommended)
+  - [Important note for Sony bodies in `PC Only` or when the Save Destination option is not available](#important-note-for-sony-bodies-in-pc-only-or-when-the-save-destination-option-is-not-available)
   - [Upgrading Solar Eclipse Workbench](#upgrading-solar-eclipse-workbench)
   - [Running Solar Eclipse Workbench](#running-solar-eclipse-workbench)
     - [Command line parameters](#command-line-parameters)
@@ -29,9 +33,16 @@
       - [Live view](#live-view)
   - [Running the Configuration Wizard](#running-the-configuration-wizard)
   - [USB GPS device](#usb-gps-device)
+    - [Supported hardware](#supported-hardware)
+    - [One-time setup on Linux / WSL](#one-time-setup-on-linux--wsl)
+    - [macOS](#macos)
+    - [How to use](#how-to-use)
+    - [GPS time correction](#gps-time-correction)
   - [Using two cameras of the same model, or one camera with multiple setups](#using-two-cameras-of-the-same-model-or-one-camera-with-multiple-setups)
+    - [Step-by-step setup](#step-by-step-setup)
   - [Script file format](#script-file-format)
     - [General remarks](#general-remarks)
+    - [Reference moments](#reference-moments-1)
     - [Commands](#commands)
   - [Shortcomings](#shortcomings)
   - [Converting scripts from Solar Eclipse Maestro](#converting-scripts-from-solar-eclipse-maestro)
@@ -40,6 +51,8 @@
     - [Installation on macOS](#installation-on-macos-1)
     - [Installation on Ubuntu 24.04](#installation-on-ubuntu-2404-1)
     - [Installation on Windows 11](#installation-on-windows-11-1)
+  - [Run Solar Eclipse Workbench from the development environment](#run-solar-eclipse-workbench-from-the-development-environment)
+  - [Upgrading all dependencies to the latest version](#upgrading-all-dependencies-to-the-latest-version)
   - [Create and upload a new pip package](#create-and-upload-a-new-pip-package)
   - [License](#license)
   - [Changelog](#changelog)
@@ -715,7 +728,7 @@ This command will take a picture 1 minutes and 2 seconds before first contact (C
 
 ```take_bracket, C1, +, 0:00:08.0, Canon EOS 80D, 1/2000, 5.6, 400, "+/- 1 2/3", "Bracket test"```
 
-...**take_hdr** - Take an HDR sequence by ramping the shutter speed from a starting (fastest) speed down by the given number of full stops and back up again, while keeping aperture and ISO fixed.  Uses `gp_camera_trigger_capture` for maximum speed so successive shots are fired without waiting for each file to be written to the card.  The shutter speed choices available on the connected camera are queried at runtime, so the sequence always stays within the actual speeds the body supports.  Works on Canon EOS, Nikon, and Sony Alpha cameras.  Total shots fired: 2 × stops + 1 (the slowest exposure appears once at the midpoint).
+- **take_hdr** - Take an HDR sequence by ramping the shutter speed from a starting (fastest) speed down by the given number of full stops and back up again, while keeping aperture and ISO fixed.  Uses `gp_camera_trigger_capture` for maximum speed so successive shots are fired without waiting for each file to be written to the card.  The shutter speed choices available on the connected camera are queried at runtime, so the sequence always stays within the actual speeds the body supports.  Works on Canon EOS, Nikon, and Sony Alpha cameras.  Total shots fired: 2 × stops + 1 (the slowest exposure appears once at the midpoint).
 
   The sequence for `stops=4` starting at `1/2000` would be: `1/2000 → 1/1000 → 1/500 → 1/250 → 1/125 → 1/250 → 1/500 → 1/1000 → 1/2000` (9 shots).
 

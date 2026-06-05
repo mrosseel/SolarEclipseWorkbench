@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.10.1] - 2026-06-05
+
+### Added
+- **Nikon take_bracket**: Implement software bracketing for Nikon bodies using the camera's `shutterspeed` choices and `gp_camera_trigger_capture`. `take_bracket(camera, settings, steps)` now works for Nikon and accepts the same '+/- 1/3' through '+/- 3' step strings used for Canon. No manual AEB configuration is required on the camera body.
+
+### Fixed
+- **Bracket frame count parity**: Nikon bracketing now fires 5 frames (base ± step and ± 2×step), matching Canon AEB behaviour.
+
 ## [1.10.0] - 2026-06-04
 
 ### Added
