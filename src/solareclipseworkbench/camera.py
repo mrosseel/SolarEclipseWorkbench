@@ -279,6 +279,17 @@ class GPhotoCameraAdapter(BaseCamera):
         logging.debug('GPhotoCameraAdapter created for %s, vendor=%s', name, self.vendor)
         # camera returned by get_camera() is already initialised
         self._connected = True
+        # --- Canon EOS R live-view / trigger_capture mode conflict ---
+        # gp_camera_capture_preview sets gphoto2's internal eos_remotemode to 1.
+        # On EOS R mirrorless, gp_camera_trigger_capture needs eos_remotemode = 0 so
+        # it can initialize it to 15 (the correct remote capture mode for EOS R).
+        # If capture_preview runs before the first trigger_capture, eos_remotemode is
+        # already 1 and trigger_capture skips EOS_SetRemoteMode, causing both
+        # capture_preview and trigger_capture to fail.
+        # The fix resets the PTP session (exit + init) once, before the first capture,
+        # when capture_preview has already been called.  See _reset_canon_eos_ptp_session().
+        self._capture_preview_was_called: bool = False  # set by LiveViewThread
+        self._first_capture_done: bool = False           # set by take_picture / take_hdr
 
     def __getattr__(self, item):
         # Delegate attribute access to the underlying gphoto Camera
@@ -791,6 +802,10 @@ class LiveViewThread(threading.Thread):
                     continue
 
                 cam_file = gp.CameraFile()
+                # Signal that capture_preview has been called on this camera.
+                # Used by take_picture / take_hdr to detect the Canon EOS R
+                # eos_remotemode conflict (see _reset_canon_eos_ptp_session).
+                self._camera._capture_preview_was_called = True
                 gp.check_result(gp.gp_camera_capture_preview(target, cam_file, context))
                 file_data = gp.check_result(gp.gp_file_get_data_and_size(cam_file))
                 self._frame_callback(bytes(file_data))
@@ -806,6 +821,55 @@ class LiveViewThread(threading.Thread):
                         pass
 
 
+def _reset_canon_eos_ptp_session(camera) -> None:
+    """Reset the PTP session for a Canon EOS camera before the first capture.
+
+    Background
+    ----------
+    gp_camera_capture_preview on Canon EOS cameras sends EOS_SetRemoteMode(0x01)
+    and caches the result as ``params->eos_remotemode = 1`` inside gphoto2's PTP2
+    driver state.
+
+    gp_camera_trigger_capture on Canon EOS R mirrorless bodies needs to send
+    EOS_SetRemoteMode(0x15) to enter the correct remote-capture mode.  It only
+    does so when ``params->eos_remotemode == 0`` (uninitialised).  If
+    capture_preview has already run, eos_remotemode is 1, trigger_capture skips
+    the EOS_SetRemoteMode call entirely, tries to fire the shutter in mode 1,
+    and fails.  Subsequent capture_preview calls also fail because the camera is
+    now in an inconsistent state.
+
+    On Canon DSLR bodies (EOS 80D, EOS 1000D, etc.) both paths use mode 1, so
+    there is no conflict.  The reset is harmless on those bodies.
+
+    Fix
+    ---
+    Calling gp_camera_exit + gp_camera_init closes and re-opens the PTP session.
+    This resets ``params->eos_remotemode`` to 0, allowing the next
+    gp_camera_trigger_capture to initialise correctly with mode 0x15.
+
+    After the first successful trigger_capture ``camera._first_capture_done`` is
+    set to True so this reset is never repeated for the same camera object.
+    """
+    target = camera._camera if hasattr(camera, '_camera') else camera
+    context = gp.gp_context_new()
+    try:
+        gp.gp_camera_exit(target)
+        gp.gp_camera_init(target, context)
+        logging.info(
+            'Canon EOS: PTP session reset before first capture '
+            '(live view had initialised eos_remotemode=1; cleared for trigger_capture)'
+        )
+    except gphoto2.GPhoto2Error as e:
+        logging.warning(
+            'Canon EOS: PTP session reset failed: %s — '
+            'trigger_capture may fail if live view set eos_remotemode=1', e
+        )
+    finally:
+        # Clear the flag regardless of success so we do not attempt the reset
+        # again even if it failed (to avoid an infinite retry loop).
+        camera._capture_preview_was_called = False
+
+
 @_serialised_on_camera
 def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
     """ Take a picture with the selected camera 
@@ -814,6 +878,18 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
         - camera_name: Camera object
         - camera_settings: Settings of the camera (exposure, f, iso)
     """
+
+    # Canon EOS R live-view / trigger_capture mode conflict:
+    # If capture_preview (live view) was called before the first trigger_capture
+    # on a Canon EOS R mirrorless body, gphoto2's internal eos_remotemode is set
+    # to 1, preventing trigger_capture from initialising it to 15.  Reset the PTP
+    # session once to clear the stale remote mode.  Only applies before the first
+    # successful capture; subsequent shots are unaffected.
+    if (getattr(camera, 'vendor', None) == 'Canon'
+            and hasattr(camera, '_camera')
+            and not getattr(camera, '_first_capture_done', True)
+            and getattr(camera, '_capture_preview_was_called', False)):
+        _reset_canon_eos_ptp_session(camera)
 
     context, config = __adapt_camera_settings(camera, camera_settings)
 
@@ -909,6 +985,10 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
         gp.check_result(gp.gp_camera_trigger_capture(target, context))
         logging.debug('take_picture: trigger_capture fired')
         _wait_for_capture_complete(target, context)
+        # First successful trigger_capture: eos_remotemode is now 15 (EOS R) or
+        # unchanged (DSLR).  Mark as done so no further PTP session reset is needed.
+        if getattr(camera, 'vendor', None) == 'Canon':
+            camera._first_capture_done = True
     except gphoto2.GPhoto2Error as e:
         logging.warning('trigger_capture failed (%s), falling back to GP_CAPTURE_IMAGE', e)
         try:
@@ -1100,6 +1180,15 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         - camera_settings: Settings of the camera (exposure, f, iso)
         - duration: Duration of the burst in seconds (Canon) or number of pictures (Nikon)
     """
+    # Canon EOS R live-view / trigger_capture mode conflict: if live view was
+    # used before the first capture, the PTP session may need resetting so
+    # remote-release based bursts work correctly (same check as in take_picture).
+    if (getattr(camera, 'vendor', None) == 'Canon'
+            and hasattr(camera, '_camera')
+            and not getattr(camera, '_first_capture_done', True)
+            and getattr(camera, '_capture_preview_was_called', False)):
+        _reset_canon_eos_ptp_session(camera)
+
     context, config = __adapt_camera_settings(camera, camera_settings)
 
     # If virtual camera, perform simple repeated captures
@@ -1117,17 +1206,25 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
 
     # Take picture for real cameras
     if getattr(camera, 'vendor', None) == 'Canon':
-        # Push the button
+        # For bursts, ensure the camera is in a continuous drive mode so
+        # holding the remote release fires repeated frames rather than one.
+        try:
+            drive_w = gp.check_result(gp.gp_widget_get_child_by_name(config, 'drivemode'))
+            gp.gp_widget_set_value(drive_w, 'Continuous')
+            _set_gp_config(camera, config, context)
+            logging.debug('Set Canon drivemode to Continuous for burst')
+        except gphoto2.GPhoto2Error:
+            logging.debug('Could not set Canon drivemode to Continuous; proceeding with remote release')
+
+        # Push the button (press & hold for the requested duration)
         remote_release = gp.check_result(gp.gp_widget_get_child_by_name(config, 'eosremoterelease'))
         gp.gp_widget_set_value(remote_release, "Press Full")
-        # set config
         _set_gp_config(camera, config, context)
         time.sleep(duration)
 
         # Release the button
         remote_release = gp.check_result(gp.gp_widget_get_child_by_name(config, 'eosremoterelease'))
         gp.gp_widget_set_value(remote_release, "Release Full")
-        # set config
         _set_gp_config(camera, config, context)
     elif getattr(camera, 'vendor', None) == 'Nikon':
         # Set capture mode to burst/continuous
@@ -1480,6 +1577,13 @@ def take_hdr(camera: Camera, camera_settings: CameraSettings, stops: int) -> Non
     Raises:
         CameraError: If the requested starting shutter speed is not supported by the camera.
     """
+    # Canon EOS R live-view / trigger_capture mode conflict (same as take_picture).
+    if (getattr(camera, 'vendor', None) == 'Canon'
+            and hasattr(camera, '_camera')
+            and not getattr(camera, '_first_capture_done', True)
+            and getattr(camera, '_capture_preview_was_called', False)):
+        _reset_canon_eos_ptp_session(camera)
+
     context, config = __adapt_camera_settings(camera, camera_settings)
 
     # Virtual camera path: just fire repeated captures
@@ -1543,6 +1647,9 @@ def take_hdr(camera: Camera, camera_settings: CameraSettings, stops: int) -> Non
             gp.gp_camera_set_config(target, config, context)
             gp.check_result(gp.gp_camera_trigger_capture(target, context))
             logging.debug('take_hdr: triggered capture at %s', speed)
+            # First successful trigger_capture establishes eos_remotemode=15 on EOS R.
+            if getattr(camera, 'vendor', None) == 'Canon':
+                camera._first_capture_done = True
         except gphoto2.GPhoto2Error as e:
             logging.error('take_hdr: capture failed at speed %s: %s', speed, e)
             raise
