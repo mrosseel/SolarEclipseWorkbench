@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.10.2] - 2026-06-20
+
+### Fixed
+- **Canon EOS R: live view before first picture broke both preview and capture** — On Canon
+  EOS R (and other EOS mirrorless) bodies, opening the Live View window before any picture had
+  been taken caused gphoto2's internal `eos_remotemode` to be initialised to 1
+  (`EOS_SetRemoteMode(0x01)`) by `gp_camera_capture_preview`.  `gp_camera_trigger_capture`
+  on EOS R requires `eos_remotemode = 0x15` and only sends `EOS_SetRemoteMode` when the cached
+  value is 0 (uninitialised).  Because the cached value was already 1, `trigger_capture`
+  skipped the call, attempted to fire the shutter in the wrong mode, and failed — taking no
+  picture and also preventing further preview frames.  Canon DSLR bodies (EOS 80D, EOS 1000D)
+  were unaffected because both paths use mode 1 on those bodies.
+
+  **Fix**: `GPhotoCameraAdapter` now carries two new flags:
+  `_capture_preview_was_called` (set by `LiveViewThread` just before every
+  `gp_camera_capture_preview` call) and `_first_capture_done` (set after the first successful
+  `gp_camera_trigger_capture`).  When `take_picture` or `take_hdr` is about to fire the first
+  capture on a Canon camera and `_capture_preview_was_called` is True, it calls
+  `_reset_canon_eos_ptp_session()` which issues `gp_camera_exit` + `gp_camera_init` to close
+  and re-open the PTP session, resetting `eos_remotemode` to 0.  The subsequent
+  `trigger_capture` then correctly sends `EOS_SetRemoteMode(0x15)` and all later preview and
+  capture calls work as expected.  The reset happens **at most once** per camera connection
+  and adds no overhead to any shot after the first.
+
+- **Canon `take_burst`: press-and-hold remote release only fired a single frame on some Canon bodies (EOS R, EOS 80D)** — `take_burst()` now resets the EOS PTP session when live view was used before the first capture (same one-time check as `take_picture`) and attempts to set the camera's `drivemode` to `Continuous` before pressing `eosremoterelease`, allowing a press-and-hold to produce a sustained burst. When the `drivemode` widget is absent the code falls back to the original remote-release sequence so behaviour remains safe on bodies without the widget.
+
 ## [1.10.1] - 2026-06-05
 
 ### Added

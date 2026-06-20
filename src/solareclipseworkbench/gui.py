@@ -2483,6 +2483,12 @@ class CameraOverviewTableModel(QAbstractTableModel):
                     data.append([camera_name, str(battery_level), free_space_gb_str, free_space_pct_str])
                 except Exception:
                     logging.exception('Worker: exception while processing camera %s', camera_name)
+                    # Preserve the camera row with N/A values when probing fails so
+                    # the camera does not disappear from the UI.
+                    try:
+                        data.append([camera_name, 'N/A', 'N/A', 'N/A'])
+                    except Exception:
+                        pass
                     continue
             # schedule UI update on main thread
             try:
@@ -2525,9 +2531,55 @@ class CameraOverviewTableModel(QAbstractTableModel):
         except Exception:
             self.camera_overview_dict = None
 
-        self.beginResetModel()
-        self._data = pd.DataFrame(data, columns=self._data.columns)
-        self.endResetModel()
+        # Merge incoming data with previous data to avoid dropping cameras when
+        # a probe fails or the worker returns partial/empty results.
+        try:
+            # Map new data by camera name for quick lookup
+            new_map = {row[0]: list(row) for row in data}
+
+            # Build a map of previous rows (camera_name -> row values)
+            prev_map = {}
+            try:
+                for i in range(self._data.shape[0]):
+                    prev_row = list(self._data.iloc[i].values)
+                    prev_map[str(prev_row[0])] = prev_row
+            except Exception:
+                prev_map = {}
+
+            # Determine the canonical ordering: prefer pending camera_map keys if available
+            pending_map = getattr(self, '_pending_camera_map', None)
+            if pending_map:
+                order = list(pending_map.keys())
+            elif data:
+                order = [row[0] for row in data]
+            else:
+                order = list(prev_map.keys())
+
+            # If there's no new order and we have previous data, keep previous table
+            if not order and self._data is not None and not self._data.empty:
+                return
+
+            merged_rows = []
+            for name in order:
+                if name in new_map:
+                    merged_rows.append(new_map[name])
+                elif name in prev_map:
+                    merged_rows.append(prev_map[name])
+                else:
+                    merged_rows.append([name, 'N/A', 'N/A', 'N/A'])
+
+            self.beginResetModel()
+            self._data = pd.DataFrame(merged_rows, columns=self._data.columns)
+            self.endResetModel()
+        except Exception:
+            logging.exception('Could not merge camera overview data')
+            # Fallback to previous behaviour
+            try:
+                self.beginResetModel()
+                self._data = pd.DataFrame(data, columns=self._data.columns)
+                self.endResetModel()
+            except Exception:
+                logging.exception('Fallback: could not set camera overview data')
 
         # Ensure the view updates and columns are sized to the new data
         try:
