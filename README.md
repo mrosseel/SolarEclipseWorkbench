@@ -918,6 +918,7 @@ uv run sew
 
 ```bash
 uv sync --upgrade
+python3 scripts/sync_uv_lock_to_pyproject.py --apply --pin
 ```
 
 ## Create and upload a new pip package
