@@ -1002,6 +1002,15 @@ def __adapt_camera_settings(camera, camera_settings):
     # For virtual or non-gphoto cameras, skip gphoto configuration and
     # return (None, None) so callers can handle capture directly.
     if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+        # SDK-backed cameras (e.g. Fuji) are not configured via gphoto2 widgets;
+        # apply exposure settings through their own configure() so the values are
+        # in place before the caller invokes capture()/shooter.
+        if getattr(camera, 'vendor', None) == 'Fuji':
+            camera.configure(
+                shutter_speed=camera_settings.shutter_speed,
+                aperture=camera_settings.aperture,
+                iso=camera_settings.iso,
+            )
         return None, None
 
     context = gp.gp_context_new()
@@ -1193,6 +1202,11 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
 
     # If virtual camera, perform simple repeated captures
     if context is None:
+        # Fuji SDK cameras drive the burst through their EclipseShooter rather
+        # than repeated single-shot captures; `duration` is the frame count.
+        if getattr(camera, 'vendor', None) == 'Fuji' and hasattr(camera, 'shooter'):
+            camera.shooter.burst_no_download(max(1, int(round(duration))))
+            return
         try:
             # For burst, treat `duration` as number of frames when small,
             # otherwise as seconds: take int(duration) shots.
@@ -1407,6 +1421,14 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
 
     # Virtual camera: perform a few captures to simulate bracketing
     if context is None:
+        # Fuji SDK cameras bracket through their EclipseShooter using the SDK
+        # shutter-speed constants derived from the requested stop count.
+        if (getattr(camera, 'vendor', None) == 'Fuji'
+                and hasattr(camera, 'shooter')
+                and hasattr(camera, 'parse_bracket_speeds')):
+            speeds = camera.parse_bracket_speeds(steps)
+            camera.shooter.bracket_no_download(speeds)
+            return
         try:
             for _ in range(3):
                 camera.capture()
@@ -2391,14 +2413,39 @@ def get_camera_dict(is_simulator: bool = False, alias_map: Optional[dict] = None
         vc.connect()
         return {vc.name: vc}
 
+    cameras: dict = {}
+
+    # Detect Fuji cameras through the native Fujifilm SDK first — libgphoto2 has
+    # no tethered support for the X series, and the SDK must claim the USB device
+    # before gphoto2's autodetect does.
+    skip_fuji_gphoto = False
+    try:
+        from .fuji_camera import detect_fuji_cameras, find_fuji_sdk_path
+        sdk_path = find_fuji_sdk_path()
+        if sdk_path:
+            logging.debug('Fuji SDK path: %s', sdk_path)
+            fuji_cameras = detect_fuji_cameras(sdk_path)
+            if fuji_cameras:
+                cameras.update(fuji_cameras)
+                skip_fuji_gphoto = True
+                logging.info('Fuji SDK detected %d camera(s)', len(fuji_cameras))
+        else:
+            logging.debug('Fuji SDK path not found, skipping SDK detection')
+    except Exception:
+        logging.debug('Fuji SDK detection failed', exc_info=True)
+
     detected = get_cameras()  # [(model_name, port), ...]
     try:
         print("Found cameras:", detected, flush=True)
     except Exception:
         logging.debug('Could not print found cameras to terminal')
 
-    cameras: dict = {}
     for model_name, port in detected:
+        # A Fuji body already opened via the SDK must not also be opened by
+        # gphoto2 (it would fail to claim the USB device, or double-list it).
+        if skip_fuji_gphoto and 'fuji' in model_name.lower():
+            logging.debug('Skipping gphoto for %s (using Fuji SDK)', model_name)
+            continue
         cam = get_camera_by_port(model_name, port)
 
         key = model_name  # default: use the gphoto2 model name
