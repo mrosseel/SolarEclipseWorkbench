@@ -71,10 +71,14 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
         simulated_start = now + timedelta(minutes=minutes_to_reference_moment)
 
         offset = ref_moments[reference_moment].time_utc - timedelta(minutes=minutes_to_reference_moment) - now
-        controller.view.eclipse_visualization.set_offset(offset)
     else:
         simulated_start = None
-        controller.view.eclipse_visualization.set_offset(timedelta(minutes=0))
+        offset = timedelta(minutes=0)
+
+    # Update the visualization offset only when running with a GUI; the headless
+    # command-line path (sew.py without --gui) has no controller/view.
+    if controller is not None:
+        controller.view.eclipse_visualization.set_offset(offset)
 
     # Schedule commands
     schedule_commands(commands_filename, scheduler, ref_moments, cameras, controller, reference_moment, simulated_start,
