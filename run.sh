@@ -25,5 +25,6 @@ shift 2>/dev/null || true
 case "$cmd" in
     wizard) exec .venv/bin/python -m solareclipseworkbench.wizard "$@" ;;
     gui)    exec .venv/bin/python -m solareclipseworkbench.gui "$@" ;;
+    sew)    exec .venv/bin/python -m solareclipseworkbench.sew "$@" ;;
     *)      exec .venv/bin/python "$cmd" "$@" ;;
 esac
