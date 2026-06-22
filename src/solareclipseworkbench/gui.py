@@ -42,6 +42,7 @@ import threading
 from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get_free_space, get_space, \
     get_shooting_mode, get_focus_mode, set_time, CameraSettings, LiveViewThread, \
     sony_save_destination_needs_downloader
+from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
 from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
@@ -2885,6 +2886,11 @@ class QJobsTableView(QTableView):
 
 
 def main():
+    # Ensure the Fuji SDK's libraries are on LD_LIBRARY_PATH before anything
+    # else runs.  If a re-exec is needed it happens here, at launch, instead of
+    # mid-session during camera detection (which would discard unsaved settings).
+    maybe_reexec_for_fuji_sdk()
+
     time_string = time.strftime("%Y%m%d-%H%M%S")
     logging.basicConfig(filename=f'{time_string}.log', level=logging.DEBUG, format='%(asctime)s %(message)s')
     # Also log to stdout so users see debug output in terminal

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QPushButton, QMessageBox, QWidget, QScrollArea
 )
 
+from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
 from solareclipseworkbench.location_ui import ConfigManager, GeocodingWorker, GEOPY_AVAILABLE, LocationWidget
 from solareclipseworkbench.qt_utils import apply_system_color_scheme, _is_dark_mode_preferred, _build_dark_palette, dark_lineedit_style, apply_dark_to_lineedit
 
@@ -2333,6 +2334,11 @@ class SEWConfigWizard(QWizard):
 
 def main():
     """Main entry point for the wizard application."""
+    # Ensure the Fuji SDK libraries are on LD_LIBRARY_PATH (re-exec once here at
+    # launch if needed) before the wizard is built, so camera detection later
+    # never restarts the process mid-session.
+    maybe_reexec_for_fuji_sdk()
+
     app = QApplication(sys.argv)
     app.setApplicationName("Solar Eclipse Workbench Configuration Wizard")
     apply_system_color_scheme(app)

@@ -16,6 +16,7 @@ import logging
 import os
 import platform
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -30,6 +31,7 @@ try:
         Camera as SDKCamera,
         CameraIssue,
         EclipseShooter,
+        ensure_ld_library_path,
         validate_for_eclipse,
     )
     from fujixsdk._constants import (
@@ -383,6 +385,57 @@ class FujiCamera(BaseCamera):
 
 
 # ======================================================================
+# LD_LIBRARY_PATH startup handling
+# ======================================================================
+
+def _reexec_process() -> None:
+    """Restart the current process so the dynamic linker picks up an updated
+    LD_LIBRARY_PATH (it is only read once, at process startup)."""
+    logging.info('LD_LIBRARY_PATH updated for the Fuji SDK, restarting process')
+    # Reconstruct the command, preserving a `python -m <module>` invocation.
+    main_spec = getattr(sys.modules.get('__main__'), '__spec__', None)
+    if main_spec and main_spec.name:
+        args = [sys.executable, '-m', main_spec.name] + sys.argv[1:]
+    else:
+        args = [sys.executable] + sys.argv
+    os.execvp(sys.executable, args)
+
+
+def ensure_fuji_library_path() -> bool:
+    """Add the Fuji SDK libraries (and their NixOS dependencies) to
+    LD_LIBRARY_PATH if they are missing.
+
+    Returns True if the environment was changed and the process must be
+    re-exec'd for the dynamic linker to see it, False if nothing was needed.
+    """
+    if not FUJIXSDK_AVAILABLE:
+        return False
+    sdk_path = find_fuji_sdk_path()
+    if not sdk_path:
+        return False
+    try:
+        # ensure_ld_library_path returns True when the path was already
+        # complete, False when it modified the environment.
+        return not ensure_ld_library_path(sdk_path)
+    except Exception:
+        logging.debug('Fuji ensure_ld_library_path failed', exc_info=True)
+        return False
+
+
+def maybe_reexec_for_fuji_sdk() -> None:
+    """Call once at application startup, before building the GUI or reading any
+    session state.
+
+    Ensures the Fuji SDK libraries are on LD_LIBRARY_PATH and re-execs the
+    process immediately if they had to be added — so the one-time restart
+    happens at launch rather than mid-session during camera detection, where it
+    would discard the user's unsaved settings.
+    """
+    if ensure_fuji_library_path():
+        _reexec_process()
+
+
+# ======================================================================
 # Detection
 # ======================================================================
 
@@ -419,16 +472,10 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
             if cameras:
                 break
         except fujixsdk.LDPathError:
-            # LD_LIBRARY_PATH was updated — must restart process
-            import sys
-            logging.info('LD_LIBRARY_PATH updated, restarting process')
-            # Reconstruct command: detect if launched via `python -m`
-            main_spec = getattr(sys.modules.get('__main__'), '__spec__', None)
-            if main_spec and main_spec.name:
-                args = [sys.executable, '-m', main_spec.name] + sys.argv[1:]
-            else:
-                args = [sys.executable] + sys.argv
-            os.execvp(sys.executable, args)
+            # Safety net: the SDK signalled LD_LIBRARY_PATH needs updating
+            # mid-run.  maybe_reexec_for_fuji_sdk() at startup normally prevents
+            # ever reaching this point.
+            _reexec_process()
         except Exception as e:
             logging.debug('Fuji SDK detect attempt %d failed: %s', attempt + 1, e)
         time.sleep(2)
