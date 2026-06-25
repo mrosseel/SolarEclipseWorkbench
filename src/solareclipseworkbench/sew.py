@@ -3,7 +3,7 @@ from time import sleep
 
 from astropy.time import Time
 
-import camera
+from solareclipseworkbench import camera
 from solareclipseworkbench import gui
 from solareclipseworkbench.location_ui import ConfigManager
 from solareclipseworkbench.reference_moments import calculate_reference_moments
@@ -15,7 +15,11 @@ def main(args):
         gui.main()
     else:
         # Check for all needed parameters
-        if args.date and args.longitude and args.latitude and args.altitude and args.script:
+        # Use "is not False" rather than truthiness: an altitude (or longitude/
+        # latitude) of 0 is valid but falsy, and would otherwise be rejected.
+        if (args.date is not False and args.longitude is not False
+                and args.latitude is not False and args.altitude is not False
+                and args.script is not False):
             eclipse_date = Time(args.date)
             timings, magnitude, eclipse_type = calculate_reference_moments(args.longitude, args.latitude, args.altitude,
                                                                            eclipse_date)
