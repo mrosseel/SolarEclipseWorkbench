@@ -38,6 +38,13 @@ Repository = "https://github.com/AstroWimSara/SolarEclipseWorkbench"
 [project.scripts]
 sew = "solareclipseworkbench.gui:main"
 sew_wizard = "solareclipseworkbench.wizard:main"
+sew_hardware = "solareclipseworkbench.hardware_console:main"
+
+# Mount drivers. Built-in drivers are found by scanning the mounts package; this
+# group lets a driver ship in its own package instead of being vendored here.
+[project.entry-points."solareclipseworkbench.mount_drivers"]
+onstepx = "solareclipseworkbench.mounts.onstepx:OnStepXMount"
+simulator = "solareclipseworkbench.mounts.simulator:SimulatorMount"
 
 [dependency-groups]
 dev = ["pytest>=9"]

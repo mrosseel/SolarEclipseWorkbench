@@ -6,7 +6,7 @@ from solareclipseworkbench.camera import take_hdr
 from solareclipseworkbench.commands import execute_command
 from solareclipseworkbench.gui import sync_cameras
 from solareclipseworkbench.relay_trigger import relay_shoot, relay_burst, relay_bulb
-from solareclipseworkbench.mount import (
+from solareclipseworkbench.mounts import (
     mount_track_sun, mount_goto_sun, mount_tracking, mount_park, mount_unpark, mount_stop,
 )
 

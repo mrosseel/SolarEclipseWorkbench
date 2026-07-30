@@ -28,8 +28,9 @@ import sys
 import time
 from typing import Optional
 
-from solareclipseworkbench import mount as mount_mod
+from solareclipseworkbench import mounts as mount_mod
 from solareclipseworkbench import relay_trigger as relay_mod
+from solareclipseworkbench.mounts.onstepx import DEFAULT_TCP_PORT, probe_serial
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,9 @@ Relay trigger
   relay events [n]              show the last n contact transitions
 
 Mount
-  mount connect [port] [baud]   open the mount over USB serial
+  mount drivers                 list installed mount drivers
+  mount find                    ask every driver where its mounts might be
+  mount connect [port] [driver] open the mount (driver defaults to onstepx)
   mount tcp <host> [port]       open the mount over the network instead
   mount probe [port]            find the baud rate the controller answers on
   mount info                    product name and firmware version
@@ -81,7 +84,7 @@ class Console:
     def __init__(self, simulate: bool = False):
         self.simulate = simulate
         self.trigger: Optional[relay_mod.RelayTrigger] = None
-        self.mount: Optional[mount_mod.OnStepXMount] = None
+        self.mount: Optional[mount_mod.MountDriver] = None
 
     # ------------------------------------------------------------------ helpers
 
@@ -298,30 +301,48 @@ class Console:
         except mount_mod.MountError as exc:
             self.out(f"Mount error: {exc}")
 
+    def _mount_drivers(self, args) -> None:
+        self.out("Installed mount drivers:")
+        for driver in mount_mod.list_drivers():
+            self.out(f"  {driver.name:<12} {driver.display_name}")
+            self.out(f"  {'':<12} {driver.description}")
+            caps = driver.capabilities
+            self.out(f"  {'':<12} rates: {', '.join(caps.tracking_rates)}"
+                     f"{'' if caps.park else '  (no park)'}"
+                     f"{'' if caps.sync else '  (no sync)'}")
+
+    def _mount_find(self, args) -> None:
+        candidates = mount_mod.discover_mounts()
+        if not candidates:
+            self.out("No candidates found.  Connect the mount, or use 'mount connect <port> simulator'.")
+            return
+        self.out("Candidates:")
+        for candidate in candidates:
+            self.out(f"  {candidate}")
+
     def _mount_connect(self, args) -> None:
-        port = args[0] if args else None
-        baud = int(args[1]) if len(args) > 1 else None
-        self.mount = mount_mod.connect(port=port, baudrate=baud, simulated=self.simulate)
-        self.out(f"Connected: {self.mount.transport.describe()}")
-        self.out(f"  {self.mount.product_name()}  firmware {self.mount.firmware_version()}")
+        driver = args[1] if len(args) > 1 else ("simulator" if self.simulate else "onstepx")
+        port = args[0] if args and args[0] not in ("-", "auto") else None
+        self.mount = mount_mod.connect(driver=driver, port=port)
+        self.out(f"Connected: {self.mount.describe()}")
 
     def _mount_tcp(self, args) -> None:
         if not args:
             self.out("Usage: mount tcp <host> [port]")
             return
         host = args[0]
-        port = int(args[1]) if len(args) > 1 else mount_mod.DEFAULT_TCP_PORT
-        self.mount = mount_mod.connect(host=host, tcp_port=port)
-        self.out(f"Connected: {self.mount.transport.describe()}")
+        port = int(args[1]) if len(args) > 1 else DEFAULT_TCP_PORT
+        self.mount = mount_mod.connect(driver="onstepx", host=host, tcp_port=port)
+        self.out(f"Connected: {self.mount.describe()}")
 
     def _mount_probe(self, args) -> None:
-        ports = [args[0]] if args else [d for d, _ in mount_mod.find_mount_ports()]
+        ports = [args[0]] if args else [c.target for c in mount_mod.discover_mounts("onstepx")]
         if not ports:
             self.out("No USB serial ports to probe.")
             return
         for port in ports:
             self.out(f"Probing {port}...")
-            baud = mount_mod.probe_serial(port)
+            baud = probe_serial(port)
             if baud:
                 self.out(f"  controller answers at {baud} baud")
             else:
@@ -330,8 +351,12 @@ class Console:
     def _mount_info(self, args) -> None:
         if not self.need_mount():
             return
-        self.out(f"  product:  {self.mount.product_name()}")
-        self.out(f"  firmware: {self.mount.firmware_version()}")
+        self.out(f"  {self.mount.describe()}")
+        caps = self.mount.capabilities
+        self.out(f"  driver:   {self.mount.name}")
+        self.out(f"  rates:    {', '.join(caps.tracking_rates)}")
+        self.out(f"  can:      {'goto ' if caps.goto else ''}{'sync ' if caps.sync else ''}"
+                 f"{'park ' if caps.park else ''}{'guide' if caps.pulse_guide else ''}")
 
     def _mount_status(self, args) -> None:
         if not self.need_mount():
@@ -509,6 +534,8 @@ def main(argv=None) -> int:
     parser.add_argument("--relay-kind", default="auto",
                         help="relay backend: auto, lcus, numato, hid, simulated")
     parser.add_argument("--mount-port", help="connect the mount on this port at startup")
+    parser.add_argument("--mount-driver", default="onstepx",
+                        help="mount driver to use (see 'mount drivers')")
     parser.add_argument("--mount-baud", type=int, help="mount baud rate (probed if omitted)")
     parser.add_argument("--debug", action="store_true", help="log every byte exchanged")
     parser.add_argument("command", nargs="*",
@@ -527,7 +554,12 @@ def main(argv=None) -> int:
     if args.relay_port:
         console._relay_connect([args.relay_port, args.relay_kind])
     if args.mount_port:
-        console._mount_connect([args.mount_port] + ([str(args.mount_baud)] if args.mount_baud else []))
+        try:
+            console.mount = mount_mod.connect(driver=args.mount_driver, port=args.mount_port,
+                                              baudrate=args.mount_baud)
+            console.out(f"Connected: {console.mount.describe()}")
+        except mount_mod.MountError as exc:
+            console.out(f"Could not connect the mount: {exc}")
 
     if args.command:
         try:
