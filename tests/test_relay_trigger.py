@@ -151,7 +151,28 @@ def test_timing_sample_reports_a_spread():
 def test_builtin_backends_are_registered():
     backends = discover_backends()
 
-    assert {"lcus", "numato", "hid", "simulated"} <= set(backends)
+    assert {"lcus", "numato", "dsd", "hid", "simulated"} <= set(backends)
+
+
+def test_dsd_backend_speaks_at_commands_without_a_terminator(monkeypatch):
+    # The SH-UR firmware misparses a trailing CR/LF, so none may be sent.
+    import serial as serial_mod
+    from solareclipseworkbench.relay_trigger import DsdSerialBackend
+
+    written = []
+
+    class _FakeSerial:
+        def __init__(self, *args, **kwargs): pass
+        def write(self, data): written.append(data)
+        def flush(self): pass
+        def close(self): pass
+
+    monkeypatch.setattr(serial_mod, "Serial", _FakeSerial)
+    backend = DsdSerialBackend(port="/dev/fake")
+    backend.set_channel(1, True)
+    backend.set_channel(4, False)
+
+    assert written == [b"AT+CH1=1", b"AT+CH4=0"]
 
 
 def test_get_backend_reports_what_is_available_when_the_name_is_wrong():

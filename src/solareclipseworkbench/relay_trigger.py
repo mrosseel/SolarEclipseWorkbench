@@ -220,6 +220,13 @@ def discover_relays(backend: Optional[str] = None) -> list:
     return candidates
 
 
+def _port_text(port) -> str:
+    """Description and manufacturer of a serial port, lowered, for matching."""
+    return " ".join(
+        filter(None, [port.description, getattr(port, "manufacturer", None)])
+    ).lower()
+
+
 @register_backend
 class LcusSerialBackend(Backend):
     """LCUS-1 / LCUS-2 style boards behind a CH340.
@@ -241,7 +248,7 @@ class LcusSerialBackend(Backend):
         candidates = []
         for port in usb_serial_ports():
             description = port.description or "USB serial"
-            if "numato" in description.lower():
+            if any(vendor in _port_text(port) for vendor in ("numato", "dsd")):
                 continue
             adapter = KNOWN_SERIAL_ADAPTERS.get((port.vid, port.pid))
             candidates.append(Candidate(
@@ -316,6 +323,67 @@ class NumatoSerialBackend(Backend):
 
     def describe(self) -> str:
         return f"Numato serial relay on {self.port}"
+
+    def close(self) -> None:
+        try:
+            self._serial.close()
+        except Exception:
+            logger.debug("Error closing relay serial port", exc_info=True)
+
+
+@register_backend
+class DsdSerialBackend(Backend):
+    """DSD TECH SH-UR series boards (SH-UR01A, SH-UR04A) behind a CP2102.
+
+    Protocol is ASCII AT commands at 9600 baud: ``AT+CH1=1`` closes channel 1,
+    ``AT+CH1=0`` opens it.  The firmware misparses a trailing CR/LF, so no
+    terminator is sent.
+    """
+
+    name = "dsd"
+    description = "DSD TECH SH-UR series relay boards (AT commands over CP2102)"
+
+    @classmethod
+    def discover(cls) -> list:
+        """CP2102 ports, with DSD's own USB strings as the strong signal.
+
+        DSD TECH flashes its name into the CP2102's product string, so a port
+        that says so is near-certain.  A bare CP2102 is only a maybe — plenty of
+        other hardware (GPS dongles included) uses the same chip — and is listed
+        after the certain ones so auto-connect tries it last.
+        """
+        certain, maybe = [], []
+        for port in usb_serial_ports():
+            is_dsd = "dsd" in _port_text(port)
+            is_cp2102 = (port.vid, port.pid) == (0x10C4, 0xEA60)
+            if not (is_dsd or is_cp2102):
+                continue
+            candidate = Candidate(
+                kind="relay", driver=cls.name, target=port.device,
+                description=(port.description or "DSD TECH relay") if is_dsd
+                else f"CP2102 — possibly a DSD board: {port.description or port.device}",
+                config={"port": port.device},
+            )
+            (certain if is_dsd else maybe).append(candidate)
+        return certain + maybe
+
+    def __init__(self, port: str, baudrate: int = 9600, timeout: float = 0.2):
+        self.port = port
+        try:
+            self._serial = serial.Serial(port, baudrate, timeout=timeout)
+        except serial.SerialException as exc:
+            raise RelayError(f"cannot open relay on {port}: {exc}") from exc
+
+    def set_channel(self, channel: int, closed: bool) -> None:
+        command = f"AT+CH{channel}={1 if closed else 0}".encode("ascii")
+        try:
+            self._serial.write(command)
+            self._serial.flush()
+        except serial.SerialException as exc:
+            raise RelayError(f"write failed on {self.port}: {exc}") from exc
+
+    def describe(self) -> str:
+        return f"DSD TECH serial relay on {self.port}"
 
     def close(self) -> None:
         try:

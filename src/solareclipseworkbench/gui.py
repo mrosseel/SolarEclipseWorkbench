@@ -10,6 +10,7 @@ import logging
 import math
 import os.path
 import queue
+import shutil
 import sys
 import time
 from dataclasses import dataclass
@@ -25,7 +26,7 @@ import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, \
-    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, QMessageBox, QDialog, QPlainTextEdit, QProgressBar
+    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QCheckBox
 from PyQt6 import QtWidgets
 from apscheduler.job import Job
 from apscheduler.schedulers import SchedulerNotRunningError
@@ -43,7 +44,10 @@ from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get
     get_shooting_mode, get_focus_mode, set_time, CameraSettings, LiveViewThread, \
     sony_save_destination_needs_downloader
 from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
+from solareclipseworkbench.hardware_registry import register_hardware
 from solareclipseworkbench.observer import Observer, Observable
+from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wiring, discover_relays,
+                                                 list_backends, make_backend)
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
@@ -70,6 +74,51 @@ REFERENCE_MOMENTS = ["C1", "C2", "MAX", "C3", "C4", "sunset", "sunrise"]
 
 LOGGER = logging.getLogger("Solar Eclipse Workbench UI")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%a, %d %b %Y %H:%M:%S', filename="/tmp/solareclipseworkbench.log", filemode='w')
+
+# Where the user's own scripts live: a "scripts" directory in whatever directory the
+# application was started from.  The bundled examples sit inside the installed package, which
+# is not a location anyone can reasonably be expected to find in a file dialog, so on first
+# run they are copied here — right next to where the user works, and freely editable.
+SCRIPTS_DIR = Path.cwd() / "scripts"
+
+
+def _describe_camera_mode(camera_name: str, camera) -> str:
+    """Return a short "shoot/focus" description for the camera overview table.
+
+    Modes that are not Manual are marked with a warning sign, so a camera left on AV or AF is
+    visible at a glance in the table instead of only in a modal that is easy to miss and in
+    the log file.  Reading either mode can fail on some bodies; that is reported as '?' rather
+    than being allowed to drop the whole row.
+    """
+    try:
+        shooting_mode = get_shooting_mode(camera_name, camera)
+    except Exception:
+        shooting_mode = '?'
+    try:
+        focus_mode = get_focus_mode(camera)
+    except Exception:
+        focus_mode = '?'
+
+    ok = shooting_mode.lower() == 'manual' and focus_mode.lower() == 'manual'
+    return f"{shooting_mode}/{focus_mode}" + ("" if ok else "  ⚠️")
+
+
+def get_scripts_dir() -> Path:
+    """Return the user's scripts directory, seeding it with the bundled examples once.
+
+    Existing files are never overwritten: the copy only fills in names that are not already
+    present, so edits made by the user survive upgrades and restarts.
+    """
+    try:
+        SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+        for example in sorted((Path(__file__).parent / "example_scripts").glob("*.txt")):
+            target = SCRIPTS_DIR / example.name
+            if not target.exists():
+                shutil.copy2(example, target)
+                LOGGER.info("Installed example script %s", target)
+    except OSError:
+        LOGGER.exception("Could not prepare the scripts directory %s", SCRIPTS_DIR)
+    return SCRIPTS_DIR
 
 
 class SolarEclipseModel:
@@ -326,6 +375,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.simulator_action = QAction("Simulator", self)
         self.file_action = QAction("File", self)
         self.shutdown_scheduler_action = QAction("Stop", self)
+        self.relay_action = QAction("Relay", self)
         self.datetime_format_action = QAction("Datetime format", self)
         self.save_action = QAction("Save", self)
         self.live_view_action = QAction("Live View", self)
@@ -659,6 +709,13 @@ class SolarEclipseView(QMainWindow, Observable):
         self.shutdown_scheduler_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.shutdown_scheduler_action)
 
+        # Relay trigger
+
+        self.relay_action.setStatusTip("Relay shutter trigger")
+        self.relay_action.setIcon(QIcon(str(ICON_PATH / "settings.png")))
+        self.relay_action.triggered.connect(self.on_toolbar_button_click)
+        self.toolbar.addAction(self.relay_action)
+
         # Date & time format
 
         self.datetime_format_action.setStatusTip("Datetime format")
@@ -919,6 +976,8 @@ class SolarEclipseController(Observer):
         self.eclipse_popup: Union[EclipsePopup, None] = None
         self.simulator_popup: Union[SimulatorPopup, None] = None
         self.settings_popup: Union[SettingsPopup, None] = None
+        self.relay_popup: Union[RelayPopup, None] = None
+        self.relay_trigger: Union[RelayTrigger, None] = None
 
         self.time_display_timer = QTimer()
         self.time_display_timer.timeout.connect(self.update_time)
@@ -947,13 +1006,21 @@ class SolarEclipseController(Observer):
         self.model.local_time = current_time_local
         self.model.utc_time = current_time_utc
 
-        countdown_c1 = self.model.c1_info.time_utc - current_time_utc if self.model.c1_info else None
-        countdown_c2 = self.model.c2_info.time_utc - current_time_utc if self.model.c2_info else None
-        countdown_max = self.model.max_info.time_utc - current_time_utc if self.model.max_info else None
-        countdown_c3 = self.model.c3_info.time_utc - current_time_utc if self.model.c3_info else None
-        countdown_c4 = self.model.c4_info.time_utc - current_time_utc if self.model.c4_info else None
-        countdown_sunrise = self.model.sunrise_info.time_utc - current_time_utc if self.model.sunrise_info else None
-        countdown_sunset = self.model.sunset_info.time_utc - current_time_utc if self.model.sunset_info else None
+        # When simulating, the scheduler has moved every command so that the chosen reference
+        # moment happens now-ish.  The countdowns must follow that same shift, otherwise they
+        # keep showing the real time to the eclipse (days away) while the commands fire.  This
+        # is the offset the eclipse visualization already applies in plot(); zero when not
+        # simulating, so the normal case is unaffected.
+        offset = getattr(self.view.eclipse_visualization, 'offset', datetime.timedelta(0))
+        reference_now = current_time_utc + offset
+
+        countdown_c1 = self.model.c1_info.time_utc - reference_now if self.model.c1_info else None
+        countdown_c2 = self.model.c2_info.time_utc - reference_now if self.model.c2_info else None
+        countdown_max = self.model.max_info.time_utc - reference_now if self.model.max_info else None
+        countdown_c3 = self.model.c3_info.time_utc - reference_now if self.model.c3_info else None
+        countdown_c4 = self.model.c4_info.time_utc - reference_now if self.model.c4_info else None
+        countdown_sunrise = self.model.sunrise_info.time_utc - reference_now if self.model.sunrise_info else None
+        countdown_sunset = self.model.sunset_info.time_utc - reference_now if self.model.sunset_info else None
 
         self.view.update_time(current_time_local, current_time_utc, countdown_c1, countdown_c2, countdown_max,
                               countdown_c3, countdown_c4, countdown_sunrise, countdown_sunset)
@@ -967,7 +1034,7 @@ class SolarEclipseController(Observer):
             in_totality = (
                 c2 is not None
                 and c3 is not None
-                and (c2.time_utc - _MARGIN) <= current_time_utc <= (c3.time_utc + _MARGIN)
+                and (c2.time_utc - _MARGIN) <= reference_now <= (c3.time_utc + _MARGIN)
             )
             self._live_view_window.set_totality_paused(in_totality)
 
@@ -1089,11 +1156,20 @@ class SolarEclipseController(Observer):
 
             return
 
+        elif isinstance(changed_object, RelayPopup):
+            # Connection state already lives on the controller; nothing more to do.
+            return
+
         elif isinstance(changed_object, QCloseEvent):
 
             if self._live_view_window is not None:
                 self._live_view_window.close()
                 self._live_view_window = None
+
+            if self.relay_trigger is not None:
+                self.relay_trigger.close()
+                self.relay_trigger = None
+                register_hardware('relay', None)
 
             if self.model.camera_overview.camera_overview_dict:
                 cameras = self.model.camera_overview.camera_overview_dict.values()
@@ -1218,12 +1294,26 @@ class SolarEclipseController(Observer):
             self.simulator_popup = SimulatorPopup(self)
             self.simulator_popup.show()
 
+        elif text == "Relay":
+            self.relay_popup = RelayPopup(self)
+            self.relay_popup.show()
+
         elif text == "File":
-            filename, _ = QFileDialog.getOpenFileName(None, "QFileDialog.getOpenFileName()", "",
-                                                      "All Files (*);;Python Files (*.py);;Text Files (*.txt)")
+            # Start in the directory the user picked last time, falling back to their own
+            # scripts directory (seeded with the bundled examples on first run).
+            settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
+                                 QSettings.Format.IniFormat)
+            start_dir = settings.value("last_script_dir", "")
+            if not start_dir or not os.path.isdir(start_dir):
+                start_dir = str(get_scripts_dir())
+
+            filename, _ = QFileDialog.getOpenFileName(None, "Load script", start_dir,
+                                                      "Script Files (*.txt);;All Files (*);;Python Files (*.py)")
 
             if not filename:
                 return  # user cancelled the dialog
+
+            settings.setValue("last_script_dir", os.path.dirname(filename))
 
             if not self.model.reference_moments:
                 QMessageBox.warning(
@@ -1245,6 +1335,14 @@ class SolarEclipseController(Observer):
                     f"The selected file does not exist:\n{filename}"
                 )
                 return
+
+            # Loading a script always starts a *new* scheduler, so any scheduler from a
+            # previously loaded script must be stopped first — otherwise both stay alive and
+            # every command fires twice.  This is what previously made a restart necessary to
+            # pick up an edited script.
+            if self.scheduler:
+                LOGGER.info("Replacing the previously loaded script")
+                self._shutdown_scheduler()
 
             try:
                 from solareclipseworkbench.utils import observe_solar_eclipse
@@ -1882,6 +1980,174 @@ class SimulatorPopup(QWidget, Observable):
         self.close()
 
 
+class RelayPopup(QWidget, Observable):
+
+    def __init__(self, observer: 'SolarEclipseController'):
+        """ Panel to connect, configure, and test the USB relay shutter trigger.
+
+        The connected trigger is registered with the hardware registry, so
+        relay_shoot / relay_burst / relay_bulb commands in an eclipse script
+        find it when they fire.
+
+        Args:
+            - observer: SolarEclipseController that needs to be notified when the
+                        relay is connected or disconnected
+        """
+
+        QWidget.__init__(self)
+        self.setWindowTitle("Relay shutter trigger")
+        self.setGeometry(QRect(100, 100, 420, 220))
+        self.add_observer(observer)
+        self.controller = observer
+
+        settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"), QSettings.Format.IniFormat)
+
+        layout = QVBoxLayout()
+
+        # Connection
+
+        connection_group_box = QGroupBox("Connection")
+        connection_layout = QGridLayout()
+
+        connection_layout.addWidget(QLabel("Backend"), 0, 0)
+        self.backend_combobox = QComboBox()
+        self.backend_combobox.addItem("auto")
+        for backend in list_backends():
+            self.backend_combobox.addItem(backend.name)
+            self.backend_combobox.setItemData(self.backend_combobox.count() - 1,
+                                              backend.description, Qt.ItemDataRole.ToolTipRole)
+        self.backend_combobox.setCurrentText(settings.value("relay/backend", "auto", type=str))
+        connection_layout.addWidget(self.backend_combobox, 0, 1)
+
+        connection_layout.addWidget(QLabel("Port"), 1, 0)
+        self.port_combobox = QComboBox()
+        self.port_combobox.setEditable(True)
+        connection_layout.addWidget(self.port_combobox, 1, 1)
+        scan_button = QPushButton("Scan")
+        scan_button.clicked.connect(self.scan_ports)
+        connection_layout.addWidget(scan_button, 1, 2)
+
+        self.connect_button = QPushButton("Connect")
+        self.connect_button.clicked.connect(self.connect_or_disconnect)
+        connection_layout.addWidget(self.connect_button, 0, 2)
+
+        connection_group_box.setLayout(connection_layout)
+        layout.addWidget(connection_group_box)
+
+        # Wiring
+
+        wiring_group_box = QGroupBox("Wiring")
+        wiring_layout = QGridLayout()
+
+        wiring_layout.addWidget(QLabel("Shutter (S2) channel"), 0, 0)
+        self.s2_channel = QLineEdit(settings.value("relay/s2_channel", "1", type=str))
+        self.s2_channel.setValidator(QIntValidator(1, 64))
+        wiring_layout.addWidget(self.s2_channel, 0, 1)
+
+        self.s1_checkbox = QCheckBox("Half-press (S1) on its own channel")
+        self.s1_checkbox.setChecked(settings.value("relay/s1_enabled", False, type=bool))
+        wiring_layout.addWidget(self.s1_checkbox, 1, 0)
+        self.s1_channel = QLineEdit(settings.value("relay/s1_channel", "2", type=str))
+        self.s1_channel.setValidator(QIntValidator(1, 64))
+        wiring_layout.addWidget(self.s1_channel, 1, 1)
+
+        wiring_group_box.setLayout(wiring_layout)
+        layout.addWidget(wiring_group_box)
+
+        # Test & status
+
+        test_layout = QHBoxLayout()
+        self.test_button = QPushButton("Test fire")
+        self.test_button.clicked.connect(self.test_fire)
+        test_layout.addWidget(self.test_button)
+        self.release_button = QPushButton("Release contacts")
+        self.release_button.clicked.connect(self.release_contacts)
+        test_layout.addWidget(self.release_button)
+        layout.addLayout(test_layout)
+
+        self.status_label = QLabel()
+        layout.addWidget(self.status_label)
+
+        self.setLayout(layout)
+
+        self.scan_ports()
+        saved_port = settings.value("relay/port", "", type=str)
+        if saved_port:
+            self.port_combobox.setCurrentText(saved_port)
+        self.show_state()
+
+    def scan_ports(self):
+        """ Repopulate the port list from relay discovery, keeping any typed text. """
+
+        typed = self.port_combobox.currentText()
+        self.port_combobox.clear()
+        for candidate in discover_relays():
+            self.port_combobox.addItem(candidate.target)
+            self.port_combobox.setItemData(self.port_combobox.count() - 1,
+                                           candidate.description, Qt.ItemDataRole.ToolTipRole)
+        if typed:
+            self.port_combobox.setCurrentText(typed)
+
+    def show_state(self):
+        """ Reflect the connection state in the buttons and status label. """
+
+        trigger = self.controller.relay_trigger
+        connected = trigger is not None
+        self.connect_button.setText("Disconnect" if connected else "Connect")
+        self.test_button.setEnabled(connected)
+        self.release_button.setEnabled(connected)
+        self.status_label.setText(trigger.describe() if connected else "Not connected")
+
+    def connect_or_disconnect(self):
+        """ Open the configured relay and register it, or close the open one. """
+
+        if self.controller.relay_trigger is not None:
+            self.controller.relay_trigger.close()
+            self.controller.relay_trigger = None
+            register_hardware('relay', None)
+            self.show_state()
+            self.notify_observers(self)
+            return
+
+        kind = self.backend_combobox.currentText()
+        port = self.port_combobox.currentText().strip() or None
+        s2 = int(self.s2_channel.text() or "1")
+        s1 = int(self.s1_channel.text() or "2") if self.s1_checkbox.isChecked() else None
+
+        try:
+            backend = make_backend(kind, port)
+            trigger = RelayTrigger(backend, Wiring(s2_channel=s2, s1_channel=s1))
+        except RelayError as exc:
+            QMessageBox.warning(self, "Relay", str(exc))
+            return
+
+        self.controller.relay_trigger = trigger
+        register_hardware('relay', trigger)
+
+        settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"), QSettings.Format.IniFormat)
+        settings.setValue("relay/backend", kind)
+        settings.setValue("relay/port", port or "")
+        settings.setValue("relay/s2_channel", str(s2))
+        settings.setValue("relay/s1_enabled", self.s1_checkbox.isChecked())
+        settings.setValue("relay/s1_channel", self.s1_channel.text() or "2")
+
+        self.show_state()
+        self.notify_observers(self)
+
+    def test_fire(self):
+        """ One frame through the relay — bench check, lens cap on. """
+
+        try:
+            self.controller.relay_trigger.shoot()
+        except RelayError as exc:
+            QMessageBox.warning(self, "Relay", str(exc))
+
+    def release_contacts(self):
+        """ Force every contact open — the panic button. """
+
+        self.controller.relay_trigger.release_all()
+
+
 class SettingsPopup(QWidget, Observable):
 
     def __init__(self, observer: SolarEclipseController):
@@ -2318,6 +2584,90 @@ class EclipsePlotWidget(QtWidgets.QWidget):
     #         self.ax.text(x, y, label, ha="center", va="center", fontsize=10, color="dimgray")
 
 
+# Minimum per-pixel gradient (in 8-bit levels) for an edge to count as "in focus" for
+# peaking.  Set by how a defocused edge behaves: the same brightness step smeared over more
+# pixels yields a proportionally smaller gradient, so this is effectively "the edge must
+# rise by at least this much per pixel".
+_PEAKING_MIN_GRADIENT = 30.0
+
+
+def qimage_to_gray_array(image: QImage) -> np.ndarray:
+    """Return *image* as a 2-D uint8 luminance array.
+
+    Each scan line in a QImage is padded to a 4-byte boundary, so the raw buffer is wider
+    than the image; the padding columns are trimmed before returning.
+    """
+    grayscale = image.convertToFormat(QImage.Format.Format_Grayscale8)
+    width, height = grayscale.width(), grayscale.height()
+    bits = grayscale.constBits()
+    bits.setsize(grayscale.sizeInBytes())
+    return np.frombuffer(bits, np.uint8).reshape(height, grayscale.bytesPerLine())[:, :width]
+
+
+def focus_score(gray: np.ndarray) -> float:
+    """Return a sharpness score for *gray*: the variance of its Laplacian.
+
+    Higher is sharper.  The absolute value is meaningless on its own — it depends on the
+    subject, the exposure and the zoom level — so the UI shows it against the best value
+    seen since the last reset, which is what makes it usable for finding best focus.
+    """
+    if gray.size == 0 or gray.shape[0] < 3 or gray.shape[1] < 3:
+        return 0.0
+    values = gray.astype(np.float32)
+    laplacian = (
+        4.0 * values[1:-1, 1:-1]
+        - values[:-2, 1:-1] - values[2:, 1:-1]
+        - values[1:-1, :-2] - values[1:-1, 2:]
+    )
+    return float(laplacian.var())
+
+
+def focus_peaking_overlay(gray: np.ndarray, fraction: float = 0.25) -> Union[QImage, None]:
+    """Build a transparent overlay highlighting the sharpest edges in *gray*.
+
+    Edges are found with a central-difference gradient, and everything within *fraction* of
+    the strongest edge in the frame is marked.  The threshold is relative to the frame's own
+    peak rather than a percentile of all pixels: the subject here is typically a solar disc
+    on empty sky, whose limb occupies well under 2% of the frame, so any percentile-based
+    threshold lands in the blank sky and highlights nothing.
+
+    What to look for while focusing: at best focus the limb is outlined by a thin, tight
+    line.  As focus is lost the same brightness step is smeared over more pixels, so the
+    outline first broadens into a band and then disappears entirely once the edge is softer
+    than the floor below.  The marked area is therefore not a monotonic measure of focus —
+    it is a visual aid, and :func:`focus_score` is the precise instrument.
+
+    Returns None when there is nothing worth drawing.
+    """
+    if gray.size == 0 or gray.shape[0] < 3 or gray.shape[1] < 3:
+        return None
+
+    values = gray.astype(np.float32)
+    gradient_x = np.zeros_like(values)
+    gradient_y = np.zeros_like(values)
+    gradient_x[:, 1:-1] = values[:, 2:] - values[:, :-2]
+    gradient_y[1:-1, :] = values[2:, :] - values[:-2, :]
+    magnitude = np.hypot(gradient_x, gradient_y)
+
+    # Marking has to be earned by genuine local contrast rather than by merely being the
+    # strongest thing present: a purely relative threshold lights up a badly defocused frame
+    # most of all, and marks sensor noise in a blank one.  The floor prevents both, since a
+    # sufficiently defocused edge has a low gradient per pixel however strong the step is.
+    peak = float(magnitude.max())
+    threshold = max(_PEAKING_MIN_GRADIENT, fraction * peak)
+    if peak < threshold:
+        return None
+
+    height, width = gray.shape
+    # Qt's ARGB32 is byte-order BGRA on little-endian machines, which is what all supported
+    # platforms use; the alpha channel is what keeps the un-marked pixels transparent.
+    overlay = np.zeros((height, width, 4), np.uint8)
+    overlay[magnitude >= threshold] = (0, 0, 255, 255)
+    image = QImage(overlay.data, width, height, width * 4, QImage.Format.Format_ARGB32)
+    # Copy so the QImage owns its pixels rather than referencing the local array.
+    return image.copy()
+
+
 class LiveViewWindow(QWidget):
     """Floating window that shows a live-view preview from a gphoto2 camera.
 
@@ -2384,10 +2734,39 @@ class LiveViewWindow(QWidget):
         self._v_slider.setFixedWidth(18)
         self._v_slider.valueChanged.connect(self._on_pan_changed)
 
+        # Focusing aids
+        self._peaking_check = QCheckBox("Peaking")
+        self._peaking_check.setToolTip(
+            "Highlight the sharpest edges in red — the solar limb lights up when in focus."
+        )
+        self._peaking_check.toggled.connect(self._on_overlay_changed)
+
+        self._crosshair_check = QCheckBox("Crosshair")
+        self._crosshair_check.setChecked(True)
+        self._crosshair_check.setToolTip("Show the centring crosshair.")
+        self._crosshair_check.toggled.connect(self._on_overlay_changed)
+
+        # Sharpness readout.  The best value seen so far is what makes this usable: an
+        # absolute focus number means nothing, but "am I above or below my best?" does.
+        self._focus_score: float = 0.0
+        self._best_focus_score: float = 0.0
+        self._focus_label = QLabel("Focus: –")
+        self._focus_label.setToolTip(
+            "Sharpness of the visible area, against the best seen since the last reset.\n"
+            "Turn the focus ring to maximise it; zoom in first for a finer reading."
+        )
+        self._focus_reset_btn = QPushButton("Reset")
+        self._focus_reset_btn.setToolTip("Forget the best sharpness seen so far.")
+        self._focus_reset_btn.clicked.connect(self._on_focus_reset)
+
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(self._toggle_btn)
         btn_layout.addWidget(close_btn)
         btn_layout.addStretch(1)
+        btn_layout.addWidget(self._focus_label)
+        btn_layout.addWidget(self._focus_reset_btn)
+        btn_layout.addWidget(self._peaking_check)
+        btn_layout.addWidget(self._crosshair_check)
         btn_layout.addWidget(QLabel("Zoom:"))
         btn_layout.addWidget(self._zoom_combo)
 
@@ -2519,6 +2898,33 @@ class LiveViewWindow(QWidget):
         if getattr(self, "_last_pixmap", None) is not None:
             self._render_pixmap(self._last_pixmap, getattr(self, "_last_ts", datetime.datetime.now()))
 
+    def _on_overlay_changed(self, _checked: bool):
+        """Re-render with the current overlay settings, without waiting for a new frame."""
+        if getattr(self, "_last_pixmap", None) is not None:
+            self._render_pixmap(self._last_pixmap, getattr(self, "_last_ts", datetime.datetime.now()))
+
+    def _on_focus_reset(self):
+        """Forget the best sharpness seen, e.g. after moving to a different target."""
+        self._best_focus_score = 0.0
+        self._update_focus_label()
+
+    def _update_focus_label(self):
+        """Show the current sharpness relative to the best seen since the last reset."""
+        if self._best_focus_score <= 0.0:
+            self._focus_label.setText("Focus: –")
+            self._focus_label.setStyleSheet("color: gray;")
+            return
+
+        percent = 100.0 * self._focus_score / self._best_focus_score
+        self._focus_label.setText(f"Focus: {self._focus_score:,.0f}  ({percent:.0f}% of best)")
+        if percent >= 99.0:
+            # At or above the best seen — this is the reading to stop turning the ring on.
+            self._focus_label.setStyleSheet("color: green; font-weight: bold;")
+        elif percent >= 85.0:
+            self._focus_label.setStyleSheet("color: #856404;")
+        else:
+            self._focus_label.setStyleSheet("color: gray;")
+
     def _render_pixmap(self, pixmap: QPixmap, ts: datetime.datetime):
         """Render the given QPixmap into the image label respecting zoom and pan.
 
@@ -2578,14 +2984,36 @@ class LiveViewWindow(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             )
 
-        # Draw blue crosshair at the centre of the displayed pixmap
+        # Analyse what is actually on screen, so both the sharpness reading and the peaking
+        # overlay follow the zoom: magnifying a detail gives a far more sensitive reading
+        # than judging the whole frame at once.
+        try:
+            gray = qimage_to_gray_array(disp.toImage())
+        except Exception:
+            LOGGER.debug("Could not analyse live-view frame", exc_info=True)
+            gray = None
+
+        if gray is not None:
+            self._focus_score = focus_score(gray)
+            self._best_focus_score = max(self._best_focus_score, self._focus_score)
+            self._update_focus_label()
+
         w, h = disp.width(), disp.height()
         painter = QPainter(disp)
-        pen = QPen(QColor(0, 120, 255))
-        pen.setWidth(1)
-        painter.setPen(pen)
-        painter.drawLine(0, h // 2, w, h // 2)  # horizontal
-        painter.drawLine(w // 2, 0, w // 2, h)  # vertical
+
+        if gray is not None and self._peaking_check.isChecked():
+            overlay = focus_peaking_overlay(gray)
+            if overlay is not None:
+                painter.drawImage(0, 0, overlay)
+
+        if self._crosshair_check.isChecked():
+            # Blue crosshair at the centre of the displayed pixmap
+            pen = QPen(QColor(0, 120, 255))
+            pen.setWidth(1)
+            painter.setPen(pen)
+            painter.drawLine(0, h // 2, w, h // 2)  # horizontal
+            painter.drawLine(w // 2, 0, w // 2, h)  # vertical
+
         painter.end()
 
         self._image_label.setPixmap(disp)
@@ -2644,6 +3072,7 @@ class CameraOverviewTableColumnNames(Enum):
     """ Enumeration of the column names for the table with the camera overview table. """
 
     CAMERA = "Camera name"
+    MODE = "Mode (shoot/focus)"
     BATTERY_LEVEL = "Battery level [%]"
     FREE_MEMORY_GB = "Free memory [GB]"
     FREE_MEMORY_PERCENTAGE = "Free memory [%]"
@@ -2663,6 +3092,7 @@ class CameraOverviewTableModel(QAbstractTableModel):
         self.on_ready_callback = None
 
         self._data = pd.DataFrame(columns=[CameraOverviewTableColumnNames.CAMERA.value,
+                                           CameraOverviewTableColumnNames.MODE.value,
                                            CameraOverviewTableColumnNames.BATTERY_LEVEL.value,
                                            CameraOverviewTableColumnNames.FREE_MEMORY_GB.value,
                                            CameraOverviewTableColumnNames.FREE_MEMORY_PERCENTAGE.value])
@@ -2762,13 +3192,14 @@ class CameraOverviewTableModel(QAbstractTableModel):
                     else:
                         free_space_gb_str = str(free_space_gb)
                         free_space_pct_str = str(int(free_space_gb / total_space * 100))
-                    data.append([camera_name, str(battery_level), free_space_gb_str, free_space_pct_str])
+                    data.append([camera_name, _describe_camera_mode(camera_name, camera),
+                                 str(battery_level), free_space_gb_str, free_space_pct_str])
                 except Exception:
                     logging.exception('Worker: exception while processing camera %s', camera_name)
                     # Preserve the camera row with N/A values when probing fails so
                     # the camera does not disappear from the UI.
                     try:
-                        data.append([camera_name, 'N/A', 'N/A', 'N/A'])
+                        data.append([camera_name, 'N/A', 'N/A', 'N/A', 'N/A'])
                     except Exception:
                         pass
                     continue
@@ -2848,7 +3279,7 @@ class CameraOverviewTableModel(QAbstractTableModel):
                 elif name in prev_map:
                     merged_rows.append(prev_map[name])
                 else:
-                    merged_rows.append([name, 'N/A', 'N/A', 'N/A'])
+                    merged_rows.append([name, 'N/A', 'N/A', 'N/A', 'N/A'])
 
             self.beginResetModel()
             self._data = pd.DataFrame(merged_rows, columns=self._data.columns)

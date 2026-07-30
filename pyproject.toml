@@ -30,6 +30,7 @@ dependencies = [
     "geopy==2.4.1",
     "astropy-iers-data==0.2026.6.22.1.23.34",
     "requests==2.34.2",
+    "qrcode==8.2",
 ]
 
 [project.urls]
@@ -52,6 +53,7 @@ simulator = "solareclipseworkbench.mounts.simulator:SimulatorMount"
 # guarantees stay in RelayTrigger, so they are never reimplemented per board.
 [project.entry-points."solareclipseworkbench.relay_backends"]
 lcus = "solareclipseworkbench.relay_trigger:LcusSerialBackend"
+dsd = "solareclipseworkbench.relay_trigger:DsdSerialBackend"
 numato = "solareclipseworkbench.relay_trigger:NumatoSerialBackend"
 hid = "solareclipseworkbench.relay_trigger:HidRelayBackend"
 simulated = "solareclipseworkbench.relay_trigger:SimulatedBackend"

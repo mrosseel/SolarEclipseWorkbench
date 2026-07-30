@@ -10,6 +10,9 @@ from solareclipseworkbench import relay_shoot, relay_burst, relay_bulb
 from solareclipseworkbench import mount_track_sun, mount_goto_sun, mount_tracking, mount_park, mount_unpark, mount_stop
 from solareclipseworkbench.camera import CameraSettings
 from solareclipseworkbench.gui import SolarEclipseController
+# The registry lives in its own module so the GUI can reach it without
+# importing this one (which imports the GUI).  Re-exported for existing callers.
+from solareclipseworkbench.hardware_registry import HARDWARE, register_hardware
 from solareclipseworkbench.solar_eclipse import get_solar_eclipses
 
 COMMANDS = {
@@ -45,22 +48,6 @@ HARDWARE_COMMANDS = {
     'mount_stop': 'mount',
 }
 
-# Devices opened by the GUI or the CLI, looked up when a command is scheduled.
-HARDWARE: dict = {}
-
-
-def register_hardware(kind: str, device) -> None:
-    """Make a relay trigger or mount available to scheduled commands.
-
-    Pass None to unregister, so a disconnected device does not leave scheduled
-    commands pointing at a dead handle.
-    """
-    if device is None:
-        HARDWARE.pop(kind, None)
-        logging.info("Unregistered %s", kind)
-    else:
-        HARDWARE[kind] = device
-        logging.info("Registered %s: %s", kind, getattr(device, 'describe', lambda: device)())
 
 
 def calculate_next_solar_eclipses(count: int) -> list:
