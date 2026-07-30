@@ -504,9 +504,19 @@ def _raise_camera_init_error(camera_name: str, error: Exception) -> None:
       Sony cameras must also have **PC Remote** mode enabled on the camera itself:
       Menu → Network → PC Remote Settings → PC Remote → On.
 
-    * **macOS**: ``ptpcamerad`` / ``PTPCamera`` grabs the device immediately.  This is
-      handled automatically by :func:`_init_camera_claiming_usb`, which stops the daemon
-      and retries; reaching this message means the retries were exhausted.
+    * **macOS**: the system PTP daemon grabs the device immediately.  This is handled
+      automatically by :func:`_init_camera_claiming_usb`, which stops the daemon and
+      retries, so reaching this message means those retries were exhausted and the
+      daemon has to be dealt with by hand.  Quit Image Capture, Photos and Sony Imaging
+      Edge, then stop it.  It is called ``ptpcamerad`` on macOS 13 and later and
+      ``PTPCamera`` on older releases; the binary does not exist under the old name on
+      current systems, so kill both::
+
+          pkill -9 ptpcamerad; pkill -9 PTPCamera
+
+      The daemon runs as the logged-in user, so no privileges are needed.  launchd
+      restarts it on demand, but once gphoto2 holds the interface it cannot be taken
+      back.
 
     * **Linux**: A stale gphoto2 process or gvfs-gphoto2-volume-monitor may hold the
       device.  Check with ``gphoto2 --auto-detect`` and kill conflicting processes.
@@ -522,8 +532,9 @@ def _raise_camera_init_error(camera_name: str, error: Exception) -> None:
             f"Cannot claim USB device for '{camera_name}' (gphoto2 error -53 — device busy).\n"
             "On Windows/WSL: run Zadig on the Windows host, select the camera, switch the\n"
             "driver to WinUSB, then re-run: usbipd detach && usbipd attach --wsl.\n"
-            "On macOS: ptpcamerad was stopped and the claim retried automatically; if this\n"
-            "persists, quit Image Capture / Photos / Sony Imaging Edge and re-plug the camera.\n"
+            "On macOS: the PTP daemon was stopped and the claim retried automatically, so\n"
+            "stop it by hand: quit Image Capture / Photos / Sony Imaging Edge, then run\n"
+            "pkill -9 ptpcamerad  (older macOS: pkill -9 PTPCamera) and re-plug the camera.\n"
             "On Linux: check for conflicting processes with: gphoto2 --auto-detect"
             + sony_note
         ) from error
