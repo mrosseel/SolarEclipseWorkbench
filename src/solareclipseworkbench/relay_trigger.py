@@ -37,6 +37,7 @@ import serial
 import serial.tools.list_ports
 
 from solareclipseworkbench.discovery import Candidate
+from solareclipseworkbench.serial_ports import usb_serial_ports
 
 try:
     import hid
@@ -238,9 +239,7 @@ class LcusSerialBackend(Backend):
         confirm one is to pulse a channel and listen for the click.
         """
         candidates = []
-        for port in serial.tools.list_ports.comports():
-            if port.vid is None:
-                continue
+        for port in usb_serial_ports():
             description = port.description or "USB serial"
             if "numato" in description.lower():
                 continue
@@ -294,7 +293,7 @@ class NumatoSerialBackend(Backend):
         return [
             Candidate(kind="relay", driver=cls.name, target=port.device,
                       description=port.description or "Numato", config={"port": port.device})
-            for port in serial.tools.list_ports.comports()
+            for port in usb_serial_ports()
             if (port.vid, port.pid) == (0x2A19, 0x0C01)
             or "numato" in (port.description or "").lower()
         ]

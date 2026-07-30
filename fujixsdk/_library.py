@@ -44,6 +44,13 @@ def find_library(sdk_path: str | Path) -> Path:
         bundle_path = sdk_path / "XAPI.bundle" / "Contents" / "MacOS" / "XAPI"
         if bundle_path.exists():
             return bundle_path
+        # The redistributables live several levels down (REDISTRIBUTABLES/macOS/
+        # SDK_nnnnn/), so callers normally pass the SDK root rather than the
+        # directory holding the bundle.
+        for bundle in sorted(sdk_path.rglob("XAPI.bundle")):
+            binary = bundle / "Contents" / "MacOS" / "XAPI"
+            if binary.exists():
+                return binary
     elif system == "Windows":
         candidates = ["XAPI.dll"]
     else:
@@ -78,9 +85,11 @@ def find_model_libraries(sdk_path: str | Path) -> list[Path]:
         ext = ".so"
         return sorted(p for p in sdk_path.rglob(f"*API{ext}") if p.name != f"XAPI{ext}")
     elif system == "Darwin":
-        # macOS uses .bundle directories; the binary is inside Contents/MacOS/
+        # macOS uses .bundle directories; the binary is inside Contents/MacOS/.
+        # Recurse, to match the Linux branch: callers pass the SDK root, and the
+        # redistributables sit several levels below it.
         libs = []
-        for bundle in sdk_path.glob("FF*API.bundle"):
+        for bundle in sdk_path.rglob("FF*API.bundle"):
             binary = bundle / "Contents" / "MacOS" / bundle.stem
             if binary.exists():
                 libs.append(binary)

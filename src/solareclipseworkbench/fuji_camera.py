@@ -503,13 +503,27 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
 # SDK path resolution
 # ======================================================================
 
+def _sdk_marker() -> str:
+    """The name of the SDK's main library on this platform.
+
+    Linux ships XAPI.so, Windows XAPI.dll, and macOS a XAPI.bundle directory —
+    so searching for the Linux name alone finds nothing on a Mac.
+    """
+    system = platform.system()
+    if system == "Darwin":
+        return "XAPI.bundle"
+    if system == "Windows":
+        return "XAPI.dll"
+    return "XAPI.so"
+
+
 def find_fuji_sdk_path() -> Optional[str]:
     """Find the Fuji SDK library path.
 
     Checks in order:
     1. FUJI_SDK_PATH environment variable
     2. ConfigManager fuji_sdk_path setting (if available)
-    3. Auto-detect: look for SDK dirs containing XAPI.so
+    3. Auto-detect: look for SDK dirs containing the platform's XAPI library
     """
     # 1. Environment variable
     env_path = os.environ.get('FUJI_SDK_PATH')
@@ -546,15 +560,16 @@ def find_fuji_sdk_path() -> Optional[str]:
     except Exception:
         pass
 
+    marker = _sdk_marker()
     for base in search_dirs:
         if not base.is_dir():
             continue
         # Look for SDK* dirs containing the shared lib
         for sdk_dir in sorted(base.glob("SDK*")):
-            if sdk_dir.is_dir() and list(sdk_dir.glob("**/XAPI.so")):
+            if sdk_dir.is_dir() and list(sdk_dir.glob(f"**/{marker}")):
                 return str(sdk_dir)
         # Or the base dir itself
-        if list(base.glob("**/XAPI.so")):
+        if list(base.glob(f"**/{marker}")):
             return str(base)
 
     return None

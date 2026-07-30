@@ -41,6 +41,7 @@ from solareclipseworkbench.mounts.base import (
     parse_ra,
 )
 from solareclipseworkbench.mounts import register_driver
+from solareclipseworkbench.serial_ports import usb_serial_ports
 
 logger = logging.getLogger(__name__)
 
@@ -385,7 +386,7 @@ class OnStepXMount(MountDriver):
             Candidate(kind="mount", driver=cls.name, target=p.device,
                       description=p.description or "USB serial",
                       config={"port": p.device})
-            for p in serial.tools.list_ports.comports() if p.vid is not None
+            for p in usb_serial_ports()
         ]
 
     # ------------------------------------------------------------ connection
