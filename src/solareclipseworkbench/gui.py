@@ -1344,6 +1344,13 @@ class SolarEclipseController(Observer):
                 LOGGER.info("Replacing the previously loaded script")
                 self._shutdown_scheduler()
 
+            # Loading a script always starts a *new* scheduler, so any scheduler from a
+            # previously loaded script must be stopped first — otherwise both stay alive and
+            # every command fires twice.
+            if self.scheduler:
+                LOGGER.info("Replacing the previously loaded script")
+                self._shutdown_scheduler()
+
             try:
                 from solareclipseworkbench.utils import observe_solar_eclipse
                 self.scheduler: BackgroundScheduler \
