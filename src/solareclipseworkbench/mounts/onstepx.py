@@ -382,7 +382,7 @@ class OnStepXMount(MountDriver):
     def discover(cls) -> list:
         """Every USB serial port, as a candidate worth probing."""
         return [
-            Candidate(driver=cls.name, target=p.device,
+            Candidate(kind="mount", driver=cls.name, target=p.device,
                       description=p.description or "USB serial",
                       config={"port": p.device})
             for p in serial.tools.list_ports.comports() if p.vid is not None

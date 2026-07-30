@@ -45,7 +45,8 @@ General
   quit / exit                   release contacts and leave
 
 Relay trigger
-  relay connect [port] [kind]   open the relay (kind: auto|lcus|numato|hid|simulated)
+  relay backends                list installed relay backends
+  relay connect [port] [kind]   open the relay (kind: auto, or see 'relay backends')
   relay wiring <s2> [s1]        set channels; omit s1 for single-channel wiring
   relay idle                    verify all contacts open, and stay open for 3 s
   relay close <ch>              close one channel and leave it closed
@@ -106,16 +107,24 @@ class Console:
     # ------------------------------------------------------------------ general
 
     def cmd_scan(self, args) -> None:
-        self.out("USB serial ports:")
-        ports = relay_mod.find_relay_ports()
-        if not ports:
-            self.out("  (none found)")
-        for device, description in ports:
-            self.out(f"  {device:<20} {description}")
+        """Everything every driver and backend thinks it might be able to talk to."""
+        candidates = mount_mod.discover_mounts() + relay_mod.discover_relays()
+        if not candidates:
+            self.out("Nothing found.  Connect the hardware, or use --simulate.")
+            return
+
+        by_kind: dict = {}
+        for candidate in candidates:
+            by_kind.setdefault(candidate.kind, []).append(candidate)
+
+        for kind in sorted(by_kind):
+            self.out(f"{kind}:")
+            for candidate in by_kind[kind]:
+                self.out(f"  {candidate.target:<20} {candidate.driver:<10} {candidate.description}")
         self.out()
-        self.out("Any of these could be the relay or the mount.  'mount probe <port>'")
-        self.out("identifies a controller; a relay board answers nothing, so map it by")
-        self.out("pulsing channels and listening for the click.")
+        self.out("The same port often appears under both — a USB serial adapter is a reason")
+        self.out("to probe, not proof of what is behind it.  'mount probe <port>' identifies a")
+        self.out("controller; a relay answers nothing, so map it by pulsing and listening.")
 
     def cmd_status(self, args) -> None:
         if self.trigger is None:
@@ -148,6 +157,11 @@ class Console:
             self.out(f"Unknown relay subcommand: {sub}")
             return
         handler(rest)
+
+    def _relay_backends(self, args) -> None:
+        self.out("Installed relay backends:")
+        for backend in relay_mod.list_backends():
+            self.out(f"  {backend.name:<12} {backend.description or backend.__doc__.splitlines()[0]}")
 
     def _relay_connect(self, args) -> None:
         port = args[0] if args else None

@@ -19,6 +19,8 @@ from typing import Optional, Tuple
 
 from skyfield.api import load
 
+from solareclipseworkbench.discovery import Candidate
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,23 +96,6 @@ class MountStatus:
         if self.pier_side != "none":
             bits.append(f"pier {self.pier_side}")
         return ", ".join(bits)
-
-
-@dataclass
-class Candidate:
-    """A place a driver thinks one of its mounts might be.
-
-    Returned by :meth:`MountDriver.discover` so the console can offer a list
-    rather than making the user guess a device path.
-    """
-
-    driver: str
-    target: str
-    description: str = ""
-    config: dict = field(default_factory=dict)
-
-    def __str__(self) -> str:
-        return f"{self.driver}: {self.target}" + (f" ({self.description})" if self.description else "")
 
 
 class MountDriver(ABC):

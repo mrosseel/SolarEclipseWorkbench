@@ -28,11 +28,14 @@ import time
 import weakref
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from importlib.metadata import entry_points
 from typing import Optional
 
 import serial
 import serial.tools.list_ports
+
+from solareclipseworkbench.discovery import Candidate
 
 try:
     import hid
@@ -40,6 +43,8 @@ except ImportError:
     hid = None
 
 logger = logging.getLogger(__name__)
+
+ENTRY_POINT_GROUP = "solareclipseworkbench.relay_backends"
 
 # Time to let the camera wake and meter after S1 closes, before S2 is asserted.
 # Below roughly 100 ms the first frame of a sequence arrives late or not at all.
@@ -103,9 +108,29 @@ class Event:
 
 
 class Backend(ABC):
-    """A USB relay board.  Channels are 1-based throughout."""
+    """A USB relay board.  Channels are 1-based throughout.
 
+    A backend supplies only the two primitives: close a contact, open a contact.
+    Everything above that — settle timing, pulse width, burst, bulb, and the
+    guarantee that contacts are released on the way out — belongs to
+    :class:`RelayTrigger` and is deliberately not reimplemented per board.  A
+    held contact through totality is unrecoverable, so that logic lives in one
+    place.
+    """
+
+    #: Short identifier used in configuration and on the command line.
     name = "backend"
+    #: One line describing the hardware this backend speaks to.
+    description = ""
+
+    @classmethod
+    def discover(cls) -> list:
+        """Places one of these boards might be.
+
+        Default is none, which is right for backends needing an explicit
+        address.  Being listed is a hint to probe, never proof.
+        """
+        return []
 
     @abstractmethod
     def set_channel(self, channel: int, closed: bool) -> None:
@@ -119,6 +144,80 @@ class Backend(ABC):
         """Release the underlying device."""
 
 
+_backend_registry: dict = {}
+_backends_discovered = False
+
+
+def register_backend(backend_class):
+    """Register a relay backend.  Usable as a decorator."""
+    if not issubclass(backend_class, Backend):
+        raise TypeError(f"{backend_class!r} is not a Backend")
+    if not backend_class.name or backend_class.name == "backend":
+        raise ValueError(f"{backend_class!r} must set its own 'name'")
+    if (backend_class.name in _backend_registry
+            and _backend_registry[backend_class.name] is not backend_class):
+        logger.warning("Relay backend %r is being replaced by %r", backend_class.name, backend_class)
+    _backend_registry[backend_class.name] = backend_class
+    logger.debug("Registered relay backend: %s", backend_class.name)
+    return backend_class
+
+
+def discover_backends(force: bool = False) -> dict:
+    """Load backends published by other packages, and return the registry.
+
+    Built-in backends register themselves when this module is imported; this
+    adds any supplied through the entry point group.
+    """
+    global _backends_discovered
+    if _backends_discovered and not force:
+        return dict(_backend_registry)
+    try:
+        points = entry_points(group=ENTRY_POINT_GROUP)
+    except TypeError:
+        # Older importlib.metadata returns a dict keyed by group.
+        points = entry_points().get(ENTRY_POINT_GROUP, [])
+    for point in points:
+        try:
+            loaded = point.load()
+            if isinstance(loaded, type) and issubclass(loaded, Backend):
+                register_backend(loaded)
+            else:
+                logger.warning("Entry point %r did not provide a relay Backend", point.name)
+        except Exception:
+            # One broken plugin must not stop the rest from loading.
+            logger.warning("Could not load relay backend plugin %r", point.name, exc_info=True)
+    _backends_discovered = True
+    return dict(_backend_registry)
+
+
+def list_backends() -> list:
+    """Every registered backend class, sorted by name."""
+    return [_backend_registry[name] for name in sorted(discover_backends())]
+
+
+def get_backend(name: str):
+    """Look up one backend class by name."""
+    backends = discover_backends()
+    try:
+        return backends[name]
+    except KeyError:
+        available = ", ".join(sorted(backends)) or "none"
+        raise RelayError(f"unknown relay backend {name!r} (available: {available})") from None
+
+
+def discover_relays(backend: Optional[str] = None) -> list:
+    """Ask backends where their boards might be."""
+    classes = [get_backend(backend)] if backend else list_backends()
+    candidates = []
+    for backend_class in classes:
+        try:
+            candidates.extend(backend_class.discover())
+        except Exception:
+            logger.debug("Backend %s failed to enumerate", backend_class.name, exc_info=True)
+    return candidates
+
+
+@register_backend
 class LcusSerialBackend(Backend):
     """LCUS-1 / LCUS-2 style boards behind a CH340.
 
@@ -127,6 +226,29 @@ class LcusSerialBackend(Backend):
     """
 
     name = "lcus"
+    description = "LCUS-style serial relay boards (CH340 and similar)"
+
+    @classmethod
+    def discover(cls) -> list:
+        """Any USB serial adapter that is not identifiably something else.
+
+        These boards answer nothing, so they cannot be probed — the only way to
+        confirm one is to pulse a channel and listen for the click.
+        """
+        candidates = []
+        for port in serial.tools.list_ports.comports():
+            if port.vid is None:
+                continue
+            description = port.description or "USB serial"
+            if "numato" in description.lower():
+                continue
+            adapter = KNOWN_SERIAL_ADAPTERS.get((port.vid, port.pid))
+            candidates.append(Candidate(
+                kind="relay", driver=cls.name, target=port.device,
+                description=f"{adapter} — {description}" if adapter else description,
+                config={"port": port.device},
+            ))
+        return candidates
 
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 0.2):
         self.port = port
@@ -154,6 +276,7 @@ class LcusSerialBackend(Backend):
             logger.debug("Error closing relay serial port", exc_info=True)
 
 
+@register_backend
 class NumatoSerialBackend(Backend):
     """Numato Lab USB relay boards, which take plain-text commands.
 
@@ -162,6 +285,17 @@ class NumatoSerialBackend(Backend):
     """
 
     name = "numato"
+    description = "Numato Lab USB relay boards"
+
+    @classmethod
+    def discover(cls) -> list:
+        return [
+            Candidate(kind="relay", driver=cls.name, target=port.device,
+                      description=port.description or "Numato", config={"port": port.device})
+            for port in serial.tools.list_ports.comports()
+            if (port.vid, port.pid) == (0x2A19, 0x0C01)
+            or "numato" in (port.description or "").lower()
+        ]
 
     def __init__(self, port: str, baudrate: int = 19200, timeout: float = 0.2):
         self.port = port
@@ -189,10 +323,30 @@ class NumatoSerialBackend(Backend):
             logger.debug("Error closing relay serial port", exc_info=True)
 
 
+@register_backend
 class HidRelayBackend(Backend):
     """dcttech-style HID relay boards, which expose no serial port."""
 
     name = "hid"
+    description = "dcttech-style HID relay boards (USBRelay1/2/4)"
+
+    @classmethod
+    def discover(cls) -> list:
+        if hid is None:
+            return []
+        candidates = []
+        try:
+            for device in hid.enumerate():
+                if (device.get("vendor_id"), device.get("product_id")) in HID_RELAY_IDS:
+                    candidates.append(Candidate(
+                        kind="relay", driver=cls.name,
+                        target=f"{device['vendor_id']:04x}:{device['product_id']:04x}",
+                        description=device.get("product_string") or "HID relay",
+                        config={"vendor_id": device["vendor_id"], "product_id": device["product_id"]},
+                    ))
+        except Exception:
+            logger.debug("HID enumeration failed", exc_info=True)
+        return candidates
 
     def __init__(self, vendor_id: int = 0x16C0, product_id: int = 0x05DF):
         if hid is None:
@@ -221,6 +375,7 @@ class HidRelayBackend(Backend):
             logger.debug("Error closing HID relay", exc_info=True)
 
 
+@register_backend
 class SimulatedBackend(Backend):
     """Stand-in for a real board, for rehearsing scripts with no hardware.
 
@@ -229,8 +384,18 @@ class SimulatedBackend(Backend):
     """
 
     name = "simulated"
+    description = "Software-only relay, for rehearsing with no hardware connected"
 
-    def __init__(self, latency_s: float = 0.006):
+    @classmethod
+    def discover(cls) -> list:
+        # Never offered by discovery: selecting a simulated trigger has to be a
+        # deliberate choice, or a real board could be silently replaced by one
+        # and a script would appear to run while firing nothing.
+        return []
+
+    def __init__(self, latency_s: float = 0.006, **config):
+        # Tolerates the same keyword arguments as the real backends, so a
+        # configuration can be pointed at the simulator without editing it.
         self.latency_s = latency_s
         self.state: dict = {}
 
@@ -243,70 +408,39 @@ class SimulatedBackend(Backend):
         return "simulated relay (no hardware)"
 
 
-def find_relay_ports() -> list:
-    """Serial ports that look like a relay board.
+def make_backend(kind: str = "auto", port: Optional[str] = None, **config) -> Backend:
+    """Build a backend by name, or find one.
 
-    Returns a list of (device, description) tuples, best guesses first.  A USB
-    serial adapter is not proof of a relay — it is a starting point for the bench
-    console to probe.
+    With an explicit ``kind`` the named backend is used.  With ``auto`` every
+    backend is asked where its boards might be and the first that opens wins.
     """
-    candidates = []
-    for port in serial.tools.list_ports.comports():
-        ident = (port.vid, port.pid)
-        if ident in KNOWN_SERIAL_ADAPTERS:
-            candidates.append((port.device, f"{KNOWN_SERIAL_ADAPTERS[ident]} — {port.description}"))
-        elif port.vid is not None:
-            candidates.append((port.device, port.description or "unknown USB serial"))
-    return candidates
+    kind = (kind or "auto").lower()
 
-
-def make_backend(kind: str = "auto", port: Optional[str] = None) -> Backend:
-    """Build a backend by name, or guess one.
-
-    ``kind`` is one of auto, lcus, numato, hid, simulated.  Guessing prefers a
-    Numato board when the adapter identifies as one, an LCUS board on any other
-    USB serial adapter, and an HID board when no serial port is present.
-    """
-    kind = kind.lower()
-
-    if kind == "simulated":
-        return SimulatedBackend()
-    if kind == "lcus":
-        return LcusSerialBackend(port or _require_single_port())
-    if kind == "numato":
-        return NumatoSerialBackend(port or _require_single_port())
-    if kind == "hid":
-        return HidRelayBackend()
     if kind != "auto":
-        raise RelayError(f"unknown relay backend: {kind}")
+        backend_class = get_backend(kind)
+        if port:
+            config.setdefault("port", port)
+        return backend_class(**config)
 
     if port:
-        return LcusSerialBackend(port)
+        # A bare port with no backend named is the common case, and LCUS is the
+        # protocol the cheap boards speak.
+        return get_backend("lcus")(port=port, **config)
 
-    ports = find_relay_ports()
-    if ports:
-        device, description = ports[0]
-        if "numato" in description.lower():
-            return NumatoSerialBackend(device)
-        return LcusSerialBackend(device)
+    errors = []
+    for candidate in discover_relays():
+        merged = dict(candidate.config)
+        merged.update(config)
+        try:
+            return get_backend(candidate.driver)(**merged)
+        except RelayError as exc:
+            errors.append(f"{candidate}: {exc}")
 
-    if hid is not None:
-        for vid, pid in HID_RELAY_IDS:
-            try:
-                return HidRelayBackend(vid, pid)
-            except RelayError:
-                continue
-
+    detail = ("  " + "\n  ".join(errors)) if errors else "  (nothing found to try)"
     raise RelayError(
-        "no relay found — pass an explicit port, or use the simulated backend to rehearse without hardware"
+        "no relay could be opened.  Tried:\n" + detail +
+        "\nPass an explicit port, or use the 'simulated' backend to rehearse without hardware."
     )
-
-
-def _require_single_port() -> str:
-    ports = find_relay_ports()
-    if not ports:
-        raise RelayError("no USB serial ports found")
-    return ports[0][0]
 
 
 # Every live trigger, so the interpreter can release contacts on the way out.

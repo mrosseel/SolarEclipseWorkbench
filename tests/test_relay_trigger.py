@@ -1,10 +1,17 @@
 import pytest
 
 from solareclipseworkbench.relay_trigger import (
+    Backend,
     RelayError,
     RelayTrigger,
     SimulatedBackend,
     Wiring,
+    discover_backends,
+    discover_relays,
+    get_backend,
+    list_backends,
+    make_backend,
+    register_backend,
     relay_bulb,
     relay_burst,
 )
@@ -136,3 +143,67 @@ def test_timing_sample_reports_a_spread():
     assert stats["samples"] == 5
     assert stats["max_ms"] >= stats["min_ms"]
     assert stats["spread_ms"] == pytest.approx(stats["max_ms"] - stats["min_ms"])
+
+
+# ------------------------------------------------------------ backend registry
+
+
+def test_builtin_backends_are_registered():
+    backends = discover_backends()
+
+    assert {"lcus", "numato", "hid", "simulated"} <= set(backends)
+
+
+def test_get_backend_reports_what_is_available_when_the_name_is_wrong():
+    with pytest.raises(RelayError, match="lcus"):
+        get_backend("no-such-board")
+
+
+def test_every_backend_declares_a_name():
+    for backend in list_backends():
+        assert backend.name
+        assert backend.name != "backend"
+
+
+def test_a_third_party_backend_can_register_itself():
+    @register_backend
+    class Fake(Backend):
+        name = "test-only-fake-relay"
+
+        def set_channel(self, channel, closed): pass
+        def describe(self): return "fake"
+
+    assert get_backend("test-only-fake-relay") is Fake
+
+
+def test_registering_a_non_backend_is_refused():
+    class NotABackend:
+        name = "nope"
+
+    with pytest.raises(TypeError):
+        register_backend(NotABackend)
+
+
+def test_a_backend_without_its_own_name_is_refused():
+    class Unnamed(Backend):
+        def set_channel(self, channel, closed): pass
+        def describe(self): return "unnamed"
+
+    with pytest.raises(ValueError):
+        register_backend(Unnamed)
+
+
+def test_simulated_backend_is_never_offered_by_discovery():
+    # A real board must never be silently replaced by a simulated one, or a
+    # script would appear to run while firing nothing.
+    assert SimulatedBackend.discover() == []
+
+
+def test_make_backend_honours_an_explicit_name():
+    assert isinstance(make_backend("simulated"), SimulatedBackend)
+
+
+def test_discovered_candidates_are_tagged_as_relays():
+    for candidate in discover_relays():
+        assert candidate.kind == "relay"
+        assert candidate.driver
