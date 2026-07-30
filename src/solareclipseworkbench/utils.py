@@ -6,6 +6,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_bracket, take_hdr, sync_cameras, scripts, execute_command
+from solareclipseworkbench import relay_shoot, relay_burst, relay_bulb
+from solareclipseworkbench import mount_track_sun, mount_goto_sun, mount_tracking, mount_park, mount_unpark, mount_stop
 from solareclipseworkbench.camera import CameraSettings
 from solareclipseworkbench.gui import SolarEclipseController
 from solareclipseworkbench.solar_eclipse import get_solar_eclipses
@@ -17,8 +19,48 @@ COMMANDS = {
     'take_bracket': take_bracket,
     'take_hdr': take_hdr,
     'sync_cameras': sync_cameras,
-    'command': execute_command
+    'command': execute_command,
+    'relay_shoot': relay_shoot,
+    'relay_burst': relay_burst,
+    'relay_bulb': relay_bulb,
+    'mount_track_sun': mount_track_sun,
+    'mount_goto_sun': mount_goto_sun,
+    'mount_tracking': mount_tracking,
+    'mount_park': mount_park,
+    'mount_unpark': mount_unpark,
+    'mount_stop': mount_stop,
 }
+
+# Script commands that act on a piece of hardware rather than a camera, mapped to
+# the kind of device they need.
+HARDWARE_COMMANDS = {
+    'relay_shoot': 'relay',
+    'relay_burst': 'relay',
+    'relay_bulb': 'relay',
+    'mount_track_sun': 'mount',
+    'mount_goto_sun': 'mount',
+    'mount_tracking': 'mount',
+    'mount_park': 'mount',
+    'mount_unpark': 'mount',
+    'mount_stop': 'mount',
+}
+
+# Devices opened by the GUI or the CLI, looked up when a command is scheduled.
+HARDWARE: dict = {}
+
+
+def register_hardware(kind: str, device) -> None:
+    """Make a relay trigger or mount available to scheduled commands.
+
+    Pass None to unregister, so a disconnected device does not leave scheduled
+    commands pointing at a dead handle.
+    """
+    if device is None:
+        HARDWARE.pop(kind, None)
+        logging.info("Unregistered %s", kind)
+    else:
+        HARDWARE[kind] = device
+        logging.info("Registered %s: %s", kind, getattr(device, 'describe', lambda: device)())
 
 
 def calculate_next_solar_eclipses(count: int) -> list:
@@ -177,7 +219,20 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
 
     args = cmd_str_split[4:-1]
 
-    if func_name != "voice_prompt" and func_name != "command":
+    if func_name in HARDWARE_COMMANDS:
+        # Relay and mount commands take their device as the first argument, the
+        # way camera commands take a camera.
+        kind = HARDWARE_COMMANDS[func_name]
+        device = HARDWARE.get(kind)
+        if device is None:
+            logging.warning(
+                'schedule_command: no %s is connected, so "%s" will be skipped.  '
+                'Connect the %s before the eclipse starts, or remove the command from the script.',
+                kind, func_name, kind,
+            )
+            return
+        args = [device] + [arg.strip() for arg in args if arg.strip()]
+    elif func_name != "voice_prompt" and func_name != "command":
         if cameras is not None:
             try:
                 if func_name == "take_picture":
