@@ -44,6 +44,7 @@
     - [General remarks](#general-remarks)
     - [Reference moments](#reference-moments-1)
     - [Commands](#commands)
+  - [Astronomical calculations](#astronomical-calculations)
   - [Shortcomings](#shortcomings)
   - [Converting scripts from Solar Eclipse Maestro](#converting-scripts-from-solar-eclipse-maestro)
   - [Error handling](#error-handling)
@@ -67,7 +68,8 @@
 
 ```bash
 python -m venv solareclipseworkbench
-source solareclipseworkbench/bin/activate
+cd solareclipseworkbench
+source bin/activate
 ```
 
 - For modern Apple Mac computers (using Apple Silicon processors), install [homebrew](https://brew.sh/). Add your homebrew/bin directory to your PATH. Then install gphoto2 and GDAL (required by geopandas) using homebrew:
@@ -85,7 +87,8 @@ brew install python@3.11
 
 # create and activate the venv using the Homebrew Python
 python3.11 -m venv solareclipseworkbench
-source solareclipseworkbench/bin/activate
+cd solareclipseworkbench
+source bin/activate
 ```
 
 - Install the Solar Eclipse Workbench:
@@ -99,14 +102,14 @@ pip install solareclipseworkbench
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-sudo apt-get update
+sudo apt update
 sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo2-dev python3.14-venv
 ```
 
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
 
 ```bash
-sudo apt-get install gphoto2 libgphoto2-dev python3-gphoto2
+sudo apt install gphoto2 libgphoto2-dev python3-gphoto2
 ```
 
 - Make sure that gvfs is not started automatically. Use `systemctl --user mask` to properly disable the gvfs gphoto2 services. **Do not use `chmod -x`** — removing the execute bit causes the Files (Nautilus) application to hang on open because GVFS still attempts to launch the binaries and waits for a timeout before giving up.
@@ -128,13 +131,15 @@ sudo apt-get install gphoto2 libgphoto2-dev python3-gphoto2
 - Install `gdal-config`, required by `geopandas` (especially on Raspberry Pi):
 
 ```bash
-sudo apt install libgdal-dev gdal-bin python3-pip```
+sudo apt install libgdal-dev gdal-bin python3-pip
+```
 
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
 ```bash
 python3 -m venv solareclipseworkbench
-source solareclipseworkbench/bin/activate
+cd solareclipseworkbench
+source bin/activate
 ```
 
 - Install the Solar Eclipse Workbench:
@@ -149,37 +154,34 @@ pip install solareclipseworkbench
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-sudo apt-get update
+sudo apt update
 sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo2-dev python3.12-venv
 ```
 
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
 
 ```bash
-sudo apt-get install gphoto2 libgphoto2-dev python3-gphoto2
+sudo apt install gphoto2 libgphoto2-dev python3-gphoto2
 ```
 
-- Make sure that gvfs is not started automatically. Use `systemctl --user mask` to properly disable the gvfs gphoto2 services. **Do not use `chmod -x`** — removing the execute bit causes the Files (Nautilus) application to hang on open because GVFS still attempts to launch the binaries and waits for a timeout before giving up.
+- Make sure that gvfs is not started automatically. Use `systemctl --user mask` to properly disable the gvfs gphoto2 service. **Do not use `chmod -x`** — removing the execute bit causes the Files (Nautilus) application to hang on open because GVFS still attempts to launch the binary and waits for a timeout before giving up.
 
-  If you previously used `chmod -x`, first restore the execute bits:
+  If you previously used `chmod -x`, first restore the execute bit:
 
   ```bash
   sudo chmod +x /usr/lib/gvfs/gvfs-gphoto2-volume-monitor
-  sudo chmod +x /usr/lib/gvfs/gvfsd-gphoto2
   ```
 
-  Then mask the systemd user services so they are never started:
+  Then mask the systemd user service so it is never started:
 
   ```bash
   systemctl --user mask gvfs-gphoto2-volume-monitor.service
-  systemctl --user mask gvfsd-gphoto2.service
   ```
 
   To verify:
 
   ```bash
   systemctl --user status gvfs-gphoto2-volume-monitor.service
-  systemctl --user status gvfsd-gphoto2.service
   ```
 
   Both should show `masked`.
@@ -187,13 +189,15 @@ sudo apt-get install gphoto2 libgphoto2-dev python3-gphoto2
 - Install `gdal-config`, required by `geopandas` (especially on Raspberry Pi):
 
 ```bash
-sudo apt install libgdal-dev gdal-bin python3-pip```
+sudo apt install libgdal-dev gdal-bin python3-pip
+```
 
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
 ```bash
 python3 -m venv solareclipseworkbench
-source solareclipseworkbench/bin/activate
+cd solareclipseworkbench
+source bin/activate
 ```
 
 - Install the Solar Eclipse Workbench:
@@ -226,7 +230,7 @@ wsl.exe --install Ubuntu-24.04
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-sudo apt-get update
+sudo apt update
 sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo2-dev python3.12-venv
 sudo apt install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad libgstreamer1.0-dev pulseaudio \
@@ -236,7 +240,7 @@ sudo apt install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-pl
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
 
 ```bash
-sudo apt-get install gphoto2/noble libgphoto2-dev python3-gphoto2 python3-pip
+sudo apt install gphoto2/noble libgphoto2-dev python3-gphoto2 python3-pip
 ```
 
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
@@ -244,7 +248,8 @@ sudo apt-get install gphoto2/noble libgphoto2-dev python3-gphoto2 python3-pip
 ```bash
 cd
 python3 -m venv solareclipseworkbench
-source solareclipseworkbench/bin/activate
+cd solareclipseworkbench
+source bin/activate
 ```
 
 - Eventually, to make the sound notifications a bit faster, install pygobject:
@@ -366,8 +371,8 @@ Short guidance
 To upgrade Solar Eclipse Workbench to the latest version, activate your Python environment and run:
 
 ```bash
-cd
-source solareclipseworkbench/bin/activate
+cd solareclipseworkbench
+source bin/activate
 pip install --upgrade solareclipseworkbench
 ```
 
@@ -379,11 +384,13 @@ pip show solareclipseworkbench
 
 ## Running Solar Eclipse Workbench
 
+- Ensure that you are connected to the Internet the first time you run and use Solar Eclipse Workbench, as it will require to download several files required for calculations.
+
 - Start Solar Eclipse Workbench by executing the following commands:
 
 ```bash
-cd
-source solareclipseworkbench/bin/activate
+cd solareclipseworkbench
+source bin/activate
 sew
 ```
 
@@ -391,13 +398,14 @@ sew
 
 ```bash
 # On macos, start the commands with sudo
-source solareclipseworkbench/bin/activate
+cd solareclipseworkbench
+source bin/activate
 sudo sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
 sudo sew
 
 # In Linux or using WSL on Windows, start the command without sudo
-cd
-source solareclipseworkbench/bin/activate
+cd solareclipseworkbench
+source bin/activate
 sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
 sew
 ```
@@ -787,6 +795,12 @@ endfor
 | TAKEBKT              | 1.0           |
 
 
+## Astronomical calculations
+
+- Astropy/IERS is used to compute Delta T (TT − UT1) for eclipse reference times.  This is the most up to date information available, but it requires an internet connection to download the latest IERS tables.  If no internet is available, a CSV-based fallback is used.
+  - For the 2026 eclipse, the fallback value for Delta T is 69.1085.
+- The used solar radius is equal to 959.95 ±0.05 arcseconds. This value is slightly larger than the canonical solar radius (i.e. 959.63 arcseconds).  This is the latest value from the Besselian Elements team (L. Quaglia et al.).
+
 ## Shortcomings
 
 - In normal mode, only one picture per two seconds can be made.
@@ -859,7 +873,7 @@ uv sync --group dev
 - Eventually, to make the sound notifications a bit faster, install pygobject:
 
 ```bash
-sudo apt install libcairo2-dev libgirepository1.0-dev gcc
+sudo apt install libcairo2-dev libgirepository-2.0-dev gcc
 uv pip install pygobject
 ```
 
@@ -904,7 +918,7 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcomm
 - Eventually, to make the sound notifications a bit faster, install pygobject:
 
 ```bash
-sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
+sudo apt install libcairo2-dev libgirepository-2.0-dev gcc python3-dev gobject-* gir1.2-*
 uv pip install pygobject
 ```
 
@@ -952,3 +966,4 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes and updates to t
 - <a href="https://www.flaticon.com/free-icons/folder" title="folder icons">Folder icons created by Freepik - Flaticon</a>
 - <a href="https://www.flaticon.com/free-icons/simulation" title="simulation icons">Simulation icons created by Freepik - Flaticon</a>
 - <a href="https://www.flaticon.com/free-icons/save" title="save icons">Save icons created by Freepik - Flaticon</a>
+- <a href="https://www.flaticon.com/free-icons/refresh" title="refresh icons">Refresh icons created by Magnific - Flaticon</a>
