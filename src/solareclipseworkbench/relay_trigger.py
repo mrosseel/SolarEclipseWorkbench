@@ -23,6 +23,7 @@ the camera and keep it firing.
 import atexit
 import logging
 import signal
+import sys
 import threading
 import time
 import weakref
@@ -46,8 +47,9 @@ logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "solareclipseworkbench.relay_backends"
 
-# Time to let the camera wake and meter after S1 closes, before S2 is asserted.
+# Time to let the camera wake and arm after S1 closes, before S2 is asserted.
 # Below roughly 100 ms the first frame of a sequence arrives late or not at all.
+# In manual mode there is no metering to settle, but the body still has to wake.
 DEFAULT_SETTLE_S = 0.12
 
 # How long S2 stays closed for a single frame in dual-channel mode.  The camera
@@ -348,14 +350,30 @@ class HidRelayBackend(Backend):
             logger.debug("HID enumeration failed", exc_info=True)
         return candidates
 
-    def __init__(self, vendor_id: int = 0x16C0, product_id: int = 0x05DF):
+    def __init__(self, vendor_id: int = 0x16C0, product_id: int = 0x05DF, **config):
         if hid is None:
-            raise RelayError("the 'hid' package is required for HID relay boards")
+            raise RelayError(
+                "the 'hid' package is required for HID relay boards: 'uv pip install hid'.  "
+                + ("It loads the hidapi shared library at runtime, so install that too: "
+                   "'brew install hidapi'." if sys.platform == "darwin" else
+                   "It loads the hidapi shared library at runtime, so libhidapi must be "
+                   "installed and findable.")
+            )
         try:
             self._device = hid.device()
             self._device.open(vendor_id, product_id)
         except Exception as exc:
-            raise RelayError(f"cannot open HID relay {vendor_id:04x}:{product_id:04x}: {exc}") from exc
+            # The message hidapi gives ("unable to open device") never says why,
+            # and the cause differs by platform.
+            if sys.platform == "darwin":
+                hint = ("Check the board is plugged in directly rather than through a hub — "
+                        "these boards are known to be fussy about hubs.")
+            else:
+                hint = ("If lsusb shows the device, this is almost certainly permissions: a udev "
+                        "rule granting access to the hidraw node is needed.")
+            raise RelayError(
+                f"cannot open HID relay {vendor_id:04x}:{product_id:04x}: {exc}.  {hint}"
+            ) from exc
         self._ids = (vendor_id, product_id)
 
     def set_channel(self, channel: int, closed: bool) -> None:

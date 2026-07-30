@@ -56,6 +56,11 @@ numato = "solareclipseworkbench.relay_trigger:NumatoSerialBackend"
 hid = "solareclipseworkbench.relay_trigger:HidRelayBackend"
 simulated = "solareclipseworkbench.relay_trigger:SimulatedBackend"
 
+[project.optional-dependencies]
+# HID relay boards (dcttech/usbrelay style, 16c0:05df). The 'hid' package loads
+# the hidapi shared library at runtime: 'brew install hidapi' on macOS.
+hid = ["hid>=1.0.6"]
+
 [dependency-groups]
 dev = ["pytest>=9"]
 
