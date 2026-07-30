@@ -712,7 +712,7 @@ class SolarEclipseView(QMainWindow, Observable):
         # Relay trigger
 
         self.relay_action.setStatusTip("Relay shutter trigger")
-        self.relay_action.setIcon(QIcon(str(ICON_PATH / "settings.png")))
+        self.relay_action.setIcon(QIcon(str(ICON_PATH / "relay.png")))
         self.relay_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.relay_action)
 
