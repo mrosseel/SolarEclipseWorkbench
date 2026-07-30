@@ -8,15 +8,15 @@ import math
 import json
 import time
 import requests
+import threading
+import queue
 from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List
-from PyQt6.QtGui import QDoubleValidator, QIntValidator, QFont
-from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
-import threading
-import queue
+
 from PyQt6.QtCore import Qt, QSettings, QThread, pyqtSignal, QTimer, QEventLoop, QObject
+from PyQt6.QtGui import QDoubleValidator, QIntValidator, QFont
 from PyQt6.QtWidgets import (
     QApplication, QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, 
     QGridLayout, QLabel, QLineEdit, QComboBox, QCheckBox, QRadioButton,
@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QPushButton, QMessageBox, QProgressDialog, QDialog, QPlainTextEdit, QProgressBar, QWidget, QScrollArea
 )
 
+from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
 from solareclipseworkbench.location_ui import ConfigManager, GeocodingWorker, GEOPY_AVAILABLE, LocationWidget
 from solareclipseworkbench.qt_utils import apply_system_color_scheme, _is_dark_mode_preferred, _build_dark_palette, dark_lineedit_style, apply_dark_to_lineedit
 
