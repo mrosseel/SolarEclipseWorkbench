@@ -33,7 +33,17 @@ from skyfield.api import load, wgs84
 from solareclipseworkbench.reference_moments import calculate_reference_moments
 from solareclipseworkbench.exposure_calculator import calculate_exposure, format_shutter_speed
 
-OUTPUT = REPO / "scripts" / "20260812_EOS800D.txt"
+# --test writes a rehearsal version instead: same exposures, same totality, but
+# the partial phases replayed on a compressed clock so the whole run fits in a
+# coffee break.  Only emission times move; every exposure is still computed from
+# the sun altitude at the frame's real moment.
+TEST = "--test" in sys.argv
+OUTPUT = REPO / "scripts" / ("20260812_EOS800D_test.txt" if TEST
+                             else "20260812_EOS800D.txt")
+
+# Compressed spacing, seconds between partial-phase frames in test mode.
+TEST_PRE_STEP = 10.0       # C1->C2 partials, replayed before C2
+TEST_POST_STEP = 18.0      # C3->sunset partials and brackets, replayed after C3
 
 # --- Site and gear -------------------------------------------------------
 SITE = "Palencia, N Spain"
@@ -44,7 +54,8 @@ CAMERA = "Canon EOS 800D"
 MAX_SHUTTER = 1 / 4000.0   # fastest speed the 800D offers
 FOCAL_RATIO = 6.0          # 80/480 refractor
 APERTURE_FIELD = "6.3"     # nearest standard f-stop; read-only on a telescope
-ND = 4.0                   # photographic solar film, partial phases only
+ND = 4.0                   # Baader AstroSolar PHOTOGRAPHIC film (ND 3.8), not the
+                           # ND 5.0 visual film.  Partial phases only.
 K_EXT = 0.25               # mag / airmass; 0.15 is clear, 0.40 is hazy
 
 T = Time(ECLIPSE_DATE + " 00:00:00")
@@ -134,9 +145,17 @@ def sync(ref, sign, offset, comment):
     emit("sync_cameras, %s, %s, %s, \"%s\"" % (ref, sign, fmt_delta(offset), comment))
 
 
-def filtered_shot(ref, sign, offset, iso, comment):
+def filtered_shot(ref, sign, offset, iso, comment, emit_at=None):
+    """One filtered partial frame.
+
+    The exposure always comes from the sun altitude at (ref, sign, offset) - the
+    frame's real moment.  ``emit_at`` only moves when the line is scheduled, which
+    is how the rehearsal script replays the same exposure ladder on a short clock
+    without touching any of the eclipse calculations.
+    """
     alt = sun_altitude(moment_time(ref, sign, offset))
-    picture(ref, sign, offset, shutter(partial_exposure(alt, iso)), iso,
+    e_ref, e_sign, e_offset = emit_at or (ref, sign, offset)
+    picture(e_ref, e_sign, e_offset, shutter(partial_exposure(alt, iso)), iso,
             "%s (sun %.1f deg, X=%.1f)" % (comment, alt, airmass(alt)))
 
 
@@ -185,49 +204,80 @@ emit("#                   Kasten-Young airmass and %.2f mag/airmass extinction."
 emit("# That extinction coefficient is a guess (0.15 clear .. 0.40 hazy), and the error grows")
 emit("# to several stops at the horizon - hence the wide HDR brackets after C3+18m.")
 emit("#")
-emit("# Warning: at f/6 with ND %.1f the early partials want 1/6400, which the 800D cannot do." % ND)
-emit("# Those frames are capped at 1/4000 and will be ~2/3 stop over - recoverable in RAW, but")
-emit("# an extra 1-stop ND (or ND 5.0 film) would be better.  Shoot RAW.")
+emit("# Warning: at f/6 with photographic film the sun wants 1/7139 just after C1 at ISO 100,")
+emit("# which the 800D cannot reach - it tops out at 1/4000, so the early frames run up to")
+emit("# 0.85 stop over, easing to nothing once the sun is below 10 degrees.  ISO 100 is both")
+emit("# the body's base and its widest dynamic range, and a faster ISO would only make the")
+emit("# ceiling worse, so the fix if you want one is a 1-stop ND on the scope.  Shoot RAW.")
 emit("#")
 emit("# Comments carry the sun altitude and airmass X used for each exposure.")
+if TEST:
+    emit("#")
+    emit("# REHEARSAL VERSION.  Totality runs at full speed, exactly as on the day, because")
+    emit("# that is the part whose throughput has to be proven.  The partial phases keep")
+    emit("# their real exposures - each frame is still computed from the sun altitude at its")
+    emit("# real moment - but are replayed on a compressed clock: %.0f s apart before C2 and" % TEST_PRE_STEP)
+    emit("# %.0f s apart after C3, all anchored to C2 and C3 so one simulated contact drives" % TEST_POST_STEP)
+    emit("# the whole run.  No eclipse calculation differs from the production script.")
+    emit("# Simulate C2 a few minutes out and the run takes about %d minutes." % 14)
 emit()
 
 # --------------------------------------------------------------------------
 # Set-up, before first contact
 # --------------------------------------------------------------------------
-emit("# --- Set-up and focus, before C1 (solar filter ON) ---")
-sync("C1", "-", 20 * 60, "Sync camera clock and settings")
-for mins, label in ((15, "Focus check"), (10, "Focus check"), (5, "Framing check")):
-    filtered_shot("C1", "-", mins * 60, 100, "%s, uneclipsed disc" % label)
-hdr("C1", "-", 3 * 60, shutter(partial_exposure(sun_altitude(moment_time("C1", "-", 180)), 100) / 4),
-    100, 4, "Exposure-check bracket, four stops down from the fastest speed the body has")
-sync("C1", "-", 90, "Re-sync before the eclipse starts")
-emit()
-
-emit("# --- First contact ---")
-announce("C1", "-", 60, "C1_IN_60_SECONDS", "One minute to first contact")
-announce("C1", "-", 30, "C1_IN_30_SECONDS", "Thirty seconds to first contact")
-filtered_shot("C1", "-", 15, 100, "Just before first contact")
-announce("C1", "-", 10, "C1_IN_10_SECONDS", "Ten seconds to first contact")
-filtered_shot("C1", "-", 5, 100, "Just before first contact")
-announce("C1", "-", 5, "C1_IN_5_SECONDS", "Five seconds to first contact")
-announce("C1", "-", 0, "C1", "First contact - the eclipse has started")
-for off in (5, 15, 30, 60, 120):
-    filtered_shot("C1", "+", off, 100, "First contact")
-emit()
-
-# --------------------------------------------------------------------------
-# Partial phases C1 -> C2
-# --------------------------------------------------------------------------
-emit("# --- Partial phases C1 -> C2 (filter ON, exposure tracks the sinking sun) ---")
+# Every filtered partial frame, as (ref, sign, offset, label) on the real clock.
+# In test mode the same list is emitted against a compressed clock instead.
 c1_to_c2 = (c2 - c1).total_seconds()
+pre_c2 = [("C1", "-", 15 * 60, "Focus check, uneclipsed disc"),
+          ("C1", "-", 10 * 60, "Focus check, uneclipsed disc"),
+          ("C1", "-", 5 * 60, "Framing check, uneclipsed disc"),
+          ("C1", "-", 15, "Just before first contact"),
+          ("C1", "-", 5, "Just before first contact")]
+pre_c2 += [("C1", "+", off, "First contact") for off in (5, 15, 30, 60, 120)]
 t = 240.0
 while t < c1_to_c2 - 12 * 60:
-    filtered_shot("C1", "+", t, 100, "Partial C1-C2")
+    pre_c2.append(("C1", "+", t, "Partial C1-C2"))
     t += 180.0
-for before in (720, 630, 540, 450, 360, 270, 180, 120, 75, 45):
-    filtered_shot("C2", "-", before, 100, "Partial approaching C2")
-emit()
+pre_c2 += [("C2", "-", b, "Partial approaching C2")
+           for b in (720, 630, 540, 450, 360, 270, 180, 120, 75, 45)]
+
+if TEST:
+    emit("# --- Partial phases, replayed %.0f s apart (real exposures, short clock) ---" % TEST_PRE_STEP)
+    sync("C2", "-", TEST_PRE_STEP * len(pre_c2) + 55, "Sync camera clock and settings")
+    hdr("C2", "-", TEST_PRE_STEP * len(pre_c2) + 40,
+        shutter(partial_exposure(sun_altitude(moment_time("C1", "-", 180)), 100) / 4),
+        100, 4, "Exposure-check bracket, four stops down from the fastest speed the body has")
+    for i, (ref, sign, offset, label) in enumerate(pre_c2):
+        at = TEST_PRE_STEP * (len(pre_c2) - i) + 30
+        filtered_shot(ref, sign, offset, 100, label, emit_at=("C2", "-", at))
+    emit()
+else:
+    emit("# --- Set-up and focus, before C1 (solar filter ON) ---")
+    sync("C1", "-", 20 * 60, "Sync camera clock and settings")
+    for ref, sign, offset, label in pre_c2[:3]:
+        filtered_shot(ref, sign, offset, 100, label)
+    hdr("C1", "-", 3 * 60,
+        shutter(partial_exposure(sun_altitude(moment_time("C1", "-", 180)), 100) / 4),
+        100, 4, "Exposure-check bracket, four stops down from the fastest speed the body has")
+    sync("C1", "-", 90, "Re-sync before the eclipse starts")
+    emit()
+
+    emit("# --- First contact ---")
+    announce("C1", "-", 60, "C1_IN_60_SECONDS", "One minute to first contact")
+    announce("C1", "-", 30, "C1_IN_30_SECONDS", "Thirty seconds to first contact")
+    filtered_shot(*pre_c2[3][:3], 100, pre_c2[3][3])
+    announce("C1", "-", 10, "C1_IN_10_SECONDS", "Ten seconds to first contact")
+    filtered_shot(*pre_c2[4][:3], 100, pre_c2[4][3])
+    announce("C1", "-", 5, "C1_IN_5_SECONDS", "Five seconds to first contact")
+    announce("C1", "-", 0, "C1", "First contact - the eclipse has started")
+    for ref, sign, offset, label in pre_c2[5:10]:
+        filtered_shot(ref, sign, offset, 100, label)
+    emit()
+
+    emit("# --- Partial phases C1 -> C2 (filter ON, exposure tracks the sinking sun) ---")
+    for ref, sign, offset, label in pre_c2[10:]:
+        filtered_shot(ref, sign, offset, 100, label)
+    emit()
 
 emit("# --- Countdown to totality ---")
 for offset, name in [(50 * 60, "C2_IN_50_MINUTES"), (40 * 60, "C2_IN_40_MINUTES"),
@@ -236,6 +286,10 @@ for offset, name in [(50 * 60, "C2_IN_50_MINUTES"), (40 * 60, "C2_IN_40_MINUTES"
                      (10 * 60, "C2_IN_10_MINUTES"), (6 * 60, "C2_IN_6_MINUTES"),
                      (5 * 60, "C2_IN_5_MINUTES"), (4 * 60, "C2_IN_4_MINUTES"),
                      (2 * 60, "C2_IN_2_MINUTES")]:
+    # The long countdown would stretch a rehearsal to an hour on its own, and the
+    # compressed partials already start well inside it.
+    if TEST and offset > 2 * 60:
+        continue
     announce("C2", "-", offset, name, "%d minutes to totality" % (offset // 60))
 announce("C2", "-", 90, "C2_IN_90_SECONDS", "Ninety seconds to totality")
 announce("C2", "-", 60, "C2_IN_60_SECONDS", "One minute to totality - get ready")
@@ -316,31 +370,60 @@ emit()
 # --------------------------------------------------------------------------
 # Partial phases C3 -> sunset
 # --------------------------------------------------------------------------
-emit("# --- Partial phases C3 -> sunset (filter ON, sun dropping to the horizon) ---")
+# Post-C3 frames on the real clock: singles while the sun is above 5 degrees, then
+# wide brackets once the exposure tables stop being trustworthy.
+post_c3 = []
 for after in (45, 75, 120, 180, 270, 360, 450, 540, 660, 780, 900, 1020):
     if sun_altitude(moment_time("C3", "+", after)) < 5.0:
         break
-    filtered_shot("C3", "+", after, 100, "Partial after C3")
-emit()
-
-emit("# --- Below 5 degrees: the tables are extrapolated, so bracket widely ---")
+    post_c3.append(("single", after, None))
 after = 1080.0
 while True:
     alt = sun_altitude(moment_time("C3", "+", after))
     if alt < 0.2:
         break
+    post_c3.append(("bracket", after, alt))
+    after += 120.0
+
+
+def low_sun_bracket(after, alt, emit_after=None):
     iso = 100 if alt > 2.0 else 400
     centre = partial_exposure(alt, iso)
     stops = 4 if alt > 2.0 else 6
-    hdr("C3", "+", after, shutter(centre / (2 ** (stops / 2))), iso, stops,
+    hdr("C3", "+", after if emit_after is None else emit_after,
+        shutter(centre / (2 ** (stops / 2))), iso, stops,
         "Low-sun bracket, sun %.1f deg, X=%.0f, centre %s" % (alt, airmass(alt), shutter(centre)))
-    after += 120.0
-emit()
 
-emit("# --- Last light ---")
-announce("C4", "-", 60, "C4_IN_60_SECONDS", "One minute to fourth contact (sun is already setting)")
-announce("C4", "-", 20, "C4_IN_20_SECONDS", "Twenty seconds to fourth contact")
-announce("C4", "-", 0, "C4", "Fourth contact - eclipse over")
+
+if TEST:
+    emit("# --- Partial phases after C3, replayed %.0f s apart ---" % TEST_POST_STEP)
+    for i, (kind, after, alt) in enumerate(post_c3):
+        at = 15.0 + TEST_POST_STEP * i
+        if kind == "single":
+            filtered_shot("C3", "+", after, 100, "Partial after C3", emit_at=("C3", "+", at))
+        else:
+            low_sun_bracket(after, alt, emit_after=at)
+    emit()
+    emit("# --- End of rehearsal ---")
+    announce("C3", "+", 15.0 + TEST_POST_STEP * len(post_c3) + 20, "C4",
+             "End of the rehearsal - on the day this is fourth contact")
+else:
+    emit("# --- Partial phases C3 -> sunset (filter ON, sun dropping to the horizon) ---")
+    for kind, after, alt in post_c3:
+        if kind == "single":
+            filtered_shot("C3", "+", after, 100, "Partial after C3")
+    emit()
+
+    emit("# --- Below 5 degrees: the tables are extrapolated, so bracket widely ---")
+    for kind, after, alt in post_c3:
+        if kind == "bracket":
+            low_sun_bracket(after, alt)
+    emit()
+
+    emit("# --- Last light ---")
+    announce("C4", "-", 60, "C4_IN_60_SECONDS", "One minute to fourth contact (sun is already setting)")
+    announce("C4", "-", 20, "C4_IN_20_SECONDS", "Twenty seconds to fourth contact")
+    announce("C4", "-", 0, "C4", "Fourth contact - eclipse over")
 
 OUTPUT.write_text("\n".join(LINES) + "\n")
 print("written %s (%d lines)" % (OUTPUT, len(LINES)))

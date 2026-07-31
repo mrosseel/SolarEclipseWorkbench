@@ -31,9 +31,11 @@
 # That extinction coefficient is a guess (0.15 clear .. 0.40 hazy), and the error grows
 # to several stops at the horizon - hence the wide HDR brackets after C3+18m.
 #
-# Warning: at f/6 with ND 4.0 the early partials want 1/6400, which the 800D cannot do.
-# Those frames are capped at 1/4000 and will be ~2/3 stop over - recoverable in RAW, but
-# an extra 1-stop ND (or ND 5.0 film) would be better.  Shoot RAW.
+# Warning: at f/6 with photographic film the sun wants 1/7139 just after C1 at ISO 100,
+# which the 800D cannot reach - it tops out at 1/4000, so the early frames run up to
+# 0.85 stop over, easing to nothing once the sun is below 10 degrees.  ISO 100 is both
+# the body's base and its widest dynamic range, and a faster ISO would only make the
+# ceiling worse, so the fix if you want one is a 1-stop ND on the scope.  Shoot RAW.
 #
 # Comments carry the sun altitude and airmass X used for each exposure.
 

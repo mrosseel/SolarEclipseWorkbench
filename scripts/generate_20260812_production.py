@@ -1,6 +1,6 @@
 """Generate the production Solar Eclipse Workbench script for 12 August 2026.
 
-Two bodies, both on an 80/480 refractor behind ND 5.0 solar film, driven from one
+Two bodies, both on an 80/480 refractor behind photographic solar film, driven from one
 script: a Fujifilm X-T4 (native Fuji SDK, plus a relay trigger on its remote jack)
 and a Canon EOS 800D (gphoto2).
 
@@ -59,7 +59,8 @@ ECLIPSE_DATE = "2026-08-12"
 # --- Gear, identical on both bodies ---------------------------------------
 FOCAL_RATIO = 6.0          # 80/480 refractor
 APERTURE_FIELD = "6.0"     # read-only on a telescope; the column is informational
-ND = 5.0
+ND = 4.0                   # Baader AstroSolar PHOTOGRAPHIC film (ND 3.8), not the
+                           # ND 5.0 visual film.  Partial phases only.
 K_EXT = 0.25               # mag / airmass; 0.15 is clear, 0.40 is hazy
 
 XT4 = "Fuji Fujifilm X-T4"
@@ -72,7 +73,10 @@ XT4_SDK_FPS = 1.8          # USB PTP round-trip ceiling, measured on this body
 XT4_RELAY_FPS = 15.0       # CH drive, shutter held closed by the relay
 EOS_BURST_FPS = 6.0
 
-ISO_PARTIAL, ISO_BEADS, ISO_CORONA, ISO_DEEP = 200, 200, 400, 800
+# ISO 100 for the filtered partials: with photographic film at f/6 the sun wants
+# 1/7139 just after C1, which fits the X-T4's 1/8000 but not the 800D's 1/4000.
+# Anything faster than ISO 100 puts both bodies over their ceiling.
+ISO_PARTIAL, ISO_BEADS, ISO_CORONA, ISO_DEEP = 100, 100, 400, 800
 
 T = Time(ECLIPSE_DATE + " 00:00:00")
 MOMENTS, MAGNITUDE, TYPE = calculate_reference_moments(LON, LAT, OBS_ALT, T)
@@ -252,7 +256,13 @@ emit("# Bodies : %s   (Fuji SDK + relay trigger on the remote jack)" % XT4)
 emit("#          %s   (gphoto2)" % EOS)
 emit("# Optics : two 80/480 mm refractors, fixed f/6.  Neither body can drive a")
 emit("#          telescope's aperture, so the aperture column is informational.")
-emit("# Filter : ND %.1f solar film on both, for every partial-phase frame." % ND)
+emit("# Filter : Baader AstroSolar PHOTOGRAPHIC film (ND %.1f) on both scopes, for every" % ND)
+emit("#          partial-phase frame.  NOT the ND 5.0 visual film - never look through this.")
+emit("#")
+emit("# At f/6 with photographic film the sun wants 1/7139 just after C1 at ISO 100.  The")
+emit("# X-T4 reaches that; the 800D tops out at 1/4000 and runs up to 0.85 stop over for")
+emit("# the first half hour, easing to nothing by the time the sun is under 10 degrees.")
+emit("# RAW absorbs it, but a 1-stop ND on the 800D would remove it entirely.")
 emit("#")
 emit("# Site   : %s  %.4f N, %.4f E, %d m" % (SITE, LAT, LON, OBS_ALT))
 emit("# Type   : %s, magnitude %.4f, totality %.0f s" %
