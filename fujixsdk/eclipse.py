@@ -463,35 +463,6 @@ class EclipseShooter:
     # ------------------------------------------------------------------
     # High-speed no-download shooting
     # ------------------------------------------------------------------
-    def wait_until_idle(self, timeout_s: float = 3.0, poll_s: float = 0.02) -> bool:
-        """Block until the body is no longer mid-release.
-
-        ``Camera.wait_ready`` polls GetBufferCapacity, which keeps answering
-        happily while the shutter is refusing to fire, so it does not tell us
-        anything useful here.  GetReleaseStatus does: the SHOOTING bit stays set
-        until the body has finished with the previous frame.
-
-        Measured on an X-T4 at 1/1000: firing without this, seven of ten frames
-        came back ShootError within 0.15 s while the body was still busy.
-
-        Returns False on timeout, and True if the status cannot be read - an
-        unreadable status is no reason to refuse to take the picture.
-        """
-        from ._errors import BusyError, XSDKError as _XSDKError
-
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
-            try:
-                if not (self.camera.get_release_status() & C.RELEASE_STATUS_SHOOTING):
-                    return True
-            except BusyError:
-                pass
-            except _XSDKError:
-                return True
-            time.sleep(poll_s)
-        log.warning("Camera still mid-release after %.1f s", timeout_s)
-        return False
-
     #: Fraction of the volatile buffer that may fill before it is cleared.
     #: Nothing else empties it: shooting no-download leaves every frame queued
     #: for a PC transfer that never comes, and at 32 slots a run of any length
@@ -518,10 +489,12 @@ class EclipseShooter:
             log.warning("Buffer full (%d/%d), cannot shoot", captured, total)
             return False
         from ._errors import ShootError
+        # The body refuses S2 about half the time while it is still finishing the
+        # previous frame, and there is no way to ask whether it is ready:
+        # GetReleaseStatus answers 0 throughout, and an explicit wait on it makes
+        # no measurable difference (8/8 either way, 1.8 fps either way).  Retrying
+        # is what works - do not replace this loop with a readiness check.
         for attempt in range(retries):
-            # Waiting for the body to finish the previous frame turns most of
-            # the ShootError retries below into shots that simply work.
-            self.wait_until_idle()
             try:
                 self.camera.shoot_no_af()
                 return True
