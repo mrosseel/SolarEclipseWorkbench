@@ -447,6 +447,35 @@ class EclipseShooter:
     # ------------------------------------------------------------------
     # High-speed no-download shooting
     # ------------------------------------------------------------------
+    def wait_until_idle(self, timeout_s: float = 3.0, poll_s: float = 0.02) -> bool:
+        """Block until the body is no longer mid-release.
+
+        ``Camera.wait_ready`` polls GetBufferCapacity, which keeps answering
+        happily while the shutter is refusing to fire, so it does not tell us
+        anything useful here.  GetReleaseStatus does: the SHOOTING bit stays set
+        until the body has finished with the previous frame.
+
+        Measured on an X-T4 at 1/1000: firing without this, seven of ten frames
+        came back ShootError within 0.15 s while the body was still busy.
+
+        Returns False on timeout, and True if the status cannot be read - an
+        unreadable status is no reason to refuse to take the picture.
+        """
+        from ._errors import BusyError, XSDKError as _XSDKError
+
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                if not (self.camera.get_release_status() & C.RELEASE_STATUS_SHOOTING):
+                    return True
+            except BusyError:
+                pass
+            except _XSDKError:
+                return True
+            time.sleep(poll_s)
+        log.warning("Camera still mid-release after %.1f s", timeout_s)
+        return False
+
     def shoot_fast(self, retries: int = 5) -> bool:
         """Fire one shot, no download. Returns False if buffer full."""
         captured, total = self.camera.get_buffer_capacity()
@@ -455,6 +484,9 @@ class EclipseShooter:
             return False
         from ._errors import ShootError
         for attempt in range(retries):
+            # Waiting for the body to finish the previous frame turns most of
+            # the ShootError retries below into shots that simply work.
+            self.wait_until_idle()
             try:
                 self.camera.shoot_no_af()
                 return True
