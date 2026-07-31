@@ -134,17 +134,34 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
     except XSDKError:
         pass
 
-    # Image quality: RAW preferred
+    # Image quality must be RAW alone.  Measured on an X-T4 at 1/1000: recording
+    # a JPEG alongside the RAW put two entries in the volatile buffer per frame
+    # and dropped the rate from 1.85 fps to 0.61 - so it both halves the number
+    # of frames the buffer holds and takes three times as long to get them.  The
+    # old check accepted FINE+RAW and NORMAL+RAW silently.
+    #
+    # The SDK exposes no RAW compression property, so lossless-compressed versus
+    # uncompressed cannot be checked here; set it on the body and see fuji-xt4.md.
     try:
         iq = cam.get_image_quality()
         iq_name = C.IMAGE_QUALITY_NAMES.get(iq, f"0x{iq:04X}")
-        if iq not in (C.IMAGE_QUALITY_RAW, C.IMAGE_QUALITY_FINE_PLUS_RAW, C.IMAGE_QUALITY_NORMAL_PLUS_RAW):
+        if iq in (C.IMAGE_QUALITY_FINE_PLUS_RAW, C.IMAGE_QUALITY_NORMAL_PLUS_RAW):
             issues.append(CameraIssue(
-                "warning", "Image Quality", iq_name, "RAW",
-                "Set image quality to RAW for post-processing flexibility",
+                "error", "Image Quality", iq_name, "RAW",
+                "A JPEG per frame doubles buffer use and triples the time per "
+                "frame - set image quality to RAW alone",
             ))
-    except XSDKError:
-        pass
+        elif iq != C.IMAGE_QUALITY_RAW:
+            issues.append(CameraIssue(
+                "error", "Image Quality", iq_name, "RAW",
+                "Set image quality to RAW",
+            ))
+    except XSDKError as exc:
+        issues.append(CameraIssue(
+            "warning", "Image Quality", f"unreadable ({exc})", "RAW",
+            "Could not read image quality - confirm RAW, lossless compressed, "
+            "no JPEG, on the camera by hand",
+        ))
 
     # White balance: Daylight
     try:
@@ -476,8 +493,27 @@ class EclipseShooter:
         log.warning("Camera still mid-release after %.1f s", timeout_s)
         return False
 
+    #: Fraction of the volatile buffer that may fill before it is cleared.
+    #: Nothing else empties it: shooting no-download leaves every frame queued
+    #: for a PC transfer that never comes, and at 32 slots a run of any length
+    #: simply stops.  Draining costs 0.018 s per image on an X-T4, so clearing
+    #: two dozen mid-totality is under half a second.
+    DRAIN_AT = 0.75
+
+    def _keep_buffer_clear(self) -> None:
+        """Clear the volatile buffer before it fills.
+
+        The images are on the card - this only discards the queued PC transfer.
+        """
+        captured, total = self.camera.get_buffer_capacity()
+        if total > 0 and captured >= total * self.DRAIN_AT:
+            drained = self.camera.drain_buffer()
+            log.info("Drained %d image(s) at %d/%d to keep shooting",
+                     drained, captured, total)
+
     def shoot_fast(self, retries: int = 5) -> bool:
         """Fire one shot, no download. Returns False if buffer full."""
+        self._keep_buffer_clear()
         captured, total = self.camera.get_buffer_capacity()
         if captured >= total:
             log.warning("Buffer full (%d/%d), cannot shoot", captured, total)

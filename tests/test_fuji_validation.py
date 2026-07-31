@@ -108,3 +108,63 @@ def test_unreadable_focus_mode_is_reported_not_swallowed():
 def test_autofocus_is_still_an_error():
     issues = validate_for_eclipse(_camera(get_focus_mode=lambda: C.SDK_FOCUS_AFS))
     assert _find(issues, "Focus Mode")[0].severity == "error"
+
+
+# --------------------------------------------------------------- image quality
+
+
+def test_raw_plus_jpeg_is_an_error():
+    # Measured: a JPEG alongside the RAW put two entries in the buffer per frame
+    # and took the rate from 1.85 fps to 0.61.  The old check accepted it.
+    issues = validate_for_eclipse(
+        _camera(get_image_quality=lambda: C.IMAGE_QUALITY_FINE_PLUS_RAW))
+    found = _find(issues, "Image Quality")
+    assert found and found[0].severity == "error"
+    assert "RAW" in found[0].expected
+
+
+def test_jpeg_only_is_an_error():
+    issues = validate_for_eclipse(_camera(get_image_quality=lambda: C.IMAGE_QUALITY_FINE))
+    assert _find(issues, "Image Quality")[0].severity == "error"
+
+
+def test_raw_alone_is_accepted():
+    assert _find(validate_for_eclipse(_camera()), "Image Quality") == []
+
+
+def test_unreadable_image_quality_is_reported():
+    def boom():
+        raise XSDKError(0x1002, "Invalid parameter", 0)
+
+    found = _find(validate_for_eclipse(_camera(get_image_quality=boom)), "Image Quality")
+    assert found and found[0].severity == "warning"
+    assert "unreadable" in found[0].current
+
+
+# ---------------------------------------------------------------- buffer drain
+
+
+def test_buffer_is_drained_before_it_fills():
+    # Nothing else empties the volatile buffer, so without this a run stops at
+    # the 32nd frame however many the script asked for.
+    from unittest.mock import MagicMock
+
+    from fujixsdk.eclipse import EclipseShooter
+
+    cam = MagicMock()
+    cam.get_buffer_capacity.return_value = (24, 32)      # 75% of 32
+    shooter = EclipseShooter(cam)
+    shooter._keep_buffer_clear()
+    cam.drain_buffer.assert_called_once()
+
+
+def test_buffer_is_left_alone_when_it_has_room():
+    from unittest.mock import MagicMock
+
+    from fujixsdk.eclipse import EclipseShooter
+
+    cam = MagicMock()
+    cam.get_buffer_capacity.return_value = (5, 32)
+    shooter = EclipseShooter(cam)
+    shooter._keep_buffer_clear()
+    cam.drain_buffer.assert_not_called()
