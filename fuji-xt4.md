@@ -13,6 +13,29 @@ solar film for the partial phases, relay trigger on the 2.5 mm remote jack.
 
 ---
 
+## Manual mode is not a dial position
+
+The X-T4 has no PASM dial. The exposure mode is implied by where the shutter speed
+dial and the lens aperture ring sit, so "set it to Manual" means moving those two,
+not finding a menu item:
+
+| Shutter dial | Aperture ring | AE mode the SDK reports |
+|---|---|---|
+| A | A | Program |
+| A | a number | Aperture Priority |
+| T or a number | A | Shutter Priority |
+| **T or a number** | **a number** | **Manual** |
+
+`validate_for_eclipse()` rejects anything but Manual, because in the other three
+the body owns part of the exposure and the script's settings are ignored.
+
+On a telescope there is no aperture ring at all, so the shutter dial off `A` is
+enough. With an XF lens mounted for bench testing, the ring must be on a number
+too — ring at `A` with the dial at `T` gives Shutter Priority, not Manual.
+
+The focus mode selector on the front of the body is a **separate** control and is
+checked separately. Confusing the two costs a run.
+
 ## Physical dials and switches
 
 | Control | Position | Why |
