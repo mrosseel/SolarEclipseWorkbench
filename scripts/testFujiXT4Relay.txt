@@ -1,0 +1,47 @@
+# Bench test for the Fujifilm X-T4 driven over USB, plus the relay shutter trigger.
+#
+# Run it from the GUI with a simulated C1 a minute or two ahead: every command is
+# scheduled relative to C1, and the whole test finishes 15 s after it.
+#
+# What it checks, in order:
+#   1. the camera answers on USB at all (sync + single shots)
+#   2. shutter/ISO changes actually take between shots
+#   3. the relay fires on its own (single, held burst, pulsed burst, bulb)
+#   4. relay and USB commands do not fight each other - the relay is a separate
+#      device and does not take the camera's USB lock, so the relay_shoot at
+#      C1-0:00:04 deliberately lands in the middle of the USB HDR sequence
+#   5. both paths still fire on the contact moment itself
+#
+# The relay must be connected and shown in the hardware console before running,
+# otherwise every relay_* line is skipped with a warning and the test is
+# meaningless.  Aperture is 6.0 for an 80/480 scope; the X-T4 cannot set it, the
+# column is informational.
+#
+# Shutter speed dial at T, same as the production script: relay_shoot and
+# relay_burst work from there.  Bulb is the one relay command that needs the dial
+# at B, so it lives in testFujiXT4Bulb.txt and is not used in production.
+
+voice_prompt, C1, -, 0:01:00.0, C1_IN_60_SECONDS, "Test starts in one minute"
+sync_cameras, C1, -, 0:00:55.0, "Sync the camera clock and settings"
+
+# --- USB path ---
+take_picture, C1, -, 0:00:50.0, Fuji Fujifilm X-T4, 1/1000, 6.0, 400, "USB single shot"
+take_picture, C1, -, 0:00:45.0, Fuji Fujifilm X-T4, 1/4000, 6.0, 800, "USB single shot, shutter and ISO changed"
+
+# --- Relay path, camera untouched over USB ---
+relay_shoot, C1, -, 0:00:40.0, "Relay single frame"
+relay_shoot, C1, -, 0:00:37.0, "Relay single frame, repeat"
+relay_burst, C1, -, 0:00:32.0, 3.0, "Relay burst, shutter held for 3 s"
+relay_burst, C1, -, 0:00:25.0, 3.0, 0.5, "Relay burst, 3 s pulsed every 0.5 s"
+
+# --- USB burst and HDR (for the X-T4 the burst argument is a frame count) ---
+take_burst, C1, -, 0:00:13.0, Fuji Fujifilm X-T4, 1/2000, 6.0, 400, 5, "USB burst, 5 frames"
+take_hdr, C1, -, 0:00:07.0, Fuji Fujifilm X-T4, 1/2000, 6.0, 400, 3, "USB HDR, 3 stops down and back (7 frames)"
+
+# --- Overlap check: this relay frame lands inside the HDR sequence above ---
+relay_shoot, C1, -, 0:00:04.0, "Relay frame during the USB HDR sequence"
+
+# --- Contact moment ---
+voice_prompt, C1, -, 0:00:00.0, C1, "First contact"
+relay_shoot, C1, +, 0:00:00.5, "Relay frame on the contact moment"
+take_picture, C1, +, 0:00:05.0, Fuji Fujifilm X-T4, 1/1000, 6.0, 400, "USB single shot after the contact moment"

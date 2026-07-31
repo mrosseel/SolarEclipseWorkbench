@@ -1,0 +1,18 @@
+# Relay bulb test for the Fujifilm X-T4.  Separate from testFujiXT4Relay.txt
+# because bulb is the one relay command that needs the shutter speed dial at B,
+# where the SDK can no longer set exposures.  Nothing else here touches the
+# camera over USB, so there is nothing to contradict.
+#
+# Set the shutter speed dial to B, run this, then put the dial back to T.
+#
+# The production script does not use relay_bulb at all: at T the X-T4 reaches
+# multi-second exposures through the command dial, so the SDK sets the 1 s and
+# 1.6 s deep-corona frames itself.  Bulb is only worth having for holds longer
+# than the dial offers, which nothing in a 101 s totality needs.
+
+voice_prompt, C1, -, 0:00:40.0, C1_IN_40_SECONDS, "Bulb test starts in forty seconds"
+relay_bulb, C1, -, 0:00:30.0, 1.0, "Bulb, 1 s"
+relay_bulb, C1, -, 0:00:24.0, 2.0, "Bulb, 2 s"
+relay_bulb, C1, -, 0:00:16.0, 4.0, "Bulb, 4 s"
+relay_bulb, C1, -, 0:00:06.0, 8.0, "Bulb, 8 s - check the frame times against the requested holds"
+voice_prompt, C1, -, 0:00:00.0, C1, "Bulb test finished - put the shutter dial back to T"
