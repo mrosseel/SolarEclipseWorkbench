@@ -637,12 +637,21 @@ class SolarEclipseView(QMainWindow, Observable):
         # A splitter hands that choice to the user: the canvas reports a 10x10
         # minimum size hint, so it can be dragged right down when the schedule
         # matters more than the picture.
+        # Below about this width the two discs stop being readable, so an ordinary
+        # drag stops there.  Dragging further still snaps the pane shut, and the
+        # handle stays at the edge to pull it back out - a collapse gesture that
+        # costs no button anywhere.
+        self.eclipse_visualization.setMinimumWidth(240)
+
         self.output_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.output_splitter.addWidget(self.eclipse_visualization)
         self.output_splitter.addWidget(self.jobs_table)
         self.output_splitter.setStretchFactor(0, 1)
         self.output_splitter.setStretchFactor(1, 3)
-        self.output_splitter.setChildrenCollapsible(True)
+        self.output_splitter.setCollapsible(0, True)
+        # Losing the schedule to a stray drag is not a thing to allow.
+        self.output_splitter.setCollapsible(1, False)
+        self.output_splitter.setHandleWidth(8)
 
         global_layout = QVBoxLayout()
         # show reminder banner at top

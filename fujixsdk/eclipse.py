@@ -59,6 +59,25 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
                 "error", "Focus Mode", fm_name, "MF",
                 "Switch lens/body focus selector to M",
             ))
+    except XSDKError as exc:
+        # Swallowing this hides the setting most likely to cost frames: a body
+        # left in AF refuses S2 whenever focus does not confirm.  Say that the
+        # check could not run rather than implying it passed.
+        issues.append(CameraIssue(
+            "warning", "Focus Mode", f"unreadable ({exc})", "MF",
+            "Could not read the focus mode - check the selector is on M by hand",
+        ))
+
+    # ISO must be a fixed value.  On auto the body meters every frame, which for
+    # a corona means metering off a mostly black sky, and every ISO the script
+    # asks for is ignored.
+    try:
+        iso = cam.get_iso()
+        if iso < 0:
+            issues.append(CameraIssue(
+                "error", "ISO", f"Auto ({iso})", "a fixed value",
+                "ISO is on Auto: turn the ISO dial to C so the script can set it",
+            ))
     except XSDKError:
         pass
 
@@ -75,10 +94,14 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
 
     # --- WARNINGS (suboptimal) ---
 
-    # Drive mode: SDK only reports S/MOVIE/INVALID on dial-equipped cameras.
-    # CH vs CL is invisible to the SDK — remind user to verify the dial.
+    # Drive mode.  The SDK does report the dial position - an X-T4 on Single reads
+    # back DRIVE_MODE_S - so this can name the mode instead of asking the user to
+    # go and look.  CH matters because a relay burst holds the shutter contacts
+    # closed and lets the body free-run: on Single that is one frame per contact
+    # instead of a burst.
     try:
         dm = cam.get_drive_mode()
+        dm_name = C.DRIVE_MODE_NAMES.get(dm, f"0x{dm:04X}")
         if dm == C.DRIVE_MODE_MOVIE:
             issues.append(CameraIssue(
                 "error", "Drive Mode", "Movie", "CH",
@@ -89,11 +112,12 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
                 "error", "Drive Mode", "Invalid", "CH",
                 "Drive mode dial in unsupported position. Set to CH.",
             ))
+        elif dm == C.DRIVE_MODE_CH:
+            issues.append(CameraIssue("info", "Drive Mode", "CH", "CH", ""))
         else:
             issues.append(CameraIssue(
-                "info", "Drive Mode", "Still",
-                "CH (verify on camera dial)",
-                "SDK cannot distinguish CL/CH. Verify drive dial is set to CH.",
+                "warning", "Drive Mode", dm_name, "CH",
+                "Set the drive dial to CH, or a relay burst yields a single frame",
             ))
     except XSDKError:
         pass
