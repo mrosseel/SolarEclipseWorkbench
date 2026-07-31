@@ -44,6 +44,7 @@ from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get
     get_shooting_mode, get_focus_mode, set_time, CameraSettings, LiveViewThread, \
     sony_save_destination_needs_downloader
 from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
+from solareclipseworkbench import hardware_problems
 from solareclipseworkbench.hardware_registry import register_hardware
 from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wiring, discover_relays,
@@ -984,6 +985,13 @@ class SolarEclipseController(Observer):
         self.time_display_timer.setInterval(1000)
         self.time_display_timer.start()
 
+        # Hardware problems are raised on worker threads, so they are queued and
+        # picked up here on the UI thread.
+        self._problem_timer = QTimer()
+        self._problem_timer.timeout.connect(self._show_hardware_problems)
+        self._problem_timer.setInterval(2000)
+        self._problem_timer.start()
+
         # Update the eclipse visualization less frequently to save CPU/battery.
         # The main time display remains at 1 Hz; the plot updates every 5 seconds.
         self.visualization_timer = QTimer()
@@ -996,6 +1004,48 @@ class SolarEclipseController(Observer):
         self._live_view_window: Union[LiveViewWindow, None] = None
 
         self.load_settings()
+
+    def _run_in_progress(self) -> bool:
+        """True while a schedule is loaded and running."""
+        try:
+            return bool(self.scheduler and self.scheduler.get_jobs())
+        except Exception:
+            return False
+
+    def _show_hardware_problems(self):
+        """Surface queued hardware problems, without ever stalling a run.
+
+        Before the run, a dialog: that is the moment a camera left in AF or on
+        JPEG can still be walked over to and fixed.  During the run, no dialog —
+        a modal window while frames are being taken is worse than the problem it
+        describes — so the count goes in the window title instead and the detail
+        stays in the log for afterwards.
+        """
+        try:
+            if hardware_problems.count() == 0:
+                return
+
+            if self._run_in_progress():
+                pending = hardware_problems.peek()
+                worst = 'error' if any(p.severity == 'error' for p in pending) else 'warning'
+                marker = '⛔' if worst == 'error' else '⚠'
+                self.view.setWindowTitle(
+                    f"{marker} {len(pending)} hardware problem(s) — Solar Eclipse Workbench"
+                )
+                return
+
+            problems = hardware_problems.drain()
+            summary = hardware_problems.summarise(problems)
+            has_error = any(p.severity == 'error' for p in problems)
+            box = QMessageBox.critical if has_error else QMessageBox.warning
+            box(
+                self.view,
+                "Hardware problem" if len(problems) == 1 else "Hardware problems",
+                summary + "\n\nThese were found while setting up, so there is still time to "
+                          "fix them.  Details are in the log.",
+            )
+        except Exception:
+            LOGGER.exception('Could not display hardware problems')
 
     def update_time(self):
         """ Update the displayed current time and countdown clocks."""
@@ -1176,7 +1226,14 @@ class SolarEclipseController(Observer):
 
                 camera: Camera
                 for camera in cameras:
-                    camera.exit()
+                    # One camera refusing to close must not leave the rest open:
+                    # a Fuji body that keeps its SDK session holds the USB device
+                    # and the next run cannot connect to it.
+                    try:
+                        camera.exit()
+                    except Exception:
+                        LOGGER.exception('Could not close camera %s',
+                                         getattr(camera, 'name', camera))
 
             return
 

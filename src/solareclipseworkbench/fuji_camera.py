@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from . import hardware_problems
 from .camera import BaseCamera, CameraError
 
 # Lazy import — fujixsdk may not be installed / the SDK libs may be absent.
@@ -255,31 +256,44 @@ class FujiCamera(BaseCamera):
             shutter_speed: str (e.g. "1/2000")
             aperture: str (e.g. "5.6")
             iso: int or str (e.g. 100)
+
+        Raises:
+            CameraError: if any requested setting could not be applied, naming
+                every one that failed.
+
+        A setting that silently fails to apply is worse than one that fails
+        loudly: the next frame is then taken at the previous exposure and looks
+        perfectly normal until the images are reviewed.  Every failure is
+        collected here — one bad value must not stop the others being tried —
+        and reported together.
         """
+        failures: list = []
+
+        def _apply(name: str, parse, setter, raw) -> None:
+            value = parse(raw)
+            if value is None:
+                failures.append(f"{name}={raw!r} is not a value this camera understands")
+                return
+            try:
+                setter(value)
+            except Exception as exc:
+                failures.append(f"{name}={raw!r} rejected by the camera ({exc})")
+
         with self._lock:
-            if 'iso' in kwargs and kwargs['iso'] is not None:
-                iso_val = _parse_iso(kwargs['iso'])
-                if iso_val is not None:
-                    try:
-                        self._sdk_cam.set_iso(iso_val)
-                    except Exception as e:
-                        logging.warning('Fuji: failed to set ISO %s: %s', kwargs['iso'], e)
+            if kwargs.get('iso') is not None:
+                _apply('ISO', _parse_iso, self._sdk_cam.set_iso, kwargs['iso'])
 
-            if 'aperture' in kwargs and kwargs['aperture'] is not None:
-                ap_val = _parse_aperture(kwargs['aperture'])
-                if ap_val is not None:
-                    try:
-                        self._sdk_cam.set_aperture(ap_val)
-                    except Exception as e:
-                        logging.warning('Fuji: failed to set aperture %s: %s', kwargs['aperture'], e)
+            if kwargs.get('aperture') is not None:
+                _apply('aperture', _parse_aperture, self._sdk_cam.set_aperture, kwargs['aperture'])
 
-            if 'shutter_speed' in kwargs and kwargs['shutter_speed'] is not None:
-                speed_val = _parse_shutter_speed(str(kwargs['shutter_speed']))
-                if speed_val is not None:
-                    try:
-                        self._sdk_cam.set_shutter_speed(speed_val)
-                    except Exception as e:
-                        logging.warning('Fuji: failed to set shutter speed %s: %s', kwargs['shutter_speed'], e)
+            if kwargs.get('shutter_speed') is not None:
+                _apply('shutter speed', lambda v: _parse_shutter_speed(str(v)),
+                       self._sdk_cam.set_shutter_speed, kwargs['shutter_speed'])
+
+        if failures:
+            raise CameraError(
+                f"{self.name}: could not apply " + "; ".join(failures)
+            )
 
     def capture(self):
         """Fire the shutter without AF. Retries once after reconnect on failure."""
@@ -347,20 +361,26 @@ class FujiCamera(BaseCamera):
         For Fuji, we interpret this as EV steps around the current speed
         and return a list of SDK shutter speed constants.
         """
+        # Both of these have to succeed for a bracket to mean anything.  The
+        # previous version returned an empty list when the read failed, which
+        # made the bracket take no frames at all without saying so.
         try:
             current_speed, _ = self._sdk_cam.get_shutter_speed()
-        except Exception:
-            return [current_speed] if 'current_speed' in dir() else []
+            supported = self._sdk_cam.get_supported_shutter_speeds()
+        except Exception as exc:
+            raise CameraError(
+                f"{self.name}: cannot build a bracket — the camera would not report its "
+                f"shutter speed ({exc})"
+            ) from exc
 
-        supported = self._sdk_cam.get_supported_shutter_speeds()
         if current_speed not in supported:
             return [current_speed]
 
         idx = supported.index(current_speed)
 
-        # Parse the step size from the steps string
-        # "+/- 1" = 3 stops, "+/- 1 2/3" = 5 stops, "+/- 2" = 6 stops
-        # Each 1/3 EV step ≈ 1 position in the supported speeds list
+        # Parse the step size from the steps string.  Positions are 1/3 EV
+        # apart, so "+/- 1" spans 3 positions either side of the current speed
+        # and yields 7 frames.
         try:
             clean = steps_str.replace("+/-", "").strip()
             if " " in clean:
@@ -451,6 +471,36 @@ def _kill_ptp_daemon():
         pass
 
 
+def _report_validation_issues(camera: FujiCamera) -> None:
+    """Run the eclipse pre-flight check and surface anything it objects to.
+
+    Done at detection rather than at first shot, which is the whole point: a
+    camera left in AF, or on JPEG, or with exposure compensation dialled in, is
+    trivial to fix while setting up and impossible to fix afterwards.
+    """
+    try:
+        issues = camera.validate()
+    except Exception:
+        logging.debug('Fuji validation failed for %s', camera.name, exc_info=True)
+        return
+
+    for issue in issues or []:
+        # "info" issues are statements of fact (the aperture in use, and so on),
+        # not things to fix, so they stay in the log.
+        if issue.severity == 'info':
+            logging.info('%s: %s is %s', camera.name, issue.setting, issue.current)
+            continue
+        hardware_problems.report(
+            camera.name,
+            issue.message,
+            detail=f"{issue.setting} is {issue.current}, expected {issue.expected}",
+            severity=issue.severity,
+        )
+
+    if issues:
+        logging.info('Fuji validation raised %d issue(s) for %s', len(issues), camera.name)
+
+
 def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
     """Detect Fuji cameras via SDK. Returns {name: FujiCamera} dict.
 
@@ -493,8 +543,14 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
             fuji_cam = FujiCamera(sdk_cam, name, sdk_path, info.device_name)
             result[name] = fuji_cam
             logging.info('Detected Fuji camera: %s (device=%s)', name, info.device_name)
+            _report_validation_issues(fuji_cam)
         except Exception as e:
             logging.warning('Failed to open Fuji camera %s: %s', info.device_name, e)
+            hardware_problems.report(
+                'Fuji SDK',
+                f'Found {name} but could not open it',
+                detail=str(e),
+            )
 
     return result
 

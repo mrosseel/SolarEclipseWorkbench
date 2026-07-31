@@ -12,7 +12,7 @@ from solareclipseworkbench.camera import CameraSettings
 from solareclipseworkbench.gui import SolarEclipseController
 # The registry lives in its own module so the GUI can reach it without
 # importing this one (which imports the GUI).  Re-exported for existing callers.
-from solareclipseworkbench.hardware_registry import HARDWARE, register_hardware
+from solareclipseworkbench.hardware_registry import HARDWARE, HARDWARE_COMMANDS, register_hardware
 from solareclipseworkbench.solar_eclipse import get_solar_eclipses
 
 COMMANDS = {
@@ -34,19 +34,6 @@ COMMANDS = {
     'mount_stop': mount_stop,
 }
 
-# Script commands that act on a piece of hardware rather than a camera, mapped to
-# the kind of device they need.
-HARDWARE_COMMANDS = {
-    'relay_shoot': 'relay',
-    'relay_burst': 'relay',
-    'relay_bulb': 'relay',
-    'mount_track_sun': 'mount',
-    'mount_goto_sun': 'mount',
-    'mount_tracking': 'mount',
-    'mount_park': 'mount',
-    'mount_unpark': 'mount',
-    'mount_stop': 'mount',
-}
 
 
 

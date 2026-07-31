@@ -10,6 +10,21 @@ import logging
 # Devices opened by the GUI or the CLI, looked up when a command is scheduled.
 HARDWARE: dict = {}
 
+# Script commands that act on a piece of hardware rather than a camera, mapped to
+# the kind of device they need.  Lives here rather than in utils so that scripts
+# can consult it too without importing utils, which would be a cycle.
+HARDWARE_COMMANDS = {
+    'relay_shoot': 'relay',
+    'relay_burst': 'relay',
+    'relay_bulb': 'relay',
+    'mount_track_sun': 'mount',
+    'mount_goto_sun': 'mount',
+    'mount_tracking': 'mount',
+    'mount_park': 'mount',
+    'mount_unpark': 'mount',
+    'mount_stop': 'mount',
+}
+
 
 def register_hardware(kind: str, device) -> None:
     """Make a relay trigger or mount available to scheduled commands.

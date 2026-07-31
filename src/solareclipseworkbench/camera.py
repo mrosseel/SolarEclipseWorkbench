@@ -8,6 +8,8 @@ import time
 
 import gphoto2
 import gphoto2 as gp
+
+from solareclipseworkbench import hardware_problems
 from datetime import datetime
 import os
 
@@ -1099,11 +1101,21 @@ def __adapt_camera_settings(camera, camera_settings):
         # apply exposure settings through their own configure() so the values are
         # in place before the caller invokes capture()/shooter.
         if getattr(camera, 'vendor', None) == 'Fuji':
-            camera.configure(
-                shutter_speed=camera_settings.shutter_speed,
-                aperture=camera_settings.aperture,
-                iso=camera_settings.iso,
-            )
+            try:
+                camera.configure(
+                    shutter_speed=camera_settings.shutter_speed,
+                    aperture=camera_settings.aperture,
+                    iso=camera_settings.iso,
+                )
+            except CameraError as exc:
+                # Still take the frame — a frame at the wrong exposure beats no
+                # frame at all — but never let it pass unnoticed, because the
+                # image will look perfectly normal until it is reviewed.
+                hardware_problems.report(
+                    getattr(camera, 'name', 'Fuji camera'),
+                    'Exposure settings were not applied; frames may be at the wrong exposure',
+                    detail=str(exc),
+                )
         return None, None
 
     context = gp.gp_context_new()
@@ -2518,8 +2530,15 @@ def get_camera_dict(is_simulator: bool = False, alias_map: Optional[dict] = None
                 logging.info('Fuji SDK detected %d camera(s)', len(fuji_cameras))
         else:
             logging.debug('Fuji SDK path not found, skipping SDK detection')
-    except Exception:
-        logging.debug('Fuji SDK detection failed', exc_info=True)
+    except Exception as exc:
+        # Not debug: a failure here means no Fuji camera appears at all, and
+        # without a message the user just sees an empty list and no reason.
+        logging.exception('Fuji SDK detection failed')
+        hardware_problems.report(
+            'Fuji SDK',
+            'Fuji camera detection failed, so no Fuji body will be available',
+            detail=str(exc),
+        )
 
     detected = get_cameras()  # [(model_name, port), ...]
     try:
