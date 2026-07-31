@@ -3258,8 +3258,16 @@ class CameraOverviewTableModel(QAbstractTableModel):
                         free_space_pct_str = str(int(free_space_gb / total_space * 100))
                     data.append([camera_name, _describe_camera_mode(camera_name, camera),
                                  str(battery_level), free_space_gb_str, free_space_pct_str])
-                except Exception:
+                except Exception as exc:
                     logging.exception('Worker: exception while processing camera %s', camera_name)
+                    # The row survives with N/A values, which on its own looks
+                    # like the camera is simply idle.  Say why.
+                    hardware_problems.report(
+                        str(camera_name),
+                        'Could not read battery and free space from this camera',
+                        detail=str(exc),
+                        severity='warning',
+                    )
                     # Preserve the camera row with N/A values when probing fails so
                     # the camera does not disappear from the UI.
                     try:
@@ -3279,8 +3287,13 @@ class CameraOverviewTableModel(QAbstractTableModel):
                 self._pending_camera_map = camera_dict
             except Exception:
                 logging.exception('Worker: could not set pending data')
-        except Exception:
+        except Exception as exc:
             logging.exception('Worker: failed to gather camera info')
+            hardware_problems.report(
+                'Cameras',
+                'Could not read the connected cameras',
+                detail=str(exc),
+            )
 
     def _on_data_ready(self, data):
         try:
