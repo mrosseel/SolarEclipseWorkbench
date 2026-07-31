@@ -26,7 +26,7 @@ import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, \
-    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QCheckBox
+    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QCheckBox, QSplitter
 from PyQt6 import QtWidgets
 from apscheduler.job import Job
 from apscheduler.schedulers import SchedulerNotRunningError
@@ -617,32 +617,63 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(QLabel("Sunrise"), 6, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunset"), 7, 0)
         reference_moments_group_box.setLayout(reference_moments_grid_layout)
-        reference_moments_group_box.setFixedWidth(600)
+        # A minimum rather than a fixed width, so the box cannot be squeezed until
+        # the reference-moment columns collide but can still give space back when
+        # the window is narrow.
+        reference_moments_group_box.setMinimumWidth(600)
 
         # noinspection SpellCheckingInspection
         input_hbox = QHBoxLayout()
         input_hbox.addLayout(vbox_left)
         input_hbox.addWidget(reference_moments_group_box)
 
-        self.camera_overview.setFixedHeight(300)
+        self.camera_overview.setMinimumHeight(180)
         input_hbox.addWidget(self.camera_overview)
 
-        # noinspection SpellCheckingInspection
-        output_hbox = QHBoxLayout()
-        output_hbox.addWidget(self.eclipse_visualization)
-        # output_hbox.addWidget(self.canvas)
-        output_hbox.addWidget(self.jobs_table)
+        # The eclipse geometry draws two discs on an equal-aspect axis, so any
+        # width beyond its height is empty margin.  Its matplotlib canvas asks for
+        # figsize * dpi = 600x620 px and expands in both directions, which in a
+        # plain QHBoxLayout takes about half the row whatever the jobs table needs.
+        # A splitter hands that choice to the user: the canvas reports a 10x10
+        # minimum size hint, so it can be dragged right down when the schedule
+        # matters more than the picture.
+        self.output_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.output_splitter.addWidget(self.eclipse_visualization)
+        self.output_splitter.addWidget(self.jobs_table)
+        self.output_splitter.setStretchFactor(0, 1)
+        self.output_splitter.setStretchFactor(1, 3)
+        self.output_splitter.setChildrenCollapsible(True)
 
         global_layout = QVBoxLayout()
         # show reminder banner at top
         global_layout.addWidget(self.sony_reminder_label)
         global_layout.addLayout(input_hbox)
 
-        global_layout.addLayout(output_hbox)
+        global_layout.addWidget(self.output_splitter)
 
         app_frame.setLayout(global_layout)
 
         self.setCentralWidget(app_frame)
+
+        self.restore_splitter_state()
+
+    def restore_splitter_state(self):
+        """Put the output splitter back where the user last dragged it."""
+        settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
+                             QSettings.Format.IniFormat)
+        state = settings.value("layout/output_splitter")
+        if state is not None:
+            self.output_splitter.restoreState(state)
+        else:
+            # First run: give the plot a quarter of the row rather than the half
+            # its size hint would otherwise claim.
+            self.output_splitter.setSizes([300, 900])
+
+    def save_splitter_state(self):
+        """Remember where the output splitter was dragged to."""
+        settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
+                             QSettings.Format.IniFormat)
+        settings.setValue("layout/output_splitter", self.output_splitter.saveState())
 
     def add_toolbar(self):
         """ Create the toolbar of the UI.
@@ -935,6 +966,7 @@ class SolarEclipseView(QMainWindow, Observable):
         )
 
         if reply == QMessageBox.StandardButton.Yes:
+            self.save_splitter_state()
             # Notify controller so it can clean up cameras, scheduler, etc.
             self.notify_observers(close_event)
             close_event.accept()
