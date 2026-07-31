@@ -69,18 +69,14 @@ def test_fixed_iso_is_accepted():
 # ----------------------------------------------------------------- drive mode
 
 
-def test_single_drive_mode_is_reported():
-    # A relay burst holds the contacts closed and lets the body free-run; on
-    # Single that is one frame per contact instead of a burst.
+def test_stills_drive_mode_is_not_treated_as_single_frame():
+    # Measured: an X-T4 with the drive dial physically on CH still reads back
+    # DRIVE_MODE_S.  That value means stills rather than single-frame drive, so
+    # warning about it produces a false alarm on a correctly set camera.
     issues = validate_for_eclipse(_camera(get_drive_mode=lambda: C.DRIVE_MODE_S))
     found = _find(issues, "Drive Mode")
-    assert found and found[0].severity == "warning"
-    assert found[0].current == "Single"
-
-
-def test_ch_drive_mode_is_not_actionable():
-    found = _find(validate_for_eclipse(_camera()), "Drive Mode")
-    assert all(i.severity == "info" for i in found)
+    assert found and found[0].severity == "info"
+    assert "verify" in found[0].expected.lower()
 
 
 def test_movie_mode_stays_an_error():
