@@ -54,15 +54,15 @@ fuji_partial, C2, -, 0:03:30.0, Fuji Fujifilm X-T4, 1/1000, "Thinning crescent"
 fuji_partial, C2, -, 0:02:00.0, Fuji Fujifilm X-T4, 1/500, "Deep crescent"
 fuji_drain,   C2, -, 0:01:10.0, Fuji Fujifilm X-T4, "Empty the queue before the beads"
 relay_arm,    C2, -, 0:00:45.0, "S1 held from here to past C3"
-fuji_speed,   C2, -, 0:00:30.0, Fuji Fujifilm X-T4, 1/6400, "Stage the ring exposure"
+fuji_speed,   C2, -, 0:00:30.0, Fuji Fujifilm X-T4, 1/5000, "Stage the ring exposure"
 
 # Diamond ring and Baily's beads.  Each burst is 1.8 s (~27 frames at 15 fps,
 # under the 32-slot wedge line), sets its own exposure while the body is idle,
 # and drains itself in the gap that follows — a 3-stop bracket across the
 # contact.  Ring speed anchored to the proven 2017 photometry (1/4000 at
 # ISO 100, sun ~45 deg): +1.7 stops for ISO 320, -1 stop for the ~11 deg sun
-# of 12 Aug 2026 (airmass ~5 vs ~1.4) = 1/6400.
-fuji_beads_burst, C2, -, 0:00:12.0, Fuji Fujifilm X-T4, 1.8, 1/6400, "Diamond ring, west limb"
+# of 12 Aug 2026 (airmass ~5 vs ~1.4) = 1/5000.
+fuji_beads_burst, C2, -, 0:00:12.0, Fuji Fujifilm X-T4, 1.8, 1/5000, "Diamond ring, west limb"
 fuji_beads_burst, C2, -, 0:00:06.0, Fuji Fujifilm X-T4, 1.8, 1/2000, "Baily's beads at C2"
 fuji_beads_burst, C2, +, 0:00:00.5, Fuji Fujifilm X-T4, 1.8, 1/500, "Chromosphere / prominences"
 
@@ -83,7 +83,7 @@ fuji_ladder, C2, +, 0:01:08.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1
 # This burst also restores ISO 320 after the ISO 640 earthshine ladder.
 fuji_beads_burst, C3, -, 0:00:08.0, Fuji Fujifilm X-T4, 1.8, 1/500, 320, "Chromosphere before C3"
 fuji_beads_burst, C3, -, 0:00:02.0, Fuji Fujifilm X-T4, 1.8, 1/2000, "Baily's beads at C3"
-fuji_beads_burst, C3, +, 0:00:04.0, Fuji Fujifilm X-T4, 1.8, 1/6400, "Diamond ring, east limb"
+fuji_beads_burst, C3, +, 0:00:04.0, Fuji Fujifilm X-T4, 1.8, 1/5000, "Diamond ring, east limb"
 
 relay_release, C3, +, 0:00:20.0, "S1 released; latency back to normal"
 fuji_drain,    C3, +, 0:00:30.0, Fuji Fujifilm X-T4, "Post-totality cleanup"
@@ -100,16 +100,12 @@ fuji_partial, C3, +, 0:28:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (7)"
 fuji_partial, C3, +, 0:32:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (8)"
 fuji_partial, C3, +, 0:36:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (9)"
 fuji_partial, C3, +, 0:40:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (10)"
-fuji_partial, C3, +, 0:44:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (11)"
-fuji_partial, C3, +, 0:48:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (12)"
-fuji_partial, C3, +, 0:52:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (13)"
-fuji_partial, C3, +, 0:56:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (14)"
-fuji_partial, C3, +, 1:00:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (15)"
-fuji_partial, C3, +, 1:04:00.0, Fuji Fujifilm X-T4, 1/1000, "Partial C3-C4 (16)"
 
-# --------------------------------------------------------------- fourth contact
-fuji_partial, C4, -, 0:00:04.0, Fuji Fujifilm X-T4, 1/1000, "Fourth contact (before)"
-fuji_partial, C4, +, 0:00:00.0, Fuji Fujifilm X-T4, 1/1000, "Fourth contact"
-fuji_partial, C4, +, 0:00:04.0, Fuji Fujifilm X-T4, 1/1000, "Fourth contact (after)"
-fuji_partial, C4, +, 0:02:00.0, Fuji Fujifilm X-T4, 1/1000, "Uneclipsed closing 1"
-fuji_partial, C4, +, 0:02:30.0, Fuji Fujifilm X-T4, 1/1000, "Uneclipsed closing 2"
+# ------------------------------------------- the eclipsed sunset (no C4 here!)
+# At this site (41.764N 2.929W) the sun sets at 19:16 UTC, minutes BEFORE
+# fourth contact — the partial eclipse ends below the horizon.  The last
+# partials become eclipsed-sunset shots; cadence tightens as the sun drops.
+fuji_partial, C3, +, 0:41:30.0, Fuji Fujifilm X-T4, 1/1000, "Eclipsed sunset (low sun)"
+fuji_partial, C3, +, 0:43:00.0, Fuji Fujifilm X-T4, 1/1000, "Eclipsed sunset"
+fuji_partial, C3, +, 0:44:00.0, Fuji Fujifilm X-T4, 1/1000, "Eclipsed sunset"
+fuji_partial, C3, +, 0:44:45.0, Fuji Fujifilm X-T4, 1/1000, "Eclipsed sunset, last light"
