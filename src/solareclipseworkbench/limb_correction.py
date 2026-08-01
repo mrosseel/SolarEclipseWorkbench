@@ -300,26 +300,64 @@ def _refine_internal_contact(elements, evaluate, start_hours, entering):
     return contact
 
 
-def bead_reference_moments(eclipse_date, latitude, longitude, elevation_m,
-                           limb=None, arc_degrees=20.0, profile_step_deg=0.01):
-    """Limb-corrected contacts and bead windows, as UTC datetimes.
+# Turned off from the interface when a correction looks untrustworthy at an
+# untested location.  When off, only the mean-limb C2 and C3 are published.
+_enabled = True
 
-    Returns a dict keyed by reference-moment name, empty if there is no totality
-    at this place or the limb data is not installed.  The keys are the ones a
-    script can schedule against:
 
-        C2_LIMB, C3_LIMB              the limb-corrected internal contacts
-        BEADS_C2, BEADS_C3            the middle of each bead window
-        BEADS_C2_START / _END         its edges, and likewise for C3
+def set_enabled(enabled: bool) -> None:
+    """Enable or disable the limb correction everywhere."""
+    global _enabled
+    _enabled = bool(enabled)
 
-    `arc_degrees` sets how much sunlight still counts as beads rather than a
-    crescent; see bead_window().
+
+def is_enabled() -> bool:
+    return _enabled
+
+
+class LimbSolution:
+    """Everything a limb-corrected eclipse needs, for scheduling or for drawing."""
+
+    def __init__(self, elements, evaluate, to_utc, angles, heights_km,
+                 c2, c3, c2_limb, c3_limb, windows):
+        self.elements = elements
+        self.evaluate = evaluate
+        self.to_utc = to_utc
+        self.angles = angles
+        self.heights_km = heights_km
+        self.c2 = c2
+        self.c3 = c3
+        self.c2_limb = c2_limb
+        self.c3_limb = c3_limb
+        self.windows = windows          # {"C2": (start, end), "C3": (start, end)}
+
+    def correction_seconds(self, name):
+        contact, corrected = ((self.c2, self.c2_limb) if name == "C2"
+                              else (self.c3, self.c3_limb))
+        return (corrected - contact) * 3600.0
+
+    def window_seconds(self, name):
+        start, end = self.windows[name]
+        return (end - start) * 3600.0
+
+    def margin_at(self, hours):
+        """Sunlight margin per position angle at a moment, for drawing."""
+        return sunlight_margin(self.evaluate(hours), self.angles, self.heights_km)
+
+
+def solve_limb(eclipse_date, latitude, longitude, elevation_m,
+               limb=None, arc_degrees=20.0, profile_step_deg=0.01):
+    """Solve the limb-corrected contacts and bead windows, or None.
+
+    Returns None when there is no totality here or the limb data is not
+    installed.  This does not consult the enable flag: the interface wants to
+    show what the correction *would* be even while it is switched off.
     """
     from solareclipseworkbench.solar_eclipse import get_element_coeffs, get_elements
 
     limb = limb or load_default_limb()
     if limb is None:
-        return {}
+        return None
 
     elements = get_element_coeffs(eclipse_date)
 
@@ -334,7 +372,7 @@ def bead_reference_moments(eclipse_date, latitude, longitude, elevation_m,
 
     o = evaluate(maximum)
     if o["L2p"] >= 0.0:
-        return {}      # annular or partial here: no totality to bracket
+        return None      # annular or partial here: no totality to bracket
 
     s = (o["a"] * o["v"] - o["u"] * o["b"]) / (o["n"] * o["L2p"])
     half = o["L2p"] / o["n"] * math.sqrt(max(0.0, 1 - s * s))
@@ -342,7 +380,7 @@ def bead_reference_moments(eclipse_date, latitude, longitude, elevation_m,
     c2 = _refine_internal_contact(elements, evaluate, maximum + half, True)
     c3 = _refine_internal_contact(elements, evaluate, maximum - half, False)
 
-    delta_t_hours = elements["Δt"] / 3600.0
+    delta_t_hours = elements["\u0394t"] / 3600.0
     day = datetime.strptime(eclipse_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
     def to_utc(hours):
@@ -358,11 +396,39 @@ def bead_reference_moments(eclipse_date, latitude, longitude, elevation_m,
     c2_limb = solve_limb_contact(elements, evaluate, c2, True, angles, heights_km)
     c3_limb = solve_limb_contact(elements, evaluate, c3, False, angles, heights_km)
 
-    moments = {"C2_LIMB": to_utc(c2_limb), "C3_LIMB": to_utc(c3_limb)}
-    for name, contact, entering in (("C2", c2_limb, True), ("C3", c3_limb, False)):
-        start, end = bead_window(evaluate, contact, entering, angles, heights_km,
-                                 max_arc_deg=arc_degrees)
-        moments[f"BEADS_{name}_START"] = to_utc(start)
-        moments[f"BEADS_{name}_END"] = to_utc(end)
-        moments[f"BEADS_{name}"] = to_utc(0.5 * (start + end))
+    windows = {
+        "C2": bead_window(evaluate, c2_limb, True, angles, heights_km, max_arc_deg=arc_degrees),
+        "C3": bead_window(evaluate, c3_limb, False, angles, heights_km, max_arc_deg=arc_degrees),
+    }
+    return LimbSolution(elements, evaluate, to_utc, angles, heights_km,
+                        c2, c3, c2_limb, c3_limb, windows)
+
+
+def bead_reference_moments(eclipse_date, latitude, longitude, elevation_m,
+                           limb=None, arc_degrees=20.0, profile_step_deg=0.01):
+    """Limb-corrected contacts and bead windows, as UTC datetimes.
+
+    Returns a dict keyed by reference-moment name, empty if there is no totality
+    at this place, the limb data is not installed, or the correction has been
+    switched off.  The keys are the ones a script can schedule against:
+
+        C2_LIMB, C3_LIMB              the limb-corrected internal contacts
+        BEADS_C2, BEADS_C3            the middle of each bead window
+        BEADS_C2_START / _END         its edges, and likewise for C3
+    """
+    if not _enabled:
+        return {}
+
+    solution = solve_limb(eclipse_date, latitude, longitude, elevation_m,
+                          limb, arc_degrees, profile_step_deg)
+    if solution is None:
+        return {}
+
+    moments = {"C2_LIMB": solution.to_utc(solution.c2_limb),
+               "C3_LIMB": solution.to_utc(solution.c3_limb)}
+    for name in ("C2", "C3"):
+        start, end = solution.windows[name]
+        moments[f"BEADS_{name}_START"] = solution.to_utc(start)
+        moments[f"BEADS_{name}_END"] = solution.to_utc(end)
+        moments[f"BEADS_{name}"] = solution.to_utc(0.5 * (start + end))
     return moments

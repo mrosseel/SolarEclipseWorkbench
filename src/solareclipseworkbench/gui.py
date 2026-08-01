@@ -51,6 +51,7 @@ from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wiring, discover_relays,
                                                  list_backends, make_backend)
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
+from solareclipseworkbench.limb_ui import BeadsWindow
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
 from solareclipseworkbench.constants import SUN_RADIUS, MOON_RADIUS
@@ -426,6 +427,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.file_action = QAction("File", self)
         self.shutdown_scheduler_action = QAction("Stop", self)
         self.relay_action = QAction("Relay", self)
+        self.beads_action = QAction("Baily's beads", self)
         self.datetime_format_action = QAction("Datetime format", self)
         self.save_action = QAction("Save", self)
         self.live_view_action = QAction("Live View", self)
@@ -795,6 +797,13 @@ class SolarEclipseView(QMainWindow, Observable):
         self.shutdown_scheduler_action.setIcon(QIcon(str(ICON_PATH / "stop.png")))
         self.shutdown_scheduler_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.shutdown_scheduler_action)
+
+        # Relay trigger
+
+        self.beads_action.setStatusTip("Baily's beads and the lunar limb correction")
+        self.beads_action.setIcon(QIcon(str(ICON_PATH / "clock.png")))
+        self.beads_action.triggered.connect(self.on_toolbar_button_click)
+        self.toolbar.addAction(self.beads_action)
 
         # Relay trigger
 
@@ -1444,6 +1453,18 @@ class SolarEclipseController(Observer):
         elif text == "Simulator":
             self.simulator_popup = SimulatorPopup(self)
             self.simulator_popup.show()
+
+        elif text == "Baily's beads":
+            if self.model.is_location_set and self.model.is_eclipse_date_set:
+                date = str(self.model.eclipse_date).split(" ")[0]
+                self.beads_window = BeadsWindow(date, self.model.longitude, self.model.latitude,
+                                                self.model.altitude, self.view)
+                self.beads_window.show()
+            else:
+                QMessageBox.information(
+                    self.view, "Baily's beads",
+                    "Set the location and the eclipse date first: the limb profile "
+                    "depends on both.")
 
         elif text == "Relay":
             self.relay_popup = RelayPopup(self)
