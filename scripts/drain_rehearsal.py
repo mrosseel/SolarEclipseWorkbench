@@ -6,8 +6,10 @@ the camera hard enough to need a battery pull.  fujixsdk's drain discards the
 queued PC transfer with DeleteImage and *believes* the image is already on the
 card — a claim July explicitly left unverified.
 
-This deliberately shoots ~100 frames, three times the wedge threshold, with the
-drain running, while walking the exposure ladder over USB.  It proves, or
+This deliberately shoots ~190 frames, six times the wedge threshold, with the
+drain running.  One run, one card swap: taps, bursts, relay ramp, SDK singles,
+the C2 handover, an ISO ramp, a three-ladder mini-totality, and battery drain
+bookends.  It proves, or
 disproves, in one sitting:
 
   - the drain keeps the body alive indefinitely under production fire
@@ -87,7 +89,7 @@ class DrainLoop(threading.Thread):
 
 def main() -> None:
     print("Camera: drive CH, shutter dial T, aimed at the clock, USB connected.")
-    print(f"{DIM}This takes ~100 frames with the drain loop live — three times the\n"
+    print(f"{DIM}This takes ~190 frames with the drain loop live — three times the\n"
           f"wedge threshold on purpose.{RESET}")
     if input("Ready? [y/n] > ").strip().lower() not in ("y", "yes"):
         return
@@ -123,6 +125,13 @@ def main() -> None:
     print(f"{GREEN}Connected:{RESET} {name}  buffer {captured}/{total}  "
           f"{DIM}(no priority calls){RESET}")
     note("connected", camera=name, buffer=[captured, total])
+
+    try:
+        level, _, _ = sdk_cam.get_battery_info()
+        note("battery", level=level, when="start")
+        print(f"{DIM}battery at start: {level}%{RESET}")
+    except Exception:
+        note("battery", level=None, when="start")
 
     drain = DrainLoop(sdk_cam, note)
     drain.start()
@@ -185,10 +194,56 @@ def main() -> None:
             time.sleep(2.0)
         note("handover_burst", started=started)
 
+        print(f"{DIM}phase 6: ISO over USB — the other ramp axis, never yet tested{RESET}")
+        for iso in (160, 800, 3200, 320):
+            started = time.time()
+            error = None
+            try:
+                camera.configure(iso=iso, shutter_speed="1/500")
+                camera.capture()
+            except Exception as exc:
+                error = str(exc)
+            note("iso_shot", iso=iso, error=error, started=started)
+            marker = f"{RED}{error}{RESET}" if error else f"{GREEN}ok{RESET}"
+            print(f"    ISO {iso:>5} {marker}")
+            time.sleep(0.8)
+
+        print(f"{DIM}phase 7: mini-totality — C2 burst, three SDK ladders, C3 burst{RESET}")
+        started = time.time()
+        with trigger.pressed():
+            time.sleep(2.5)
+        note("totality_c2_burst", started=started)
+        time.sleep(2.0)
+        for round_no in range(3):
+            for speed in ("1/1000", "1/125", "1/15", "1/4", "1"):
+                shot_at = time.time()
+                error = None
+                try:
+                    camera.configure(shutter_speed=speed)
+                    camera.capture()
+                except Exception as exc:
+                    error = str(exc)
+                note("totality_ladder_shot", round=round_no + 1, speed=speed,
+                     error=error, started=shot_at)
+                if error:
+                    print(f"    {RED}round {round_no + 1} {speed}: {error}{RESET}")
+            print(f"    ladder round {round_no + 1} done, buffer peak {drain.peak}")
+        started = time.time()
+        with trigger.pressed():
+            time.sleep(2.5)
+        note("totality_c3_burst", started=started)
+
         try:
-            camera.configure(shutter_speed="1/125")
+            camera.configure(shutter_speed="1/125", iso=320)
         except Exception:
             pass
+
+        try:
+            level, _, _ = sdk_cam.get_battery_info()
+            note("battery", level=level, when="end")
+            print(f"{DIM}battery at end: {level}%{RESET}")
+        except Exception:
+            note("battery", level=None, when="end")
 
         heard = input("\nDid it fire throughout? Anything odd? > ").strip()
         note("observation", text=heard)
