@@ -420,11 +420,10 @@ class HidRelayBackend(Backend):
     def __init__(self, vendor_id: int = 0x16C0, product_id: int = 0x05DF, **config):
         if hid is None:
             raise RelayError(
-                "the 'hid' package is required for HID relay boards: 'uv pip install hid'.  "
-                + ("It loads the hidapi shared library at runtime, so install that too: "
-                   "'brew install hidapi'." if sys.platform == "darwin" else
-                   "It loads the hidapi shared library at runtime, so libhidapi must be "
-                   "installed and findable.")
+                "HID relay boards need the hidapi bindings: 'uv pip install hidapi', or "
+                "install this project with its 'hid' extra.  Take care to install 'hidapi' "
+                "and not the similarly named 'hid', which imports the same but expects the "
+                "shared library to already be on the system."
             )
         try:
             self._device = hid.device()
