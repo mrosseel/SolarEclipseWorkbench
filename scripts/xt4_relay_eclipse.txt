@@ -54,13 +54,15 @@ fuji_partial, C2, -, 0:03:30.0, Fuji Fujifilm X-T4, 1/1000, "Thinning crescent"
 fuji_partial, C2, -, 0:02:00.0, Fuji Fujifilm X-T4, 1/500, "Deep crescent"
 fuji_drain,   C2, -, 0:01:10.0, Fuji Fujifilm X-T4, "Empty the queue before the beads"
 relay_arm,    C2, -, 0:00:45.0, "S1 held from here to past C3"
-fuji_speed,   C2, -, 0:00:30.0, Fuji Fujifilm X-T4, 1/4000, "Stage the ring exposure"
+fuji_speed,   C2, -, 0:00:30.0, Fuji Fujifilm X-T4, 1/6400, "Stage the ring exposure"
 
 # Diamond ring and Baily's beads.  Each burst is 1.8 s (~27 frames at 15 fps,
 # under the 32-slot wedge line), sets its own exposure while the body is idle,
 # and drains itself in the gap that follows — a 3-stop bracket across the
-# contact.  Tune the speeds to your aperture and filtration.
-fuji_beads_burst, C2, -, 0:00:12.0, Fuji Fujifilm X-T4, 1.8, 1/4000, "Diamond ring, west limb"
+# contact.  Ring speed anchored to the proven 2017 photometry (1/4000 at
+# ISO 100, sun ~45 deg): +1.7 stops for ISO 320, -1 stop for the ~11 deg sun
+# of 12 Aug 2026 (airmass ~5 vs ~1.4) = 1/6400.
+fuji_beads_burst, C2, -, 0:00:12.0, Fuji Fujifilm X-T4, 1.8, 1/6400, "Diamond ring, west limb"
 fuji_beads_burst, C2, -, 0:00:06.0, Fuji Fujifilm X-T4, 1.8, 1/2000, "Baily's beads at C2"
 fuji_beads_burst, C2, +, 0:00:00.5, Fuji Fujifilm X-T4, 1.8, 1/500, "Chromosphere / prominences"
 
@@ -73,12 +75,14 @@ fuji_beads_burst, C2, +, 0:00:00.5, Fuji Fujifilm X-T4, 1.8, 1/500, "Chromospher
 fuji_ladder, C2, +, 0:00:08.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1/2;2, 1, 2, "Corona ladders 1+2"
 fuji_ladder, C2, +, 0:00:28.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1/2;2, 1, 2, "Corona ladders 3+4"
 fuji_ladder, C2, +, 0:00:48.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1/2;2, 1, 2, "Corona ladders 5+6"
-fuji_ladder, C2, +, 0:01:08.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1/2;2, 1, 2, "Corona ladders 7+8"
+# The last slot trades its second round for the 4 s earthshine frames the
+# 2017 sequence had at maximum eclipse — doubly worth it at this low sun.
+fuji_ladder, C2, +, 0:01:08.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1/2;2;4, 1, 1, "Corona ladder 7 + earthshine"
 
 # ------------------------------------------------------------------ C3 beads
 fuji_beads_burst, C3, -, 0:00:08.0, Fuji Fujifilm X-T4, 1.8, 1/500, "Chromosphere before C3"
 fuji_beads_burst, C3, -, 0:00:02.0, Fuji Fujifilm X-T4, 1.8, 1/2000, "Baily's beads at C3"
-fuji_beads_burst, C3, +, 0:00:04.0, Fuji Fujifilm X-T4, 1.8, 1/4000, "Diamond ring, east limb"
+fuji_beads_burst, C3, +, 0:00:04.0, Fuji Fujifilm X-T4, 1.8, 1/6400, "Diamond ring, east limb"
 
 relay_release, C3, +, 0:00:20.0, "S1 released; latency back to normal"
 fuji_drain,    C3, +, 0:00:30.0, Fuji Fujifilm X-T4, "Post-totality cleanup"
