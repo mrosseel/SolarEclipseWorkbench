@@ -91,6 +91,28 @@ def _set_speed(camera, speed: str, attempts: int = 6, backoff_s: float = 0.3) ->
     return False
 
 
+def _set_iso(camera, iso, attempts: int = 6, backoff_s: float = 0.3) -> bool:
+    """Set ISO, riding out the busy gate.
+
+    Unlike shutter speed, set_iso is refused (0x1006) whenever frames are
+    pending — so it only belongs at a composite's start, right after the
+    previous drain, where the queue is empty.  Proven to apply with the ISO
+    dial on C (the probe's ISO 160 frames are on the card).
+    """
+    for attempt in range(attempts):
+        try:
+            camera.configure(iso=int(iso))
+            if attempt:
+                logger.info("Set ISO %s on attempt %d", iso, attempt + 1)
+            return True
+        except Exception:
+            if attempt + 1 == attempts:
+                logger.exception("Could not set ISO %s after %d attempts", iso, attempts)
+                return False
+            time.sleep(backoff_s)
+    return False
+
+
 def fuji_speed(camera, speed: str) -> None:
     """Set the shutter speed over USB, nothing else."""
     with SHOOTING_LOCK:
@@ -121,7 +143,7 @@ def fuji_partial(camera, trigger, speed: str = "") -> None:
         _drain(camera)
 
 
-def fuji_beads_burst(camera, trigger, duration, speed: str = "") -> None:
+def fuji_beads_burst(camera, trigger, duration, speed: str = "", iso: str = "") -> None:
     """A beads/diamond-ring burst, clamped below the wedge line, then drained.
 
     S1 should already be held (``relay_arm``) so the burst starts within the
@@ -135,7 +157,10 @@ def fuji_beads_burst(camera, trigger, duration, speed: str = "") -> None:
     """
     duration = min(float(duration), MAX_BURST_S)
     with SHOOTING_LOCK:
-        logger.info("fuji_beads_burst %.2f s%s", duration, f" at {speed}" if speed else "")
+        logger.info("fuji_beads_burst %.2f s%s%s", duration,
+                    f" at {speed}" if speed else "", f" ISO {iso}" if iso else "")
+        if iso:
+            _set_iso(camera, iso)
         if speed:
             _set_speed(camera, speed)
         with trigger.pressed():
@@ -155,7 +180,8 @@ def _speed_seconds(speed: str) -> float:
         return 0.0
 
 
-def fuji_ladder(camera, trigger, speeds: str, taps_per_speed=1, rounds=1) -> None:
+def fuji_ladder(camera, trigger, speeds: str, taps_per_speed=1, rounds=1,
+                iso: str = "") -> None:
     """Corona exposure ladders: set each speed over USB, tap, drain at the end.
 
     ``speeds`` is semicolon-separated ("1/2000;1/500;...;2") because the script
@@ -177,8 +203,10 @@ def fuji_ladder(camera, trigger, speeds: str, taps_per_speed=1, rounds=1) -> Non
         (2 if _speed_seconds(sp) < 1 / 15 else 1) * taps_per_speed for sp in steps)
     rounds = max(1, min(int(rounds), 24 // max(frames_per_round, 1)))
     with SHOOTING_LOCK:
-        logger.info("fuji_ladder: %s x%d round(s), ~%d frames per round",
-                    steps, rounds, frames_per_round)
+        logger.info("fuji_ladder: %s x%d round(s), ~%d frames per round%s",
+                    steps, rounds, frames_per_round, f" ISO {iso}" if iso else "")
+        if iso:
+            _set_iso(camera, iso)
         trigger.half_press()
         for _ in range(rounds):
             for speed in steps:

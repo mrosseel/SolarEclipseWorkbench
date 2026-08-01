@@ -77,10 +77,11 @@ fuji_ladder, C2, +, 0:00:28.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1
 fuji_ladder, C2, +, 0:00:48.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1/2;2, 1, 2, "Corona ladders 5+6"
 # The last slot trades its second round for the 4 s earthshine frames the
 # 2017 sequence had at maximum eclipse — doubly worth it at this low sun.
-fuji_ladder, C2, +, 0:01:08.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1/2;2;4, 1, 1, "Corona ladder 7 + earthshine"
+fuji_ladder, C2, +, 0:01:08.0, Fuji Fujifilm X-T4, 1/2000;1/500;1/125;1/30;1/8;1/2;2;4, 1, 1, 640, "Corona ladder 7 + earthshine at ISO 640"
 
 # ------------------------------------------------------------------ C3 beads
-fuji_beads_burst, C3, -, 0:00:08.0, Fuji Fujifilm X-T4, 1.8, 1/500, "Chromosphere before C3"
+# This burst also restores ISO 320 after the ISO 640 earthshine ladder.
+fuji_beads_burst, C3, -, 0:00:08.0, Fuji Fujifilm X-T4, 1.8, 1/500, 320, "Chromosphere before C3"
 fuji_beads_burst, C3, -, 0:00:02.0, Fuji Fujifilm X-T4, 1.8, 1/2000, "Baily's beads at C3"
 fuji_beads_burst, C3, +, 0:00:04.0, Fuji Fujifilm X-T4, 1.8, 1/6400, "Diamond ring, east limb"
 
