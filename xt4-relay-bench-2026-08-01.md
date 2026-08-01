@@ -128,12 +128,42 @@ per-frame trigger latency from ~170 ms to the body's own ~46 ms, without gamblin
 whether a cold body wakes in time. Verified on the simulated backend: 144 ms cold,
 15 ms pre-armed.
 
-## Still open
+## A held contact does not repeat the bracket
 
-**Does a held contact repeat the bracket?** Unresolved. Both holds tested were shorter
-than one sequence took, so there was never room for a second. Block 9 of
-`scripts/campaign_sdk.py` tests it with a fast 1 EV ladder that completes in about a
-second inside a 15-second hold.
+Read off the clock digits in frame, the 15-second hold went:
+
+| | time |
+|---|---|
+| S2 closed | 18:40:28.066 |
+| first frame (1/500) | 18:40:28.059 |
+| last frame (1/8000) | 18:40:37.928 |
+| S2 released | 18:40:43.073 |
+
+The sequence took **9.87 s** and then **5.1 s of held contact produced nothing**. One
+closure runs one sequence and stops.
+
+The sum of that ladder's own exposures is about 9.13 s, so the body adds only ~0.7 s of
+overhead across nine frames. That gives a usable model:
+
+> sequence duration = sum of the ladder's exposures + ~0.7 s
+
+Which prices the candidates: the 9 x 2 EV corona ladder needs ~11.4 s per sequence
+because of its 8-second frame, while 7 frames x 2 EV from 1/125 needs only ~1.4 s and can
+therefore repeat throughout totality.
+
+Note the first frame lands within ~10 ms of S2 closing, against ~46 ms for a single shot —
+`hold()` asserts S1 120 ms earlier, so this confirms the pre-arm result by a second and
+independent route.
+
+## Accuracy of the clock rig
+
+The page redraws under `requestAnimationFrame`, so the displayed time lags reality by up
+to one screen refresh, 0 to 16 ms. Photographed readings are therefore early, and every
+latency figure here is an **under**-estimate by up to 16 ms: 170 ms means 170 to 186 ms.
+Long bracket frames are unreadable — at 1 s and 8 s the screen is blown out completely —
+so only exposures between roughly 1/8000 and 1/125 can be timed this way.
+
+## Still open
 
 **Does the release jack still fire while the SDK holds a USB session?** Untested here;
 blocks 6 to 8 of the SDK campaign. This decides whether exposures can be ramped over USB
