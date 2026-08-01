@@ -1,0 +1,393 @@
+{
+  "started": 1785601791.1430578,
+  "notes": {
+    "1:release latency, single drive": "clicks, seemed ok",
+    "2:sustained rate and the buffer knee": "seemed ok again, after buffer full still 2/4 fps",
+    "3:does the rate follow the shutter speed": "overexposed",
+    "4:electronic shutter": "seemd fine",
+    "5:auto bracket while the contact is held": "multiple relayi clicks while bracketing was doing one long exposure it seemed"
+  },
+  "expected_frames": 25,
+  "records": [
+    {
+      "block": "1:release latency, single drive",
+      "action": "quiet",
+      "wall_start": 1785601791.1430578,
+      "wall_end": 1785601799.147784,
+      "duration_s": 8.0047,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "slate",
+      "wall_start": 1785601799.149867,
+      "wall_end": 1785601799.368466,
+      "duration_s": 0.2186,
+      "pulse_ms": 80
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "pulse",
+      "wall_start": 1785601805.019824,
+      "wall_end": 1785601805.196487,
+      "duration_s": 0.1767,
+      "pulse_ms": 40
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "pulse",
+      "wall_start": 1785601808.199303,
+      "wall_end": 1785601808.375315,
+      "duration_s": 0.176,
+      "pulse_ms": 40
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "pulse",
+      "wall_start": 1785601811.381099,
+      "wall_end": 1785601811.5594182,
+      "duration_s": 0.1783,
+      "pulse_ms": 40
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "pulse",
+      "wall_start": 1785601814.561791,
+      "wall_end": 1785601814.798186,
+      "duration_s": 0.2364,
+      "pulse_ms": 100
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "pulse",
+      "wall_start": 1785601817.7992718,
+      "wall_end": 1785601818.037001,
+      "duration_s": 0.2377,
+      "pulse_ms": 100
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "pulse",
+      "wall_start": 1785601821.044364,
+      "wall_end": 1785601821.283942,
+      "duration_s": 0.2396,
+      "pulse_ms": 100
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "pulse",
+      "wall_start": 1785601824.286367,
+      "wall_end": 1785601824.625143,
+      "duration_s": 0.3388,
+      "pulse_ms": 200
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "pulse",
+      "wall_start": 1785601827.630309,
+      "wall_end": 1785601827.966818,
+      "duration_s": 0.3365,
+      "pulse_ms": 200
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "pulse",
+      "wall_start": 1785601830.9717839,
+      "wall_end": 1785601831.3099442,
+      "duration_s": 0.3382,
+      "pulse_ms": 200
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "hold_single_drive",
+      "wall_start": 1785601834.31358,
+      "wall_end": 1785601836.447734,
+      "duration_s": 2.1342,
+      "hold_s": 2.0,
+      "s2_closed_at": 1785601834.438609,
+      "s2_open_for": 2.0091
+    },
+    {
+      "block": "1:release latency, single drive",
+      "action": "hold_single_drive",
+      "wall_start": 1785601840.453739,
+      "wall_end": 1785601842.590622,
+      "duration_s": 2.1369,
+      "hold_s": 2.0,
+      "s2_closed_at": 1785601840.581642,
+      "s2_open_for": 2.009
+    },
+    {
+      "block": "2:sustained rate and the buffer knee",
+      "action": "quiet",
+      "wall_start": 1785601876.8900049,
+      "wall_end": 1785601884.8921201,
+      "duration_s": 8.0021,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "2:sustained rate and the buffer knee",
+      "action": "slate",
+      "wall_start": 1785601884.8933618,
+      "wall_end": 1785601885.109729,
+      "duration_s": 0.2164,
+      "pulse_ms": 80
+    },
+    {
+      "block": "2:sustained rate and the buffer knee",
+      "action": "slate",
+      "wall_start": 1785601886.612463,
+      "wall_end": 1785601886.824759,
+      "duration_s": 0.2123,
+      "pulse_ms": 80
+    },
+    {
+      "block": "2:sustained rate and the buffer knee",
+      "action": "burst_5s",
+      "wall_start": 1785601893.24025,
+      "wall_end": 1785601898.381542,
+      "duration_s": 5.1413,
+      "hold_s": 5.0,
+      "s2_closed_at": 1785601893.369684,
+      "s2_open_for": 5.0119
+    },
+    {
+      "block": "2:sustained rate and the buffer knee",
+      "action": "quiet",
+      "wall_start": 1785601898.382957,
+      "wall_end": 1785601943.386944,
+      "duration_s": 45.004,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "2:sustained rate and the buffer knee",
+      "action": "burst_10s",
+      "wall_start": 1785601945.324127,
+      "wall_end": 1785601955.471325,
+      "duration_s": 10.1472,
+      "hold_s": 10.0,
+      "s2_closed_at": 1785601945.46065,
+      "s2_open_for": 10.0107
+    },
+    {
+      "block": "2:sustained rate and the buffer knee",
+      "action": "quiet",
+      "wall_start": 1785601955.474144,
+      "wall_end": 1785602000.479033,
+      "duration_s": 45.0049,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "2:sustained rate and the buffer knee",
+      "action": "burst_20s",
+      "wall_start": 1785602002.482877,
+      "wall_end": 1785602022.6210098,
+      "duration_s": 20.1381,
+      "hold_s": 20.0,
+      "s2_closed_at": 1785602002.612253,
+      "s2_open_for": 20.0088
+    },
+    {
+      "block": "2:sustained rate and the buffer knee",
+      "action": "quiet",
+      "wall_start": 1785602022.623989,
+      "wall_end": 1785602067.630136,
+      "duration_s": 45.0061,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "3:does the rate follow the shutter speed",
+      "action": "quiet",
+      "wall_start": 1785602105.26288,
+      "wall_end": 1785602113.264457,
+      "duration_s": 8.0016,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "3:does the rate follow the shutter speed",
+      "action": "slate",
+      "wall_start": 1785602113.2664242,
+      "wall_end": 1785602113.493191,
+      "duration_s": 0.2268,
+      "pulse_ms": 80
+    },
+    {
+      "block": "3:does the rate follow the shutter speed",
+      "action": "slate",
+      "wall_start": 1785602114.997459,
+      "wall_end": 1785602115.216522,
+      "duration_s": 0.2191,
+      "pulse_ms": 80
+    },
+    {
+      "block": "3:does the rate follow the shutter speed",
+      "action": "slate",
+      "wall_start": 1785602116.7226958,
+      "wall_end": 1785602116.9418051,
+      "duration_s": 0.2191,
+      "pulse_ms": 80
+    },
+    {
+      "block": "3:does the rate follow the shutter speed",
+      "action": "burst_slow_15",
+      "wall_start": 1785602122.088793,
+      "wall_end": 1785602128.2214231,
+      "duration_s": 6.1326,
+      "hold_s": 6.0,
+      "s2_closed_at": 1785602122.215328,
+      "s2_open_for": 6.0061
+    },
+    {
+      "block": "3:does the rate follow the shutter speed",
+      "action": "quiet",
+      "wall_start": 1785602128.23037,
+      "wall_end": 1785602158.234852,
+      "duration_s": 30.0045,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "3:does the rate follow the shutter speed",
+      "action": "burst_slow_2",
+      "wall_start": 1785602207.483135,
+      "wall_end": 1785602215.6388102,
+      "duration_s": 8.1557,
+      "hold_s": 8.0,
+      "s2_closed_at": 1785602207.623931,
+      "s2_open_for": 8.0149
+    },
+    {
+      "block": "4:electronic shutter",
+      "action": "quiet",
+      "wall_start": 1785602251.4904451,
+      "wall_end": 1785602259.4926841,
+      "duration_s": 8.0022,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "4:electronic shutter",
+      "action": "slate",
+      "wall_start": 1785602259.499157,
+      "wall_end": 1785602259.720934,
+      "duration_s": 0.2218,
+      "pulse_ms": 80
+    },
+    {
+      "block": "4:electronic shutter",
+      "action": "slate",
+      "wall_start": 1785602261.234915,
+      "wall_end": 1785602261.451325,
+      "duration_s": 0.2164,
+      "pulse_ms": 80
+    },
+    {
+      "block": "4:electronic shutter",
+      "action": "slate",
+      "wall_start": 1785602262.95858,
+      "wall_end": 1785602263.173381,
+      "duration_s": 0.2148,
+      "pulse_ms": 80
+    },
+    {
+      "block": "4:electronic shutter",
+      "action": "slate",
+      "wall_start": 1785602264.6778612,
+      "wall_end": 1785602264.893255,
+      "duration_s": 0.2154,
+      "pulse_ms": 80
+    },
+    {
+      "block": "4:electronic shutter",
+      "action": "burst_electronic",
+      "wall_start": 1785602270.612496,
+      "wall_end": 1785602275.75396,
+      "duration_s": 5.1415,
+      "hold_s": 5.0,
+      "s2_closed_at": 1785602270.744077,
+      "s2_open_for": 5.0099
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "quiet",
+      "wall_start": 1785602376.2239501,
+      "wall_end": 1785602384.231009,
+      "duration_s": 8.0071,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "slate",
+      "wall_start": 1785602384.250519,
+      "wall_end": 1785602384.488342,
+      "duration_s": 0.2378,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "slate",
+      "wall_start": 1785602385.995158,
+      "wall_end": 1785602386.237696,
+      "duration_s": 0.2425,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "slate",
+      "wall_start": 1785602387.749456,
+      "wall_end": 1785602387.962574,
+      "duration_s": 0.2131,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "slate",
+      "wall_start": 1785602389.4773738,
+      "wall_end": 1785602389.6984031,
+      "duration_s": 0.221,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "slate",
+      "wall_start": 1785602391.2193768,
+      "wall_end": 1785602391.441298,
+      "duration_s": 0.2219,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "bkt_single_pulse",
+      "wall_start": 1785602396.572383,
+      "wall_end": 1785602396.758943,
+      "duration_s": 0.1866,
+      "pulse_ms": 40
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "bkt_hold_3s",
+      "wall_start": 1785602404.771326,
+      "wall_end": 1785602407.912288,
+      "duration_s": 3.141,
+      "hold_s": 3.0,
+      "s2_closed_at": 1785602404.902396,
+      "s2_open_for": 3.0099
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "quiet",
+      "wall_start": 1785602407.9220018,
+      "wall_end": 1785602427.92594,
+      "duration_s": 20.0039,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "5:auto bracket while the contact is held",
+      "action": "bkt_hold_15s",
+      "wall_start": 1785602427.9360251,
+      "wall_end": 1785602443.073739,
+      "duration_s": 15.1377,
+      "hold_s": 15.0,
+      "s2_closed_at": 1785602428.066699,
+      "s2_open_for": 15.007
+    }
+  ]
+}
