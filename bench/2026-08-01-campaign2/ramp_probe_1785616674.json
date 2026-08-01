@@ -1,0 +1,117 @@
+[
+  {
+    "action": "connected",
+    "at": 1785616682.2958379,
+    "camera": "Fuji Fujifilm X-T4"
+  },
+  {
+    "action": "baseline_tap",
+    "at": 1785616682.543413,
+    "started": 1785616682.340085
+  },
+  {
+    "action": "baseline_tap",
+    "at": 1785616684.7352068,
+    "started": 1785616684.5445042
+  },
+  {
+    "action": "set_speed",
+    "at": 1785616686.8010082,
+    "speed": "1/1000",
+    "error": null,
+    "started": 1785616686.739403
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616686.987287,
+    "speed": "1/1000",
+    "started": 1785616686.801596
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616688.676312,
+    "speed": "1/1000",
+    "started": 1785616688.4928489
+  },
+  {
+    "action": "set_speed",
+    "at": 1785616690.23455,
+    "speed": "1/250",
+    "error": null,
+    "started": 1785616690.180692
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616690.4223082,
+    "speed": "1/250",
+    "started": 1785616690.2352252
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616692.119148,
+    "speed": "1/250",
+    "started": 1785616691.927661
+  },
+  {
+    "action": "set_speed",
+    "at": 1785616693.707598,
+    "speed": "1/60",
+    "error": null,
+    "started": 1785616693.620532
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616693.917346,
+    "speed": "1/60",
+    "started": 1785616693.70892
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616695.6031418,
+    "speed": "1/60",
+    "started": 1785616695.419529
+  },
+  {
+    "action": "set_speed",
+    "at": 1785616697.165903,
+    "speed": "1/15",
+    "error": null,
+    "started": 1785616697.1044412
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616697.355136,
+    "speed": "1/15",
+    "started": 1785616697.167477
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616699.0441651,
+    "speed": "1/15",
+    "started": 1785616698.857391
+  },
+  {
+    "action": "set_speed",
+    "at": 1785616700.6353412,
+    "speed": "1/4",
+    "error": null,
+    "started": 1785616700.5501251
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616700.820966,
+    "speed": "1/4",
+    "started": 1785616700.63613
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785616702.5140228,
+    "speed": "1/4",
+    "started": 1785616702.325221
+  },
+  {
+    "action": "observation",
+    "at": 1785616719.762336,
+    "text": "yes"
+  }
+]

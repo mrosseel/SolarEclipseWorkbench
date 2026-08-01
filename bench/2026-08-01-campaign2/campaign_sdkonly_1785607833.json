@@ -1,0 +1,665 @@
+{
+  "notes": {
+    "9:does the jack still fire with a USB session open": "priority pc failed camera is busy, no clicks",
+    "10:shutter speed set over USB, frames driven by the relay": "relay made sounds, camera not",
+    "11:ramping mid-burst, the way totality would need it": "relay clikcing no camera"
+  },
+  "records": [
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785607833.141866,
+      "wall_end": 1785607833.361176,
+      "duration_s": 0.2193,
+      "pulse_ms": 80
+    },
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785607835.3658528,
+      "wall_end": 1785607835.582344,
+      "duration_s": 0.2165,
+      "pulse_ms": 80
+    },
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785607837.58552,
+      "wall_end": 1785607837.80931,
+      "duration_s": 0.2238,
+      "pulse_ms": 80
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "slate",
+      "wall_start": 1785607846.795784,
+      "wall_end": 1785607847.008676,
+      "duration_s": 0.2129,
+      "pulse_ms": 80
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_15ms",
+      "wall_start": 1785607853.78861,
+      "wall_end": 1785607853.941911,
+      "duration_s": 0.1533,
+      "pulse_ms": 15
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_15ms",
+      "wall_start": 1785607856.4407501,
+      "wall_end": 1785607856.593235,
+      "duration_s": 0.1525,
+      "pulse_ms": 15
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_15ms",
+      "wall_start": 1785607859.096614,
+      "wall_end": 1785607859.249738,
+      "duration_s": 0.1531,
+      "pulse_ms": 15
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_15ms",
+      "wall_start": 1785607861.7505422,
+      "wall_end": 1785607861.903278,
+      "duration_s": 0.1527,
+      "pulse_ms": 15
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_25ms",
+      "wall_start": 1785607864.406198,
+      "wall_end": 1785607864.571697,
+      "duration_s": 0.1655,
+      "pulse_ms": 25
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_25ms",
+      "wall_start": 1785607867.075561,
+      "wall_end": 1785607867.235703,
+      "duration_s": 0.1601,
+      "pulse_ms": 25
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_25ms",
+      "wall_start": 1785607869.736452,
+      "wall_end": 1785607869.904168,
+      "duration_s": 0.1677,
+      "pulse_ms": 25
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_25ms",
+      "wall_start": 1785607872.408352,
+      "wall_end": 1785607872.567945,
+      "duration_s": 0.1596,
+      "pulse_ms": 25
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_40ms",
+      "wall_start": 1785607875.0690298,
+      "wall_end": 1785607875.245124,
+      "duration_s": 0.1761,
+      "pulse_ms": 40
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_40ms",
+      "wall_start": 1785607877.749432,
+      "wall_end": 1785607877.929704,
+      "duration_s": 0.1803,
+      "pulse_ms": 40
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_40ms",
+      "wall_start": 1785607880.432587,
+      "wall_end": 1785607880.6138828,
+      "duration_s": 0.1813,
+      "pulse_ms": 40
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_40ms",
+      "wall_start": 1785607883.118616,
+      "wall_end": 1785607883.297216,
+      "duration_s": 0.1786,
+      "pulse_ms": 40
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_60ms",
+      "wall_start": 1785607885.798979,
+      "wall_end": 1785607885.998687,
+      "duration_s": 0.1997,
+      "pulse_ms": 60
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_60ms",
+      "wall_start": 1785607888.5036201,
+      "wall_end": 1785607888.701334,
+      "duration_s": 0.1977,
+      "pulse_ms": 60
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_60ms",
+      "wall_start": 1785607891.207882,
+      "wall_end": 1785607891.402876,
+      "duration_s": 0.195,
+      "pulse_ms": 60
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_60ms",
+      "wall_start": 1785607893.908105,
+      "wall_end": 1785607894.108767,
+      "duration_s": 0.2007,
+      "pulse_ms": 60
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "slate",
+      "wall_start": 1785607924.0391622,
+      "wall_end": 1785607924.2552588,
+      "duration_s": 0.2161,
+      "pulse_ms": 80
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "set_priority",
+      "wall_start": 1785607929.678118,
+      "wall_end": 1785607929.678118,
+      "duration_s": 0.0,
+      "mode": "CAMERA",
+      "error": "XSDK error 0x00001006: Camera is busy"
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "relay_shot_prio_camera",
+      "wall_start": 1785607929.6963232,
+      "wall_end": 1785607929.908041,
+      "duration_s": 0.2117,
+      "pulse_ms": 80
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "relay_shot_prio_camera",
+      "wall_start": 1785607932.9113832,
+      "wall_end": 1785607933.131051,
+      "duration_s": 0.2197,
+      "pulse_ms": 80
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "relay_shot_prio_camera",
+      "wall_start": 1785607936.140061,
+      "wall_end": 1785607936.3579662,
+      "duration_s": 0.2179,
+      "pulse_ms": 80
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "relay_burst_prio_camera",
+      "wall_start": 1785607939.363241,
+      "wall_end": 1785607942.497067,
+      "duration_s": 3.1338,
+      "hold_s": 3.0,
+      "s2_closed_at": 1785607939.4910789
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "set_priority",
+      "wall_start": 1785607964.057905,
+      "wall_end": 1785607964.057906,
+      "duration_s": 0.0,
+      "mode": "PC",
+      "error": "XSDK error 0x00001006: Camera is busy"
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "relay_shot_prio_pc",
+      "wall_start": 1785607964.058888,
+      "wall_end": 1785607964.276931,
+      "duration_s": 0.218,
+      "pulse_ms": 80
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "relay_shot_prio_pc",
+      "wall_start": 1785607967.279315,
+      "wall_end": 1785607967.4949381,
+      "duration_s": 0.2156,
+      "pulse_ms": 80
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "relay_shot_prio_pc",
+      "wall_start": 1785607970.49748,
+      "wall_end": 1785607970.71294,
+      "duration_s": 0.2155,
+      "pulse_ms": 80
+    },
+    {
+      "block": "9:does the jack still fire with a USB session open",
+      "action": "relay_burst_prio_pc",
+      "wall_start": 1785607973.7166002,
+      "wall_end": 1785607976.858932,
+      "duration_s": 3.1423,
+      "hold_s": 3.0,
+      "s2_closed_at": 1785607973.850972
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "slate",
+      "wall_start": 1785608009.084081,
+      "wall_end": 1785608009.311075,
+      "duration_s": 0.227,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608014.299959,
+      "wall_end": 1785608014.362083,
+      "duration_s": 0.0621,
+      "speed": "1/1000",
+      "error": null
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608014.3632672,
+      "wall_end": 1785608014.587301,
+      "duration_s": 0.224,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608015.091734,
+      "wall_end": 1785608015.3142452,
+      "duration_s": 0.2225,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608017.3297532,
+      "wall_end": 1785608017.383355,
+      "duration_s": 0.0536,
+      "speed": "1/250",
+      "error": null
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608017.385668,
+      "wall_end": 1785608017.6090791,
+      "duration_s": 0.2234,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608018.1135402,
+      "wall_end": 1785608018.340317,
+      "duration_s": 0.2268,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608020.353222,
+      "wall_end": 1785608020.417429,
+      "duration_s": 0.0642,
+      "speed": "1/60",
+      "error": null
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608020.419714,
+      "wall_end": 1785608020.6372569,
+      "duration_s": 0.2175,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608021.146167,
+      "wall_end": 1785608021.3642838,
+      "duration_s": 0.2181,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608023.384765,
+      "wall_end": 1785608023.4758458,
+      "duration_s": 0.0911,
+      "speed": "1/15",
+      "error": null
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608023.4780369,
+      "wall_end": 1785608023.700264,
+      "duration_s": 0.2222,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608024.2060318,
+      "wall_end": 1785608024.432276,
+      "duration_s": 0.2262,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608026.4470038,
+      "wall_end": 1785608026.5234601,
+      "duration_s": 0.0765,
+      "speed": "1/4",
+      "error": null
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608026.5254679,
+      "wall_end": 1785608026.7532532,
+      "duration_s": 0.2278,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608027.267294,
+      "wall_end": 1785608027.4942331,
+      "duration_s": 0.2269,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608029.518232,
+      "wall_end": 1785608029.5894852,
+      "duration_s": 0.0713,
+      "speed": "1",
+      "error": null
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608029.5915232,
+      "wall_end": 1785608029.8131971,
+      "duration_s": 0.2217,
+      "pulse_ms": 80
+    },
+    {
+      "block": "10:shutter speed set over USB, frames driven by the relay",
+      "action": "ramp_frame",
+      "wall_start": 1785608030.3207018,
+      "wall_end": 1785608030.5453188,
+      "duration_s": 0.2246,
+      "pulse_ms": 80
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "slate",
+      "wall_start": 1785608051.265722,
+      "wall_end": 1785608051.488883,
+      "duration_s": 0.2232,
+      "pulse_ms": 80
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608056.785745,
+      "wall_end": 1785608056.8340108,
+      "duration_s": 0.0483,
+      "speed": "1/1000",
+      "error": null
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608056.8354728,
+      "wall_end": 1785608056.901508,
+      "duration_s": 0.066,
+      "speed": "1/1000"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608057.262808,
+      "wall_end": 1785608057.33056,
+      "duration_s": 0.0678,
+      "speed": "1/1000"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608057.686529,
+      "wall_end": 1785608057.751617,
+      "duration_s": 0.0651,
+      "speed": "1/1000"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608058.1140192,
+      "wall_end": 1785608058.172661,
+      "duration_s": 0.0586,
+      "speed": "1/250",
+      "error": null
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608058.1749382,
+      "wall_end": 1785608058.239558,
+      "duration_s": 0.0646,
+      "speed": "1/250"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608058.599178,
+      "wall_end": 1785608058.666681,
+      "duration_s": 0.0675,
+      "speed": "1/250"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608059.02705,
+      "wall_end": 1785608059.094657,
+      "duration_s": 0.0676,
+      "speed": "1/250"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608059.457154,
+      "wall_end": 1785608059.5206962,
+      "duration_s": 0.0635,
+      "speed": "1/60",
+      "error": null
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608059.523906,
+      "wall_end": 1785608059.590587,
+      "duration_s": 0.0667,
+      "speed": "1/60"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608059.952251,
+      "wall_end": 1785608060.013588,
+      "duration_s": 0.0613,
+      "speed": "1/60"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608060.36824,
+      "wall_end": 1785608060.4336371,
+      "duration_s": 0.0654,
+      "speed": "1/60"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608060.792983,
+      "wall_end": 1785608060.881421,
+      "duration_s": 0.0884,
+      "speed": "1/15",
+      "error": null
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608060.8841228,
+      "wall_end": 1785608060.947606,
+      "duration_s": 0.0635,
+      "speed": "1/15"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608061.30918,
+      "wall_end": 1785608061.374542,
+      "duration_s": 0.0654,
+      "speed": "1/15"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608061.7335129,
+      "wall_end": 1785608061.800621,
+      "duration_s": 0.0671,
+      "speed": "1/15"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608062.160635,
+      "wall_end": 1785608062.228797,
+      "duration_s": 0.0682,
+      "speed": "1/4",
+      "error": null
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608062.231711,
+      "wall_end": 1785608062.290657,
+      "duration_s": 0.0589,
+      "speed": "1/4"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608062.651305,
+      "wall_end": 1785608062.7186291,
+      "duration_s": 0.0673,
+      "speed": "1/4"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608063.074949,
+      "wall_end": 1785608063.140173,
+      "duration_s": 0.0652,
+      "speed": "1/4"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608063.5015008,
+      "wall_end": 1785608063.591634,
+      "duration_s": 0.0901,
+      "speed": "1",
+      "error": null
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608063.59469,
+      "wall_end": 1785608063.660662,
+      "duration_s": 0.066,
+      "speed": "1"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608064.0224588,
+      "wall_end": 1785608064.084639,
+      "duration_s": 0.0622,
+      "speed": "1"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_frame",
+      "wall_start": 1785608064.4458501,
+      "wall_end": 1785608064.5105422,
+      "duration_s": 0.0647,
+      "speed": "1"
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "ramp_burst_total",
+      "wall_start": 1785608056.780307,
+      "wall_end": 1785608064.8696692,
+      "duration_s": 8.0894
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "set_shutter_speed",
+      "wall_start": 1785608076.5410612,
+      "wall_end": 1785608076.630028,
+      "duration_s": 0.089,
+      "speed": "1/125",
+      "error": null
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "clock_sync_end",
+      "wall_start": 1785608076.632243,
+      "wall_end": 1785608076.8507571,
+      "duration_s": 0.2185,
+      "pulse_ms": 80
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "clock_sync_end",
+      "wall_start": 1785608078.862914,
+      "wall_end": 1785608079.086741,
+      "duration_s": 0.2238,
+      "pulse_ms": 80
+    },
+    {
+      "block": "11:ramping mid-burst, the way totality would need it",
+      "action": "clock_sync_end",
+      "wall_start": 1785608081.098117,
+      "wall_end": 1785608081.322879,
+      "duration_s": 0.2248,
+      "pulse_ms": 80
+    }
+  ]
+}

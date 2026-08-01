@@ -1,0 +1,474 @@
+[
+  {
+    "action": "connected",
+    "at": 1785618076.4320378,
+    "camera": "Fuji Fujifilm X-T4",
+    "buffer": [
+      0,
+      32
+    ]
+  },
+  {
+    "action": "battery",
+    "at": 1785618076.4592938,
+    "level": null,
+    "when": "start"
+  },
+  {
+    "action": "tap",
+    "at": 1785618076.5914528,
+    "n": 1,
+    "started": 1785618076.4934242
+  },
+  {
+    "action": "tap",
+    "at": 1785618078.6825778,
+    "n": 2,
+    "started": 1785618078.593363
+  },
+  {
+    "action": "tap",
+    "at": 1785618080.788637,
+    "n": 3,
+    "started": 1785618080.692184
+  },
+  {
+    "action": "tap",
+    "at": 1785618082.890612,
+    "n": 4,
+    "started": 1785618082.79285
+  },
+  {
+    "action": "tap",
+    "at": 1785618084.993493,
+    "n": 5,
+    "started": 1785618084.8985631
+  },
+  {
+    "action": "tap",
+    "at": 1785618087.090401,
+    "n": 6,
+    "started": 1785618087.001122
+  },
+  {
+    "action": "drain",
+    "at": 1785618090.6311839,
+    "label": "after_tap_6",
+    "captured": 6,
+    "total": 32,
+    "drained": 6,
+    "took_s": 0.525,
+    "per_frame_s": 0.0874
+  },
+  {
+    "action": "tap",
+    "at": 1785618090.730505,
+    "n": 7,
+    "started": 1785618090.6354449
+  },
+  {
+    "action": "tap",
+    "at": 1785618092.834516,
+    "n": 8,
+    "started": 1785618092.738225
+  },
+  {
+    "action": "tap",
+    "at": 1785618094.936482,
+    "n": 9,
+    "started": 1785618094.8400671
+  },
+  {
+    "action": "tap",
+    "at": 1785618097.03539,
+    "n": 10,
+    "started": 1785618096.94518
+  },
+  {
+    "action": "tap",
+    "at": 1785618099.143331,
+    "n": 11,
+    "started": 1785618099.045843
+  },
+  {
+    "action": "tap",
+    "at": 1785618101.249315,
+    "n": 12,
+    "started": 1785618101.1524758
+  },
+  {
+    "action": "drain",
+    "at": 1785618104.882522,
+    "label": "after_tap_12",
+    "captured": 6,
+    "total": 32,
+    "drained": 6,
+    "took_s": 0.609,
+    "per_frame_s": 0.1015
+  },
+  {
+    "action": "burst",
+    "at": 1785618107.896405,
+    "n": 1,
+    "started": 1785618104.8865018
+  },
+  {
+    "action": "drain",
+    "at": 1785618111.8422122,
+    "label": "after_burst_1",
+    "captured": 10,
+    "total": 32,
+    "drained": 10,
+    "took_s": 0.931,
+    "per_frame_s": 0.0931
+  },
+  {
+    "action": "burst",
+    "at": 1785618114.9793432,
+    "n": 2,
+    "started": 1785618111.843023
+  },
+  {
+    "action": "drain",
+    "at": 1785618118.9748092,
+    "label": "after_burst_2",
+    "captured": 10,
+    "total": 32,
+    "drained": 10,
+    "took_s": 0.981,
+    "per_frame_s": 0.0981
+  },
+  {
+    "action": "set_speed",
+    "at": 1785618119.159429,
+    "speed": "1/1000",
+    "error": null,
+    "started": 1785618118.978261
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618119.252249,
+    "speed": "1/1000",
+    "started": 1785618119.160356
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618120.550415,
+    "speed": "1/1000",
+    "started": 1785618120.458053
+  },
+  {
+    "action": "set_speed",
+    "at": 1785618121.802908,
+    "speed": "1/250",
+    "error": null,
+    "started": 1785618121.753469
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618121.8952289,
+    "speed": "1/250",
+    "started": 1785618121.80434
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618123.191191,
+    "speed": "1/250",
+    "started": 1785618123.100919
+  },
+  {
+    "action": "set_speed",
+    "at": 1785618124.4648662,
+    "speed": "1/60",
+    "error": null,
+    "started": 1785618124.394183
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618124.5602171,
+    "speed": "1/60",
+    "started": 1785618124.4686668
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618125.855208,
+    "speed": "1/60",
+    "started": 1785618125.765984
+  },
+  {
+    "action": "set_speed",
+    "at": 1785618127.125943,
+    "speed": "1/15",
+    "error": null,
+    "started": 1785618127.058281
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618127.2202141,
+    "speed": "1/15",
+    "started": 1785618127.1271129
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618128.5141802,
+    "speed": "1/15",
+    "started": 1785618128.422336
+  },
+  {
+    "action": "set_speed",
+    "at": 1785618129.788095,
+    "speed": "1/4",
+    "error": null,
+    "started": 1785618129.719548
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618129.883873,
+    "speed": "1/4",
+    "started": 1785618129.789471
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785618131.1761138,
+    "speed": "1/4",
+    "started": 1785618131.0875251
+  },
+  {
+    "action": "drain",
+    "at": 1785618134.89635,
+    "label": "after_ramp",
+    "captured": 16,
+    "total": 32,
+    "drained": 16,
+    "took_s": 1.501,
+    "per_frame_s": 0.0938
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785618135.755368,
+    "speed": "1/500",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618134.897866,
+    "took_s": 0.857
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785618137.542819,
+    "speed": "1/30",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618136.556594,
+    "took_s": 0.986
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785618139.151304,
+    "speed": "1/500",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618138.345174,
+    "took_s": 0.806
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785618140.794815,
+    "speed": "1/30",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618139.9569962,
+    "took_s": 0.838
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785618142.638245,
+    "speed": "1/500",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618141.599329,
+    "took_s": 1.039
+  },
+  {
+    "action": "handover_burst",
+    "at": 1785618145.578034,
+    "started": 1785618143.44363
+  },
+  {
+    "action": "drain",
+    "at": 1785618150.169127,
+    "label": "before_iso",
+    "captured": 20,
+    "total": 21,
+    "drained": 27,
+    "took_s": 3.58,
+    "per_frame_s": 0.1326
+  },
+  {
+    "action": "iso_shot",
+    "at": 1785618153.567859,
+    "iso": 160,
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618150.1709208
+  },
+  {
+    "action": "iso_shot",
+    "at": 1785618155.338397,
+    "iso": 800,
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618154.372309
+  },
+  {
+    "action": "iso_shot",
+    "at": 1785618157.1086478,
+    "iso": 3200,
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618156.140759
+  },
+  {
+    "action": "iso_shot",
+    "at": 1785618158.977615,
+    "iso": 320,
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618157.91347
+  },
+  {
+    "action": "totality_c2_burst",
+    "at": 1785618162.423737,
+    "started": 1785618159.780746
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618170.136508,
+    "round": 1,
+    "speed": "1/1000",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618164.427389
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618171.04613,
+    "round": 1,
+    "speed": "1/125",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618170.1377568
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618172.035712,
+    "round": 1,
+    "speed": "1/15",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618171.047329
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618173.036099,
+    "round": 1,
+    "speed": "1/4",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618172.036893
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618174.035966,
+    "round": 1,
+    "speed": "1",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618173.0375621
+  },
+  {
+    "action": "drain",
+    "at": 1785618175.12336,
+    "label": "totality_round_1",
+    "captured": 0,
+    "total": 32,
+    "drained": 0,
+    "took_s": 0.079,
+    "per_frame_s": 0.0
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618176.052,
+    "round": 2,
+    "speed": "1/1000",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618175.125111
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618177.137098,
+    "round": 2,
+    "speed": "1/125",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618176.053215
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618178.067727,
+    "round": 2,
+    "speed": "1/15",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618177.138292
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618179.09349,
+    "round": 2,
+    "speed": "1/4",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618178.0692768
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618180.068547,
+    "round": 2,
+    "speed": "1",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618179.095998
+  },
+  {
+    "action": "drain",
+    "at": 1785618181.1377048,
+    "label": "totality_round_2",
+    "captured": 0,
+    "total": 32,
+    "drained": 0,
+    "took_s": 0.058,
+    "per_frame_s": 0.0
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618182.002646,
+    "round": 3,
+    "speed": "1/1000",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618181.139502
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618182.818989,
+    "round": 3,
+    "speed": "1/125",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618182.0045671
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618183.703541,
+    "round": 3,
+    "speed": "1/15",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618182.8204448
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618184.567807,
+    "round": 3,
+    "speed": "1/4",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618183.7052412
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785618185.436474,
+    "round": 3,
+    "speed": "1",
+    "error": "XSDK error 0x00001008: Shooting error",
+    "started": 1785618184.569333
+  }
+]

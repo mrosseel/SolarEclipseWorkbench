@@ -1,0 +1,165 @@
+{
+  "notes": {},
+  "records": [
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785606733.23338,
+      "wall_end": 1785606733.4540448,
+      "duration_s": 0.2207,
+      "pulse_ms": 80
+    },
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785606735.457194,
+      "wall_end": 1785606735.67311,
+      "duration_s": 0.2159,
+      "pulse_ms": 80
+    },
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785606737.677908,
+      "wall_end": 1785606737.893187,
+      "duration_s": 0.2153,
+      "pulse_ms": 80
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "slate",
+      "wall_start": 1785606745.026869,
+      "wall_end": 1785606745.2581189,
+      "duration_s": 0.2312,
+      "pulse_ms": 80
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_15ms",
+      "wall_start": 1785606752.826737,
+      "wall_end": 1785606752.9815009,
+      "duration_s": 0.1548,
+      "pulse_ms": 15
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_15ms",
+      "wall_start": 1785606755.4884899,
+      "wall_end": 1785606755.642356,
+      "duration_s": 0.1539,
+      "pulse_ms": 15
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_15ms",
+      "wall_start": 1785606758.144602,
+      "wall_end": 1785606758.297445,
+      "duration_s": 0.1528,
+      "pulse_ms": 15
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_15ms",
+      "wall_start": 1785606760.804482,
+      "wall_end": 1785606760.955393,
+      "duration_s": 0.1509,
+      "pulse_ms": 15
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_25ms",
+      "wall_start": 1785606763.469006,
+      "wall_end": 1785606763.638643,
+      "duration_s": 0.1696,
+      "pulse_ms": 25
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_25ms",
+      "wall_start": 1785606766.145717,
+      "wall_end": 1785606766.307431,
+      "duration_s": 0.1617,
+      "pulse_ms": 25
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_25ms",
+      "wall_start": 1785606768.813476,
+      "wall_end": 1785606768.97469,
+      "duration_s": 0.1612,
+      "pulse_ms": 25
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_25ms",
+      "wall_start": 1785606771.4862158,
+      "wall_end": 1785606771.650338,
+      "duration_s": 0.1641,
+      "pulse_ms": 25
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_40ms",
+      "wall_start": 1785606774.153485,
+      "wall_end": 1785606774.326571,
+      "duration_s": 0.1731,
+      "pulse_ms": 40
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_40ms",
+      "wall_start": 1785606776.837852,
+      "wall_end": 1785606777.016572,
+      "duration_s": 0.1787,
+      "pulse_ms": 40
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_40ms",
+      "wall_start": 1785606779.518729,
+      "wall_end": 1785606779.701563,
+      "duration_s": 0.1828,
+      "pulse_ms": 40
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_40ms",
+      "wall_start": 1785606782.204881,
+      "wall_end": 1785606782.384535,
+      "duration_s": 0.1797,
+      "pulse_ms": 40
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_60ms",
+      "wall_start": 1785606784.886184,
+      "wall_end": 1785606785.083745,
+      "duration_s": 0.1976,
+      "pulse_ms": 60
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_60ms",
+      "wall_start": 1785606787.588944,
+      "wall_end": 1785606787.78768,
+      "duration_s": 0.1987,
+      "pulse_ms": 60
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_60ms",
+      "wall_start": 1785606790.2935019,
+      "wall_end": 1785606790.4896798,
+      "duration_s": 0.1962,
+      "pulse_ms": 60
+    },
+    {
+      "block": "8:single frames with the dial on CH",
+      "action": "ch_single_60ms",
+      "wall_start": 1785606792.994711,
+      "wall_end": 1785606793.193721,
+      "duration_s": 0.199,
+      "pulse_ms": 60
+    }
+  ]
+}

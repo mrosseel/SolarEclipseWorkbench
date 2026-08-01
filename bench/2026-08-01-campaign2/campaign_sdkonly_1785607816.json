@@ -1,0 +1,29 @@
+{
+  "notes": {},
+  "records": [
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785607816.6832561,
+      "wall_end": 1785607816.910646,
+      "duration_s": 0.2274,
+      "pulse_ms": 80
+    },
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785607818.915967,
+      "wall_end": 1785607819.138815,
+      "duration_s": 0.2228,
+      "pulse_ms": 80
+    },
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785607821.1479208,
+      "wall_end": 1785607821.373821,
+      "duration_s": 0.2259,
+      "pulse_ms": 80
+    }
+  ]
+}

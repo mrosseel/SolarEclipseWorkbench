@@ -233,3 +233,46 @@ stays under 32 frames.
 
 Also settled: `set_shutter_speed` over USB succeeded 13/13 times, ~all under a few
 hundred ms — USB exposure control itself is fine.
+
+---
+
+# Final sitting — the drain rehearsal, and the bench closes
+
+`drain_rehearsal_1785618073.log` + `card4.csv` in `bench/2026-08-01-campaign2/`.
+
+## The drain works — in quiet windows only
+
+A drain issued while shooting (S1 held, tap in flight) drops the USB session
+permanently with 0x2001 — proven twice. A drain issued in a quiet window — relay
+released, one second of settle — succeeded 6 of 6 times at **87–133 ms per frame**
+with the session healthy throughout.
+
+**And drained frames are on the card**: the final run put 143 actuations on the card
+with `Image Count` 9415–9557, span 143, zero gaps — including every one of the ~75
+frames that were drained. The drain discards only the phantom PC transfer.
+
+## SDK-triggered shooting is dead under CH drive
+
+Every `capture()` failed with 0x1008 with the dial on CH — seventeen straight, ending
+in a segfault from the wrapper's reconnect-per-failure retry storm. July's SDK
+shooting ran on S drive. Since the eclipse locks the dial on CH for the bursts, the
+hybrid's SDK-trigger leg is dropped: **the relay does all triggering**, the SDK does
+exposure and drains.
+
+## ISO over USB does not apply — the physical dial wins
+
+`set_iso` returned success but every frame on the card reads ISO 320, while the
+shutter half of the same `configure()` call demonstrably applied. The ISO dial was
+not on C. Either park it on C before the eclipse and verify once, or fix ISO and
+ramp with shutter alone.
+
+## Production architecture (all measured)
+
+- Locked at C1: CH 15 fps, mechanical shutter, shutter dial T, FIXED connection
+  mode, ISO 320, RAW, MF, power save off, S1 pre-armed from C2−30 s.
+- Relay: 80 ms taps (2 frames at fast speeds, 1 at slow), held bursts for beads
+  (15 fps for ~2.5 s), 45 ms trigger latency pre-armed.
+- SDK: `set_shutter_speed` between frames (18/18 all day), quiet-window drains
+  (~95 ms/frame) scheduled between shooting groups, never concurrent.
+- Fallback: USB death leaves the relay fully functional at the last-set exposure.
+  Recovery ritual (daemon reset + camera power cycle) is built into detect.
