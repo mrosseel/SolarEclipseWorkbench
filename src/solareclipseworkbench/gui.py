@@ -886,8 +886,6 @@ class SolarEclipseView(QMainWindow, Observable):
             - countdown_sunset: Countdown clock to sunset
         """
 
-        self.beads_panel.set_current_time(current_time_utc)
-
         self.eclipse_date_label.setText(f"Eclipse date [{self.date_format}]")
 
         self.date_label.setText(f"Date [{self.date_format}]")
@@ -1195,6 +1193,11 @@ class SolarEclipseController(Observer):
         # simulating, so the normal case is unaffected.
         offset = getattr(self.view.eclipse_visualization, 'offset', datetime.timedelta(0))
         reference_now = current_time_utc + offset
+
+        # The beads follow the same shifted clock: in simulation the eclipse is
+        # happening now-ish, and a live view on the real time would sit at
+        # "waiting for totality" throughout.
+        self.view.beads_panel.set_current_time(reference_now)
 
         countdown_c1 = self.model.c1_info.time_utc - reference_now if self.model.c1_info else None
         countdown_c2 = self.model.c2_info.time_utc - reference_now if self.model.c2_info else None
