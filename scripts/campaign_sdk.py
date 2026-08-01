@@ -141,6 +141,19 @@ class Campaign:
         print(f"    set {speed:>7}  {(ended - started) * 1000:6.1f} ms  {marker}")
         return error is None
 
+    def clock_sync(self, label: str) -> None:
+        """Frames whose photographed digits pin the camera-to-laptop clock offset.
+
+        EXIF has no sub-second field, so the offset found by matching wall times
+        is only good to a second; these frames give it exactly, and taking them
+        at both ends of the run exposes any drift in between.
+        """
+        print(f"    {DIM}{label}: 3 frames{RESET}", flush=True)
+        for index in range(3):
+            self.pulse(80, label=label)
+            if index < 2:
+                time.sleep(2.0)
+
     def slate(self, count: int) -> None:
         print(f"    {DIM}slate: {count} frame(s){RESET}", flush=True)
         for index in range(count):
@@ -391,8 +404,10 @@ def main() -> None:
     print("  - relay wired to the release jack, camera aimed at the clock page")
     print("  - RAW only, manual focus, f/2, ISO 320 as before")
     print("  - USB cable NOT connected yet — blocks 1 to 7 run on the relay alone")
-    print("  - set the camera's clock to this laptop's time (menu > date/time) —")
-    print("    it saves the analysis hunting for the offset afterwards")
+    print("  - DRIVE dial on S, shutter 1/125 to start: the run opens with clock-sync")
+    print("    frames.  The camera's clock is NOT assumed to match this laptop's —")
+    print("    each sync frame photographs the laptop's milliseconds while its EXIF")
+    print("    carries the camera's clock, and the difference IS the offset.")
     print(f"\n{CYAN}Expect{RESET} roughly 40 minutes and 800 frames.")
     if input(f"\n  Ready?  [y/n] > ").strip().lower() not in ("y", "yes"):
         print("Nothing done.")
@@ -404,11 +419,17 @@ def main() -> None:
     print(f"\n{trigger.describe()}\nlogging to {log_path}")
 
     try:
+        print(f"\n{CYAN}Clock sync{RESET} — drive S, 1/125, aimed at the clock.")
+        input("  Enter to fire the opening sync frames > ")
+        run.clock_sync("clock_sync_start")
+
         run_bracket_blocks(run)
         run_cadence_block(run)
         run_latency_block(run)
         run_max_rate_block(run)
         run_duty_cycle_block(run)
+
+        run.clock_sync("clock_sync_mid")
 
         print(f"\n{CYAN}Now connect the USB cable{RESET}, body in tether shooting mode,")
         print("and leave the DRIVE dial on CH.")
@@ -419,6 +440,10 @@ def main() -> None:
             print(f"{YELLOW}Stopping — everything before this is saved.{RESET}")
         else:
             run_sdk_blocks(run)
+            # Blocks 9 and 10 end on a 1 s exposure, which photographs the clock
+            # as pure white — bring the speed back somewhere readable first.
+            run.set_speed("1/125")
+            run.clock_sync("clock_sync_end")
 
     except KeyboardInterrupt:
         print(f"\n\n{YELLOW}Interrupted — releasing contacts.{RESET}")
