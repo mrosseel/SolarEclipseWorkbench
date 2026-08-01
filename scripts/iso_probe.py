@@ -26,6 +26,8 @@ from solareclipseworkbench import relay_trigger as rt
 
 maybe_reexec_for_fuji_sdk()
 
+from bench_log import tee_console
+
 GREEN = "\033[32m"
 RED = "\033[31m"
 RESET = "\033[0m"
@@ -34,6 +36,7 @@ ISOS = [160, 800, 3200, 12800, 320]
 
 
 def main() -> None:
+    tee_console("iso_probe")
     print("Camera: ISO dial on C, drive CH, shutter dial T, USB connected.")
     if input("Ready? [y/n] > ").strip().lower() not in ("y", "yes"):
         return
