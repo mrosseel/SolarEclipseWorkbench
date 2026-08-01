@@ -39,39 +39,7 @@ RESET = "\033[0m"
 
 SLATE_GAP_S = 1.5
 BLOCK_GAP_S = 8.0
-CLOCK_PATH = Path("/tmp/sew_timing_clock.html")
-
-CLOCK_HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><title>timing clock</title>
-<style>
-  html,body{margin:0;height:100%;background:#000;color:#fff;
-    font-family:"SF Mono",Menlo,monospace;overflow:hidden}
-  #wrap{height:100%;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;gap:2vh}
-  #clock{font-size:16vw;font-weight:700;letter-spacing:-0.02em;line-height:1}
-  #ms{font-size:26vw;font-weight:700;line-height:1;color:#0f0}
-  #bar{width:90vw;height:6vh;background:#111;position:relative}
-  #pip{position:absolute;top:0;bottom:0;width:4vw;background:#f00}
-</style></head><body><div id="wrap">
-  <div id="clock">--:--:--</div><div id="ms">---</div>
-  <div id="bar"><div id="pip"></div></div>
-</div><script>
-  const clock = document.getElementById('clock');
-  const ms = document.getElementById('ms');
-  const pip = document.getElementById('pip');
-  function pad(n, w) { return String(n).padStart(w, '0'); }
-  function tick() {
-    const now = new Date();
-    clock.textContent = pad(now.getHours(),2) + ':' + pad(now.getMinutes(),2)
-      + ':' + pad(now.getSeconds(),2);
-    const milli = now.getMilliseconds();
-    ms.textContent = '.' + pad(milli, 3);
-    pip.style.left = (milli / 1000 * 96) + 'vw';
-    requestAnimationFrame(tick);
-  }
-  tick();
-</script></body></html>
-"""
+CLOCK_PATH = Path(__file__).parent / "timing_clock.html"
 
 
 @dataclass
@@ -189,7 +157,6 @@ def say(text: str) -> None:
 
 
 def open_clock() -> None:
-    CLOCK_PATH.write_text(CLOCK_HTML)
     subprocess.run(["open", str(CLOCK_PATH)], check=False)
 
 
