@@ -16,6 +16,7 @@ import logging
 import os
 import ctypes
 import platform
+import subprocess
 import sys
 import threading
 import time
@@ -461,6 +462,25 @@ def maybe_reexec_for_fuji_sdk() -> None:
 # Detection
 # ======================================================================
 
+def _reset_mac_camera_stack() -> None:
+    """Kill macOS's camera daemons so they respawn with fresh state.
+
+    Not a pre-detect reflex — the daemons are the SDK's transport and must
+    normally be left alone.  But a stale ICA session (from a crashed or
+    just-closed connection) makes detect return zero cameras or a phantom
+    handle whose every call fails 0x2001, and every recovery that has worked
+    on the bench involved forcing fresh daemons.  They respawn on demand.
+    """
+    if platform.system() != "Darwin":
+        return
+    try:
+        subprocess.run(["killall", "-9", "ptpcamerad", "mscamerad-xpc"],
+                       capture_output=True, timeout=5)
+        logging.info("Reset macOS camera daemons; they respawn on demand")
+    except Exception:
+        logging.debug("Camera daemon reset failed", exc_info=True)
+
+
 def _preload_mac_transport(sdk_path: str) -> None:
     """Load the SDK's PTP transport dylibs before XAPI goes looking for them.
 
@@ -536,6 +556,11 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
     # Retry — after killing ptpcamerad the USB device needs a moment
     cameras = []
     for attempt in range(3):
+        if attempt > 0:
+            # A failed attempt usually means a stale ICA session is holding the
+            # body; forcing fresh daemons is the only recovery that has worked.
+            _reset_mac_camera_stack()
+            time.sleep(3.0)
         try:
             cameras = SDKCamera.detect(sdk_path)
             logging.info('Fuji SDK detect attempt %d returned %d camera(s)',
