@@ -18,8 +18,14 @@ stage offers a retry, so a replug or power cycle does not mean starting over.
 
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
+
+# fujixsdk lives in the repo root, which is not on sys.path when this file is
+# run as scripts/campaign_sdk_only.py — without this the SDK is silently
+# unavailable and every camera looks absent.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from solareclipseworkbench.fuji_camera import (
     detect_fuji_cameras,

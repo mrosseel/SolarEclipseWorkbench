@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import logging
 import os
+import ctypes
 import platform
-import subprocess
 import sys
 import threading
 import time
@@ -44,8 +44,10 @@ try:
         SDK_FOCUS_MANUAL,
     )
     FUJIXSDK_AVAILABLE = True
-except ImportError:
+    FUJIXSDK_IMPORT_ERROR = None
+except ImportError as _exc:
     FUJIXSDK_AVAILABLE = False
+    FUJIXSDK_IMPORT_ERROR = str(_exc)
 
 
 # ======================================================================
@@ -459,16 +461,30 @@ def maybe_reexec_for_fuji_sdk() -> None:
 # Detection
 # ======================================================================
 
-def _kill_ptp_daemon():
-    """Kill macOS ptpcamerad which claims USB cameras before the SDK can."""
+def _preload_mac_transport(sdk_path: str) -> None:
+    """Load the SDK's PTP transport dylibs before XAPI goes looking for them.
+
+    FTLPTP.dylib carries the install name /usr/local/lib/FTLPTP.dylib, where it
+    is typically not installed.  Loading it by full path first means XAPI's own
+    dlopen resolves to the already-loaded image instead of the missing path.
+
+    Note that ptpcamerad must be left alive on macOS: FTLPTP links
+    ImageCaptureCore, whose broker that daemon is — the SDK talks to the camera
+    *through* it.  Killing it (the reflex carried over from Linux, where gvfs
+    really does steal the device) is self-sabotage here.
+    """
     if platform.system() != "Darwin":
         return
-    try:
-        subprocess.run(["killall", "ptpcamerad"],
-                       capture_output=True, timeout=2)
-        logging.debug("Killed ptpcamerad to free USB device")
-    except Exception:
-        pass
+    for hit in sorted(Path(sdk_path).rglob("FTLPTP.dylib")):
+        for name in ("FTLPTP.dylib", "FTLPTPIP.dylib"):
+            candidate = hit.parent / name
+            if candidate.exists():
+                try:
+                    ctypes.CDLL(str(candidate), mode=ctypes.RTLD_GLOBAL)
+                    logging.debug("Preloaded %s", candidate)
+                except OSError:
+                    logging.debug("Could not preload %s", candidate, exc_info=True)
+        return
 
 
 def _report_validation_issues(camera: FujiCamera) -> None:
@@ -508,9 +524,14 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
     because the USB device needs time to become available.
     """
     if not FUJIXSDK_AVAILABLE:
+        # Returning silently here once cost a whole bench sitting: the script
+        # reported "no camera" when the truth was "the wrapper never imported".
+        logging.error("fujixsdk is not importable (%s) — the SDK was never tried. "
+                      "Run from the repo root or put it on sys.path.",
+                      FUJIXSDK_IMPORT_ERROR)
         return {}
 
-    _kill_ptp_daemon()
+    _preload_mac_transport(sdk_path)
 
     # Retry — after killing ptpcamerad the USB device needs a moment
     cameras = []
