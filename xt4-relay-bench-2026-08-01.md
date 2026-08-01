@@ -181,3 +181,55 @@ so only exposures between roughly 1/8000 and 1/125 can be timed this way.
 **Does the release jack still fire while the SDK holds a USB session?** Untested here;
 blocks 6 to 8 of the SDK campaign. This decides whether exposures can be ramped over USB
 while the relay drives the frame rate, or whether in-camera bracketing is the only option.
+
+---
+
+# Campaign two — the same bench, evening sitting
+
+648 more frames (`Image Count` 8714–9361, again zero gaps), across one full relay
+sitting and four attempts at the USB half. Raw data in `bench/2026-08-01-campaign2/`.
+
+## Bracketing is now fully characterised
+
+- **One tap runs exactly one sequence, in every ladder tried.** A 15 s hold over a 1 s
+  ladder produced 9 frames, not ~13 sequences. Holding is never useful in BKT.
+- **The corona ladder fits**: 9 × 2 EV from 1/30 gives 1/8000…8 s, all nine distinct.
+- **A tap during a running sequence is ignored, not queued** — two taps 0.5 s apart
+  produced one sequence. Mistimed taps are lost, never stacked.
+- **Tap cadence works under buffer pressure**: 11 of 12 sequences complete at a 5 s
+  cadence with the 7 × 2 EV ladder. The twelfth tap fired blank — a 40 ms tap has a
+  real ~8% miss rate in BKT. **Production taps should be 80 ms.**
+
+## Trigger latency, settled
+
+Read off the photographed clock, two samples per path: S1 pre-armed then S2 tap =
+**43–48 ms**; S2 alone with S1 never asserted = ~130 ms; full `shoot()` with its
+120 ms settle = 169–175 ms, reproducing campaign one. The pre-arm change in
+`relay_trigger.py` is validated on hardware: hold S1 through totality and every
+frame costs ~45 ms of lead, which is what C2/C3 scheduling should use.
+
+## CH drive cannot produce single frames
+
+48 pulses across 15/25/40/60 ms, three separate runs: 15 ms usually misses entirely,
+25 ms is a coin flip, and nothing ever yielded one frame — **the CH quantum is two
+frames**. With the drive dial locked on CH for the eclipse, partial-phase shots cost
+2 frames per tap, or the dial lives on BKT and partials cost a 7-frame ladder.
+
+## The 32-frame wedge, mechanism identified
+
+With an SDK session open, the release jack works — three singles and a 24-frame burst
+at 8 fps landed on the card with the session live. But every frame taken during a
+session occupies a volatile-buffer slot awaiting a PC transfer that never comes; at
+exactly 32 frames (2 slate + 6 singles + 24 burst) the camera wedged: no further
+release from the jack, `SetPriorityMode` refusing with 0x1006, and power-off hanging
+on "downloading images". Recovery required pulling the battery.
+
+Consequences: any production use of USB-while-shooting **must drain the buffer
+continuously** (fujixsdk's `EclipseShooter` already knows how), and the no-USB
+fallback gains a serious safety argument — a wedged body at C2 is unrecoverable in
+the time available. The USB exposure-ramp question (blocks 10–11) died with the
+wedge and is re-posed by `scripts/ramp_probe.py`, which makes no priority calls and
+stays under 32 frames.
+
+Also settled: `set_shutter_speed` over USB succeeded 13/13 times, ~all under a few
+hundred ms — USB exposure control itself is fine.
