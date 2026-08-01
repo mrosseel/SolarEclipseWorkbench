@@ -22,9 +22,9 @@ Run locally in Terminal, camera on CH, shutter dial T, aimed at the clock:
 """
 
 import json
+import logging
 import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -46,48 +46,77 @@ DIM = "\033[2m"
 RESET = "\033[0m"
 
 LADDER = ["1/1000", "1/250", "1/60", "1/15", "1/4"]
-DRAIN_AT_FRACTION = 0.5
-DRAIN_POLL_S = 0.4
 
 
-class DrainLoop(threading.Thread):
-    """Keeps the volatile buffer below the wedge line, recording every level seen."""
+class Drainer:
+    """Drains only in explicit quiet windows — never while anything is shooting.
 
-    def __init__(self, sdk_cam, log):
-        super().__init__(daemon=True)
+    A previous run proved that a drain issued mid-shooting (S1 held, tap in
+    flight) drops the USB session with 0x2001, permanently.  So the production
+    rule under test here is: shoot, stop, drain, resume — and time every drain
+    so the cost of the pause is a measured number.
+    """
+
+    def __init__(self, sdk_cam, trigger, log):
         self.sdk_cam = sdk_cam
+        self.trigger = trigger
         self.log = log
-        self.stop_flag = threading.Event()
         self.total_drained = 0
         self.peak = 0
         self.errors = 0
 
-    def run(self) -> None:
-        while not self.stop_flag.is_set():
-            try:
-                captured, total = self.sdk_cam.get_buffer_capacity()
-                self.peak = max(self.peak, captured)
-                if total > 0 and captured >= total * DRAIN_AT_FRACTION:
-                    drained = self.sdk_cam.drain_buffer()
-                    self.total_drained += drained
-                    self.log("drain", captured=captured, total=total, drained=drained)
-            except Exception as exc:
-                self.errors += 1
-                self.log("drain_error", error=str(exc))
-                time.sleep(1.0)
-            time.sleep(DRAIN_POLL_S)
-
-    def final_drain(self) -> None:
-        """Empty the buffer completely so the session can close and the body power off."""
+    def quiet_drain(self, label: str) -> bool:
+        """Release everything, settle, then drain with the camera idle."""
+        self.trigger.release_all()
+        time.sleep(1.0)
+        started = time.time()
         try:
+            captured, total = self.sdk_cam.get_buffer_capacity()
+            self.peak = max(self.peak, captured)
             drained = self.sdk_cam.drain_buffer()
             self.total_drained += drained
-            self.log("final_drain", drained=drained)
+            took = time.time() - started
+            per = took / drained if drained else 0.0
+            self.log("drain", label=label, captured=captured, total=total,
+                     drained=drained, took_s=round(took, 3),
+                     per_frame_s=round(per, 4))
+            print(f"    {DIM}drain[{label}]: {drained} frames in {took:.2f} s "
+                  f"({per * 1000:.0f} ms/frame), was {captured}/{total}{RESET}")
+            return True
         except Exception as exc:
-            self.log("final_drain_error", error=str(exc))
+            self.errors += 1
+            self.log("drain_error", label=label, error=str(exc))
+            print(f"    {RED}drain[{label}] failed: {exc}{RESET}")
+            return False
+
+
+class Tee:
+    """Mirror a stream into the session log so nothing needs copy-pasting."""
+
+    def __init__(self, stream, handle):
+        self.stream = stream
+        self.handle = handle
+
+    def write(self, text):
+        self.stream.write(text)
+        self.handle.write(text)
+        self.handle.flush()
+
+    def flush(self):
+        self.stream.flush()
+        self.handle.flush()
 
 
 def main() -> None:
+    console_log = Path.cwd() / f"drain_rehearsal_{int(time.time())}.log"
+    handle = open(console_log, "w")
+    sys.stdout = Tee(sys.stdout, handle)
+    sys.stderr = Tee(sys.stderr, handle)
+    logging.basicConfig(level=logging.DEBUG, stream=sys.stderr,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    for noisy in ("matplotlib", "PIL"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+    print(f"console log: {console_log}")
     print("Camera: drive CH, shutter dial T, aimed at the clock, USB connected.")
     print(f"{DIM}This takes ~190 frames with the drain loop live — three times the\n"
           f"wedge threshold on purpose.{RESET}")
@@ -133,18 +162,21 @@ def main() -> None:
     except Exception:
         note("battery", level=None, when="start")
 
-    drain = DrainLoop(sdk_cam, note)
-    drain.start()
     trigger = rt.open_trigger("auto", s1_channel=1, s2_channel=2)
+    drain = Drainer(sdk_cam, trigger, note)
 
     try:
-        print(f"\n{DIM}phase 1: twelve 80 ms taps, 2 s apart (CH pairs ~24 frames){RESET}")
+        print(f"\n{DIM}phase 1: twelve 80 ms taps with a quiet drain after every six{RESET}")
         trigger.half_press()
         for tap in range(12):
             started = time.time()
             trigger.shoot(pulse=0.08)
             note("tap", n=tap + 1, started=started)
             time.sleep(2.0)
+            if (tap + 1) % 6 == 0:
+                if not drain.quiet_drain(f"after_tap_{tap + 1}"):
+                    raise RuntimeError("session lost during quiet drain")
+                trigger.half_press()
 
         print(f"{DIM}phase 2: two 3 s bursts — the beads pattern, ~35 frames each{RESET}")
         for burst in range(2):
@@ -152,10 +184,12 @@ def main() -> None:
             with trigger.pressed():
                 time.sleep(3.0)
             note("burst", n=burst + 1, started=started)
-            print(f"    burst {burst + 1} done, buffer peak so far {drain.peak}")
-            time.sleep(6.0)
+            time.sleep(2.0)
+            if not drain.quiet_drain(f"after_burst_{burst + 1}"):
+                raise RuntimeError("session lost during quiet drain")
 
         print(f"{DIM}phase 3: the corona pattern — speed ramp over USB, taps between{RESET}")
+        trigger.half_press()
         for speed in LADDER:
             started = time.time()
             error = None
@@ -171,6 +205,8 @@ def main() -> None:
                 trigger.shoot(pulse=0.08)
                 note("ramp_tap", speed=speed, started=started)
                 time.sleep(1.2)
+        if not drain.quiet_drain("after_ramp"):
+            raise RuntimeError("session lost during quiet drain")
 
         print(f"{DIM}phase 4: the hybrid pattern — SDK-triggered singles, speeds over USB{RESET}")
         for speed in ("1/500", "1/30", "1/500", "1/30", "1/500"):
@@ -195,6 +231,7 @@ def main() -> None:
         note("handover_burst", started=started)
 
         print(f"{DIM}phase 6: ISO over USB — the other ramp axis, never yet tested{RESET}")
+        drain.quiet_drain("before_iso")
         for iso in (160, 800, 3200, 320):
             started = time.time()
             error = None
@@ -227,11 +264,14 @@ def main() -> None:
                      error=error, started=shot_at)
                 if error:
                     print(f"    {RED}round {round_no + 1} {speed}: {error}{RESET}")
-            print(f"    ladder round {round_no + 1} done, buffer peak {drain.peak}")
+            if not drain.quiet_drain(f"totality_round_{round_no + 1}"):
+                raise RuntimeError("session lost during quiet drain")
         started = time.time()
         with trigger.pressed():
             time.sleep(2.5)
         note("totality_c3_burst", started=started)
+        time.sleep(2.0)
+        drain.quiet_drain("after_c3")
 
         try:
             camera.configure(shutter_speed="1/125", iso=320)
@@ -251,9 +291,8 @@ def main() -> None:
     finally:
         trigger.release_all()
         trigger.close()
-        drain.stop_flag.set()
-        drain.join(timeout=5.0)
-        drain.final_drain()
+        time.sleep(1.0)
+        drain.quiet_drain("final")
         try:
             captured, total = sdk_cam.get_buffer_capacity()
             note("buffer_at_exit", captured=captured, total=total)
