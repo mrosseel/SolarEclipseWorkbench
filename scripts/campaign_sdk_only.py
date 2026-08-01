@@ -165,6 +165,27 @@ def connect_camera():
             return None
 
 
+def run_single_in_ch_block(run: Campaign) -> None:
+    """Find the pulse width that gives exactly one frame with the dial on CH.
+
+    Missed in the first sitting.  The drive dial cannot be touched during the
+    eclipse, so if it lives on CH for the beads bursts, every partial-phase
+    single must also come from CH — and campaign one showed an 80 ms pulse
+    there yields 2 to 6 frames.  Counts come out of Image Count afterwards.
+    """
+    if not run.begin(8, "single frames with the dial on CH", [
+        "DRIVE on CH at 15 fps, mechanical, shutter 1/2000",
+    ]):
+        return
+    say("block eight, single frames in continuous drive")
+    for pulse_ms in (15, 25, 40, 60):
+        print(f"    {DIM}4 pulses at {pulse_ms} ms{RESET}")
+        for _ in range(4):
+            run.pulse(pulse_ms, label=f"ch_single_{pulse_ms}ms")
+            time.sleep(2.5)
+    run.observation()
+
+
 def run_sdk_blocks(run: Campaign) -> None:
     if run.begin(9, "does the jack still fire with a USB session open", [
         "DRIVE dial on CH, mechanical, shutter 1/2000 — as the relay blocks left it",
@@ -234,13 +255,14 @@ def run_sdk_blocks(run: Campaign) -> None:
 
 def main() -> None:
     print(f"\n{BOLD}{'=' * 70}{RESET}")
-    print(f"{BOLD}X-T4 campaign two, USB half only — blocks 9 to 11{RESET}\n")
+    print(f"{BOLD}X-T4 campaign two, second sitting — blocks 8 to 11{RESET}\n")
     print(f"{CYAN}Before starting:{RESET}")
-    print("  - the relay blocks already ran; this adds only the SDK questions")
+    print("  - blocks 1 to 7 already ran; this adds the missed CH pulse sweep")
+    print("    and the SDK questions")
     print("  - relay wired to the release jack, camera aimed at the clock page")
     print("  - RAW only, manual focus, DRIVE on CH, mechanical, shutter 1/2000")
     print("  - USB cable connected")
-    print(f"\n{CYAN}Expect{RESET} roughly 10 minutes and 60 frames.")
+    print(f"\n{CYAN}Expect{RESET} roughly 12 minutes and 90 frames.")
     if input(f"\n  Ready?  [y/n] > ").strip().lower() not in ("y", "yes"):
         print("Nothing done.")
         return
@@ -252,6 +274,9 @@ def main() -> None:
 
     try:
         run.clock_sync("clock_sync_start")
+
+        # Relay-only, missed in the first sitting — runs before USB can wedge anything.
+        run_single_in_ch_block(run)
 
         run.camera = connect_camera()
         if run.camera is None:
