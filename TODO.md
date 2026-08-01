@@ -189,9 +189,31 @@ topography entirely.  Jubier corrects them with an LRO/Kaguya limb profile.
       the mean limb over the contact region while we quote the extreme bead.  His
       own sheet carries a separate "Baily's Beads: +/-3.0s" figure, the same order
       as the gap.  Decide which definition we want before tuning anything.
-- [ ] Our uncorrected C3 is already 1.23 s from Jubier's before any limb data is
-      involved (C2 is +0.14 s).  Check the catalogue dt against his 67.73 s and
-      dUT1 -0.55 s -- part of the residual is not a limb problem at all.
+- [x] Baseline discrepancy explained, and it was not dT.  Catalogue dT is 67.64 s
+      against his 67.73 s, worth 0.09 s -- negligible.  The cause is the solar
+      radius: `constants.py` SOLAR_RADIUS = 696221300 m is **959.94"**, Jubier's own
+      suggested value, while Solar Eclipse Maestro *defaults to the standard
+      959.63"* and his published sheet used the default.  A larger Sun shortens
+      totality.  Re-running at 959.63" (`--solar-radius-arcsec`) takes our
+      uncorrected duration from 146.2 s to **147.4 s against his 147.6 s**, and the
+      remaining contact offsets become a near-pure -0.55 s epoch shift, which is
+      exactly dUT1.  So our mean-limb geometry agrees with his to 0.2 s in duration
+      and 0.1 s in epoch.  Note the elements come from our own
+      `BesselianElementGenerator`, not the CSV -- the CSV is only a fallback -- so
+      SOLAR_RADIUS really does drive this.
+- [x] Our arc method is the documented standard.  NASA/TP-1999-209484: "For any
+      given position angle, there will be a high mountain (annular) or a low valley
+      (total) *in the vicinity* that ultimately determines the true instant of
+      contact", and Herald's procedure slides the solar limb "until it is tangent to
+      the lowest lunar profile feature in the vicinity".  Their epicyclic
+      approximation h = S(m-1)(1-cos C) is the small-angle form of our exact
+      `solar_limb_reach()`.
+- [ ] Remaining: C2 correction +1.82s against Jubier's +0.40s, robust to the solar
+      radius (it moved by 0.01 s).  C3 is within 0.45 s.  With the method and the
+      baseline both accounted for, the suspect is now the profile itself near PA 80
+      deg -- our LOLA-only sampling against his Kaguya/LRO blend, or the 1-pixel
+      registration ambiguity in the LDEM label.  Needs a second published case to
+      separate the two.
 - [ ] Second validation case: TSE 2024-04-08 near the northern limit, C2 +1.3s,
       C3 -31.6s -- an extreme test of the arc treatment above
 - [ ] Ship the blob as a release asset with its SHA256, downloaded on first use

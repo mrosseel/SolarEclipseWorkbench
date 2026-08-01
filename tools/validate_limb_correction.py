@@ -12,6 +12,7 @@ Usage:
     python tools/validate_limb_correction.py
 """
 
+import argparse
 import math
 import sys
 from pathlib import Path
@@ -22,6 +23,7 @@ from skyfield.api import load
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from solareclipseworkbench import besselian_element_generator  # noqa: E402
 from solareclipseworkbench.limb_correction import (  # noqa: E402
     K2, EARTH_RADIUS_KM, LunarLimb, beads, contact_position_angle, solve_limb_contact)
 from solareclipseworkbench.solar_eclipse import get_element_coeffs, get_elements  # noqa: E402
@@ -70,6 +72,18 @@ def solve_internal_contact(elements, start, latitude, longitude, height, sign, u
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--solar-radius-arcsec", type=float, default=None,
+                        help="override the solar radius at 1 au; Solar Eclipse Maestro "
+                             "defaults to the standard 959.63, ours is 959.94")
+    options = parser.parse_args()
+
+    if options.solar_radius_arcsec is not None:
+        astronomical_unit_m = 149597870700.0
+        besselian_element_generator.solar_radius = (
+            astronomical_unit_m * math.tan(math.radians(options.solar_radius_arcsec / 3600.0)))
+        print(f"solar radius overridden to {options.solar_radius_arcsec:.2f} arcsec\n")
+
     latitude, longitude, height = SITE_LAT, -SITE_LON, SITE_ELEVATION
     elements = get_element_coeffs(ECLIPSE_DATE)
 
