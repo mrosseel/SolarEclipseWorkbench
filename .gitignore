@@ -172,3 +172,6 @@ uv.lock
 
 # Kate editor temp files
 *.kate-swp
+
+# Lunar limb band blob: 72 MB, built by tools/build_limb_blob.py, shipped as a release asset
+data/lunar_limb_band_v1.bin
