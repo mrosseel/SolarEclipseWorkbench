@@ -67,13 +67,28 @@ def _drain(camera) -> int:
         return 0
 
 
-def _set_speed(camera, speed: str) -> bool:
-    try:
-        camera.configure(shutter_speed=speed)
-        return True
-    except Exception:
-        logger.exception("Could not set %s; the next frames keep the previous speed", speed)
-        return False
+def _set_speed(camera, speed: str, attempts: int = 6, backoff_s: float = 0.3) -> bool:
+    """Set the shutter speed, riding out the post-shot busy window.
+
+    For ~0.5–1 s after a frame the body answers 0x1006 Camera busy while it
+    writes to the card — the dress rehearsal lost ladder rungs to exactly this.
+    The busy clears on its own, so retrying with a short backoff recovers the
+    rung instead of shooting it at a stale speed.
+    """
+    for attempt in range(attempts):
+        try:
+            camera.configure(shutter_speed=speed)
+            if attempt:
+                logger.info("Set %s on attempt %d", speed, attempt + 1)
+            return True
+        except Exception:
+            if attempt + 1 == attempts:
+                logger.exception(
+                    "Could not set %s after %d attempts; the next frames keep "
+                    "the previous speed", speed, attempts)
+                return False
+            time.sleep(backoff_s)
+    return False
 
 
 def fuji_speed(camera, speed: str) -> None:
