@@ -25,7 +25,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from solareclipseworkbench import besselian_element_generator  # noqa: E402
 from solareclipseworkbench.limb_correction import (  # noqa: E402
-    K2, EARTH_RADIUS_KM, LunarLimb, beads, contact_position_angle, solve_limb_contact)
+    K2, EARTH_RADIUS_KM, LunarLimb, bead_window, beads, contact_position_angle,
+    solve_limb_contact)
 from solareclipseworkbench.solar_eclipse import get_element_coeffs, get_elements  # noqa: E402
 
 DATA = ROOT / "data"
@@ -190,6 +191,12 @@ def main():
             lit = beads(evaluate(when + offset / 3600.0), angles, heights_km)
             spans = ", ".join(f"{a:.1f}-{b:.1f}" for a, b in lit[:4])
             print(f"beads {offset:+.0f}s around {label}: {len(lit)} at {spans or 'none'} deg")
+
+    for label, when, entering in (("C2", c2_corrected, True), ("C3", c3_corrected, False)):
+        start, end = bead_window(evaluate, when, entering, angles, heights_km)
+        centre = 0.5 * (start + end)
+        print(f"bead window {label}: {(end - start) * 3600:5.1f}s long, "
+              f"centre {(centre - when) * 3600:+.1f}s from the contact")
 
     print(f"\ncorrection   C2 {c2_shift:+.2f}s  C3 {c3_shift:+.2f}s  "
           f"duration {(c3_shift - c2_shift):+.2f}s")

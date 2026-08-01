@@ -207,6 +207,36 @@ def solve_limb_contact(elements, evaluate, start_hours, entering,
     return 0.5 * (inside + outside)
 
 
+def lit_arc_degrees(elements, position_angles, heights_km):
+    """Total extent of limb, in degrees, that still has sunlight past it."""
+    lit = sunlight_margin(elements, position_angles, heights_km) > 0.0
+    return float(lit.sum()) * (360.0 / len(position_angles))
+
+
+def bead_window(evaluate, contact_hours, entering, position_angles, heights_km,
+                max_arc_deg=20.0, step_hours=0.05 / 3600.0, limit_hours=60.0 / 3600.0):
+    """When the Sun is reduced to beads around a contact, as (start, end) in hours.
+
+    This is what a burst wants to be centred on.  Rather than guessing a fixed
+    number of seconds either side of C2, walk out from the contact until the
+    sunlight still showing past the limb spans more than `max_arc_deg` of
+    position angle -- the moment the beads merge back into a crescent.
+
+    `entering` selects C2, where the window ends at the contact, from C3, where
+    it starts there.
+    """
+    direction = -1.0 if entering else 1.0
+
+    edge = contact_hours
+    for _ in range(int(limit_hours / step_hours)):
+        stepped = edge + direction * step_hours
+        if lit_arc_degrees(evaluate(stepped), position_angles, heights_km) > max_arc_deg:
+            break
+        edge = stepped
+
+    return (edge, contact_hours) if entering else (contact_hours, edge)
+
+
 def beads(elements, position_angles, heights_km):
     """Position angle ranges where sunlight still shows, as (start, end) pairs.
 

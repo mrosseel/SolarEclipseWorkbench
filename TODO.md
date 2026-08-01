@@ -248,3 +248,32 @@ topography entirely.  Jubier corrects them with an LRO/Kaguya limb profile.
 - [ ] Read his honest-limitations section and check each against us: battery death, card
       full, host clock drift.  Free space and battery are polled — verify whether any
       threshold actually warns the user.
+
+## Phase 3c — put the burst on the diamond ring
+
+What the limb profile is actually *for*, in this application: a burst centred on the
+diamond ring rather than on a nominal contact.  `bead_window()` walks out from the
+corrected contact until the sunlight still showing past the limb spans more than 20
+degrees of position angle -- the moment the beads merge back into a crescent.
+
+Two results that matter for scheduling:
+
+| case          | C2 window | centre vs C2 | C3 window | centre vs C3 |
+|---------------|-----------|--------------|-----------|--------------|
+| Svalbard 2015 | 4.6 s     | -2.3 s       | 4.3 s     | +2.1 s       |
+| Lusaka 2001   | 7.8 s     | -3.9 s       | 4.2 s     | +2.1 s       |
+
+- The window is **one-sided**: it ends at C2 and starts several seconds earlier.  A
+  burst centred on C2 spends half its frames on an empty corona.  Centre it on
+  C2 minus half the window instead.
+- The length is **site specific** -- 4.6 s against 7.8 s here -- so a fixed plus or
+  minus N seconds is wrong somewhere.  For reference Jubier's Svalbard sheet quotes
+  "Baily's Beads: +/-3.0s", against our 4.6 s at a 20 degree arc threshold.
+
+- [ ] Expose the window to the script layer, so `take_burst` can be scheduled against
+      the bead window rather than against C2 with a hand-guessed offset
+- [ ] Pick the arc threshold against real frames rather than by eye; 20 degrees is a
+      first guess, and it sets how much crescent is allowed into the first frame
+- [ ] Sanity-check that our 1 s absolute accuracy is comfortable here: it is a fifth
+      of a bead window, so centring is safe, but the window *edges* are where it
+      would show
