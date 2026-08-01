@@ -623,7 +623,11 @@ class RelayTrigger:
         Transitions are still recorded, so the bench console's event log shows
         releases as well as closures.
         """
-        for channel in self.wiring.channels:
+        self._release(self.wiring.channels)
+
+    def _release(self, channels) -> None:
+        """Open the given channels without ever raising."""
+        for channel in channels:
             started = time.perf_counter()
             error = None
             try:
@@ -668,16 +672,25 @@ class RelayTrigger:
 
         The release runs in a finally, so an exception inside the block still
         lets the shutter go.
+
+        If S1 is already closed when this is entered — the caller has pre-armed
+        with ``half_press()`` — the settle is skipped and S1 is left closed on
+        the way out.  On an X-T4 the settle is 120 ms of a 170 ms trigger
+        latency while the body's own release lag is only about 46 ms, so holding
+        S1 across a sequence of frames is most of the delay gone.  Pre-arming
+        keeps the camera awake as well, which is the reason the settle exists.
         """
         settle_s = self.wiring.settle_s if settle is None else settle
+        pre_armed = (not self.wiring.is_single_channel
+                     and self.wiring.s1_channel in self._closed_channels)
         try:
             self.half_press()
-            if not self.wiring.is_single_channel and settle_s > 0:
+            if not self.wiring.is_single_channel and settle_s > 0 and not pre_armed:
                 time.sleep(settle_s)
             self._set(self.wiring.s2_channel, True)
             yield
         finally:
-            self.release_all()
+            self._release([self.wiring.s2_channel] if pre_armed else self.wiring.channels)
 
     def shoot(self, pulse: Optional[float] = None) -> None:
         """Take one frame."""
