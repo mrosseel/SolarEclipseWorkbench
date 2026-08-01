@@ -25,8 +25,9 @@ import pandas as pd
 import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
-from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, \
-    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QCheckBox, QSplitter
+from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
+QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
+QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter
 from PyQt6 import QtWidgets
 from apscheduler.job import Job
 from apscheduler.schedulers import SchedulerNotRunningError
@@ -42,7 +43,7 @@ import threading
 
 from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get_free_space, get_space, \
     get_shooting_mode, get_focus_mode, set_time, CameraSettings, LiveViewThread, \
-    sony_save_destination_needs_downloader
+    get_sony_save_destination, get_sony_image_quality
 from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
 from solareclipseworkbench import hardware_problems
 from solareclipseworkbench.hardware_registry import register_hardware
@@ -50,15 +51,19 @@ from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wiring, discover_relays,
                                                  list_backends, make_backend)
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
+from solareclipseworkbench.limb_correction import set_enabled as set_limb_correction_enabled
+from solareclipseworkbench.limb_ui import BeadsPanel, beads_icon
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
 from solareclipseworkbench.constants import SUN_RADIUS, MOON_RADIUS
+from solareclipseworkbench import configuration
 
 ICON_PATH = Path(__file__).parent.resolve() / "img"
 
 TIME_FORMATS = {
-    "24 hours": "%H:%M:%S",
-    "12 hours": "%I:%M:%S"}
+    "24 hours": "%H:%M:%S.%f",
+    "12 hours": "%I:%M:%S.%f"
+}
 
 DATE_FORMATS = {
     "dd Month yyyy": "%d %b %Y",
@@ -120,6 +125,52 @@ def get_scripts_dir() -> Path:
     except OSError:
         LOGGER.exception("Could not prepare the scripts directory %s", SCRIPTS_DIR)
     return SCRIPTS_DIR
+
+
+class BannerNotification(QFrame):
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+
+        # Scope style ONLY to this class to prevent internal widget inheritance bugs
+        self.setStyleSheet('''
+            BannerNotification {
+                background-color: #FFF3CD;
+                border-radius: 4px;
+            }
+            QLabel {
+                color: #856404;
+                background: transparent;
+                border: none;
+            }
+            QToolButton {
+                border: none;
+                background: transparent;
+                color: #856404;
+                font-weight: bold;
+            }
+            QToolButton:hover {
+                color: #000000;
+            }
+        ''')
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+
+        self.label = QLabel(text)
+        self.label.setWordWrap(True)
+
+        self.close_btn = QToolButton()
+        self.close_btn.setText("✕")
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # Explicitly hide the root frame (self) when clicked
+        self.close_btn.clicked.connect(self.hide)
+
+        layout.addWidget(self.label, 1)
+        layout.addWidget(self.close_btn, 0, Qt.AlignmentFlag.AlignTop)
+
+    def setText(self, text: str):
+        self.label.setText(text)
 
 
 class SolarEclipseModel:
@@ -377,6 +428,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.file_action = QAction("File", self)
         self.shutdown_scheduler_action = QAction("Stop", self)
         self.relay_action = QAction("Relay", self)
+        self.beads_action = QAction("Limb correction", self)
         self.datetime_format_action = QAction("Datetime format", self)
         self.save_action = QAction("Save", self)
         self.live_view_action = QAction("Live View", self)
@@ -475,15 +527,13 @@ class SolarEclipseView(QMainWindow, Observable):
         self.camera_overview = QTableView()
 
         self.eclipse_visualization = EclipsePlotWidget()
+        self.beads_panel = BeadsPanel()
 
         self.jobs_table = QJobsTableView()
 
-        # One-line Sony reminder banner (hidden by default; shown when a Sony camera is present)
-        self.sony_reminder_label = QLabel()
-        self.sony_reminder_label.setText("Sony users: set 'PC Remote Settings → Save Destination' to 'PC+Camera' (or 'Camera Only') to keep images on the SD card and preserve tight shot timing")
-        self.sony_reminder_label.setWordWrap(True)
-        self.sony_reminder_label.setStyleSheet('background-color: #FFF3CD; color: #856404; padding: 6px; border-radius: 4px;')
-        self.sony_reminder_label.setVisible(False)
+        # One-line Sony banner (hidden by default; shown when a Sony camera is present)
+        self.sony_banner_label = BannerNotification()
+        self.sony_banner_label.setVisible(False)
 
         self.init_ui()
 
@@ -643,8 +693,16 @@ class SolarEclipseView(QMainWindow, Observable):
         # costs no button anywhere.
         self.eclipse_visualization.setMinimumWidth(240)
 
+        # Geometry above, beads below: both are pictures of the same moment, and
+        # a splitter lets whichever matters take the room.
+        self.geometry_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.geometry_splitter.addWidget(self.eclipse_visualization)
+        self.geometry_splitter.addWidget(self.beads_panel)
+        self.geometry_splitter.setStretchFactor(0, 3)
+        self.geometry_splitter.setStretchFactor(1, 2)
+
         self.output_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.output_splitter.addWidget(self.eclipse_visualization)
+        self.output_splitter.addWidget(self.geometry_splitter)
         self.output_splitter.addWidget(self.jobs_table)
         self.output_splitter.setStretchFactor(0, 1)
         self.output_splitter.setStretchFactor(1, 3)
@@ -655,7 +713,7 @@ class SolarEclipseView(QMainWindow, Observable):
 
         global_layout = QVBoxLayout()
         # show reminder banner at top
-        global_layout.addWidget(self.sony_reminder_label)
+        global_layout.addWidget(self.sony_banner_label)
         global_layout.addLayout(input_hbox)
 
         global_layout.addWidget(self.output_splitter)
@@ -752,6 +810,8 @@ class SolarEclipseView(QMainWindow, Observable):
 
         # Relay trigger
 
+        # Relay trigger
+
         self.relay_action.setStatusTip("Relay shutter trigger")
         self.relay_action.setIcon(QIcon(str(ICON_PATH / "relay.png")))
         self.relay_action.triggered.connect(self.on_toolbar_button_click)
@@ -785,6 +845,21 @@ class SolarEclipseView(QMainWindow, Observable):
             self.refresh_plot_action.setIcon(QIcon(str(ICON_PATH / "refresh.png")))
             self.refresh_plot_action.triggered.connect(self.on_toolbar_button_click)
             self.toolbar.addAction(self.refresh_plot_action)
+
+        # Lunar limb correction.  This one sets an option rather than performing
+        # an action, so it is pushed to the far end, away from the buttons that
+        # do something when pressed.
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.toolbar.addWidget(spacer)
+
+        self.beads_action.setStatusTip(
+            "Apply the lunar limb correction to the contact times")
+        self.beads_action.setIcon(beads_icon())
+        self.beads_action.setCheckable(True)
+        self.beads_action.setChecked(True)
+        self.beads_action.triggered.connect(self.on_toolbar_button_click)
+        self.toolbar.addAction(self.beads_action)
 
     def on_toolbar_button_click(self):
         """ Action triggered when a toolbar button is clicked."""
@@ -1026,10 +1101,10 @@ class SolarEclipseController(Observer):
         self.time_display_timer.setInterval(1000)
         self.time_display_timer.start()
 
-        # Hardware problems are raised on worker threads, so they are queued and
-        # picked up here on the UI thread.
+        # Hardware problems are raised on worker threads, which cannot open a
+        # dialog, so they are queued and collected here on the UI thread.
         self._problem_timer = QTimer()
-        self._problem_timer.timeout.connect(self._show_hardware_problems)
+        self._problem_timer.timeout.connect(self._show_camera_problems)
         self._problem_timer.setInterval(2000)
         self._problem_timer.start()
 
@@ -1046,6 +1121,21 @@ class SolarEclipseController(Observer):
 
         self.load_settings()
 
+    def _refresh_beads_panel(self):
+        """Point the beads panel at the current location and eclipse, if both are set.
+
+        Solving the limb costs a couple of seconds, so the panel only redoes it
+        when the place or the date actually changes.
+        """
+        if not (self.model.is_location_set and self.model.is_eclipse_date_set):
+            return
+        try:
+            date = str(self.model.eclipse_date).split(" ")[0]
+            self.view.beads_panel.set_context(date, self.model.longitude,
+                                              self.model.latitude, self.model.altitude)
+        except Exception as exc:
+            logging.warning("Could not update the Baily's beads panel: %s", exc)
+
     def _run_in_progress(self) -> bool:
         """True while a schedule is loaded and running."""
         try:
@@ -1053,14 +1143,14 @@ class SolarEclipseController(Observer):
         except Exception:
             return False
 
-    def _show_hardware_problems(self):
-        """Surface queued hardware problems, without ever stalling a run.
+    def _show_camera_problems(self):
+        """Show queued camera problems, without ever interrupting a run.
 
-        Before the run, a dialog: that is the moment a camera left in AF or on
-        JPEG can still be walked over to and fixed.  During the run, no dialog —
-        a modal window while frames are being taken is worse than the problem it
-        describes — so the count goes in the window title instead and the detail
-        stays in the log for afterwards.
+        Before the run a dialog is right: that is when a camera that failed to
+        respond can still be replugged or swapped.  Once the schedule is
+        running a modal dialog is worse than the problem it reports, because it
+        blocks the UI thread while frames are being taken, so the count goes in
+        the window title instead and the detail stays in the log.
         """
         try:
             if hardware_problems.count() == 0:
@@ -1068,25 +1158,24 @@ class SolarEclipseController(Observer):
 
             if self._run_in_progress():
                 pending = hardware_problems.peek()
-                worst = 'error' if any(p.severity == 'error' for p in pending) else 'warning'
-                marker = '⛔' if worst == 'error' else '⚠'
+                worst = "error" if any(p.severity == "error" for p in pending) else "warning"
+                marker = "\u26d4" if worst == "error" else "\u26a0"
                 self.view.setWindowTitle(
-                    f"{marker} {len(pending)} hardware problem(s) — Solar Eclipse Workbench"
+                    f"{marker} {len(pending)} camera problem(s) - Solar Eclipse Workbench"
                 )
                 return
 
             problems = hardware_problems.drain()
             summary = hardware_problems.summarise(problems)
-            has_error = any(p.severity == 'error' for p in problems)
+            has_error = any(p.severity == "error" for p in problems)
             box = QMessageBox.critical if has_error else QMessageBox.warning
             box(
                 self.view,
-                "Hardware problem" if len(problems) == 1 else "Hardware problems",
-                summary + "\n\nThese were found while setting up, so there is still time to "
-                          "fix them.  Details are in the log.",
+                "Camera problem" if len(problems) == 1 else "Camera problems",
+                summary + "\n\nDetails are in the log file.",
             )
         except Exception:
-            LOGGER.exception('Could not display hardware problems')
+            LOGGER.exception("Could not display camera problems")
 
     def update_time(self):
         """ Update the displayed current time and countdown clocks."""
@@ -1104,6 +1193,11 @@ class SolarEclipseController(Observer):
         # simulating, so the normal case is unaffected.
         offset = getattr(self.view.eclipse_visualization, 'offset', datetime.timedelta(0))
         reference_now = current_time_utc + offset
+
+        # The beads follow the same shifted clock: in simulation the eclipse is
+        # happening now-ish, and a live view on the real time would sit at
+        # "waiting for totality" throughout.
+        self.view.beads_panel.set_current_time(reference_now)
 
         countdown_c1 = self.model.c1_info.time_utc - reference_now if self.model.c1_info else None
         countdown_c2 = self.model.c2_info.time_utc - reference_now if self.model.c2_info else None
@@ -1189,6 +1283,7 @@ class SolarEclipseController(Observer):
             self.view.altitude_label.setText(str(altitude))
 
             self.view.eclipse_visualization.set_location(longitude, latitude, altitude)
+            self._refresh_beads_panel()
 
             return
 
@@ -1200,6 +1295,7 @@ class SolarEclipseController(Observer):
                 Time(datetime.datetime.strptime(eclipse_date_str, DATE_FORMATS[self.view.date_format])))
 
             self.view.eclipse_date.setText(eclipse_date_str)
+            self._refresh_beads_panel()
             return
 
         elif isinstance(changed_object, SimulatorPopup):
@@ -1267,14 +1363,15 @@ class SolarEclipseController(Observer):
 
                 camera: Camera
                 for camera in cameras:
-                    # One camera refusing to close must not leave the rest open:
-                    # a Fuji body that keeps its SDK session holds the USB device
-                    # and the next run cannot connect to it.
+                    # Close every camera even if one refuses.  Without this, the
+                    # first camera to raise aborts the loop and leaves the rest
+                    # open, still holding their USB devices, so the next run
+                    # cannot claim them and fails with a device-busy error.
                     try:
                         camera.exit()
                     except Exception:
-                        LOGGER.exception('Could not close camera %s',
-                                         getattr(camera, 'name', camera))
+                        LOGGER.exception("Could not close camera %s",
+                                         getattr(camera, "name", camera))
 
             return
 
@@ -1391,6 +1488,10 @@ class SolarEclipseController(Observer):
         elif text == "Simulator":
             self.simulator_popup = SimulatorPopup(self)
             self.simulator_popup.show()
+
+        elif text == "Limb correction":
+            set_limb_correction_enabled(self.view.beads_action.isChecked())
+            self.view.beads_panel.refresh()
 
         elif text == "Relay":
             self.relay_popup = RelayPopup(self)
@@ -1703,6 +1804,7 @@ class SolarEclipseController(Observer):
                 self.view.eclipse_date.setText(date.strftime(DATE_FORMATS[self.view.date_format]))
 
             self.model.set_eclipse_date(Time(date))
+            self._refresh_beads_panel()
             return True
 
         return False
@@ -2145,14 +2247,14 @@ class RelayPopup(QWidget, Observable):
         wiring_layout = QGridLayout()
 
         wiring_layout.addWidget(QLabel("Shutter (S2) channel"), 0, 0)
-        self.s2_channel = QLineEdit(settings.value("relay/s2_channel", "1", type=str))
+        self.s2_channel = QLineEdit(settings.value("relay/s2_channel", "2", type=str))
         self.s2_channel.setValidator(QIntValidator(1, 64))
         wiring_layout.addWidget(self.s2_channel, 0, 1)
 
         self.s1_checkbox = QCheckBox("Half-press (S1) on its own channel")
-        self.s1_checkbox.setChecked(settings.value("relay/s1_enabled", False, type=bool))
+        self.s1_checkbox.setChecked(settings.value("relay/s1_enabled", True, type=bool))
         wiring_layout.addWidget(self.s1_checkbox, 1, 0)
-        self.s1_channel = QLineEdit(settings.value("relay/s1_channel", "2", type=str))
+        self.s1_channel = QLineEdit(settings.value("relay/s1_channel", "1", type=str))
         self.s1_channel.setValidator(QIntValidator(1, 64))
         wiring_layout.addWidget(self.s1_channel, 1, 1)
 
@@ -2216,8 +2318,8 @@ class RelayPopup(QWidget, Observable):
 
         kind = self.backend_combobox.currentText()
         port = self.port_combobox.currentText().strip() or None
-        s2 = int(self.s2_channel.text() or "1")
-        s1 = int(self.s1_channel.text() or "2") if self.s1_checkbox.isChecked() else None
+        s2 = int(self.s2_channel.text() or "2")
+        s1 = int(self.s1_channel.text() or "1") if self.s1_checkbox.isChecked() else None
 
         try:
             backend = make_backend(kind, port)
@@ -2234,7 +2336,7 @@ class RelayPopup(QWidget, Observable):
         settings.setValue("relay/port", port or "")
         settings.setValue("relay/s2_channel", str(s2))
         settings.setValue("relay/s1_enabled", self.s1_checkbox.isChecked())
-        settings.setValue("relay/s1_channel", self.s1_channel.text() or "2")
+        settings.setValue("relay/s1_channel", self.s1_channel.text() or "1")
 
         self.show_state()
         self.notify_observers(self)
@@ -2536,7 +2638,7 @@ class EclipsePlotWidget(QtWidgets.QWidget):
         self._ensure_ephemerides_loaded()
 
         if not self.is_location_set:
-            print("Location not set. Please use set_location() first.")
+            LOGGER.info("Location not set. Please use set_location() first.")
             return
 
         # Interpret naive datetimes as UTC for robustness
@@ -2948,6 +3050,8 @@ class LiveViewWindow(QWidget):
             self._toggle_btn.setText("Disable Live View")
         else:
             self._thread.pause()
+            # Actually exit live view on the camera (Nikon D610 etc.)
+            self._thread.exit_live_view()
             self._toggle_btn.setText("Enable Live View")
         self._update_status_label()
 
@@ -3158,19 +3262,19 @@ def format_countdown(countdown: datetime.timedelta):
 
 
 def format_time(time: datetime.datetime, time_format: str) -> str:
-    """ Format the given time according to the given time format.
+    """Format the given time according to the given time format."""
 
-    Args:
-        - time: Time as datetime
+    # Format with standard strftime (includes 6 digits of microseconds)
+    formatted = time.strftime(TIME_FORMATS[time_format])
 
-    Returns: Formatted time, according to the given time format.
-    """
+    # Slice off the last 5 digits of %f, leaving 1 decimal place (.f)
+    formatted = formatted[:-5]
 
     suffix = ""
     if time_format == "12 hours":
         suffix = " am" if time.hour < 12 else " pm"
 
-    return f"{datetime.datetime.strftime(time, TIME_FORMATS[time_format])}{suffix}"
+    return f"{formatted}{suffix}"
 
 
 class CameraOverviewTableColumnNames(Enum):
@@ -3242,7 +3346,7 @@ class CameraOverviewTableModel(QAbstractTableModel):
         """ Update the camera overview. """
         logging.debug('CameraOverviewTableModel.update_camera_overview(): start (scheduling worker)')
         try:
-            print('CameraOverview: scheduling worker to probe cameras', flush=True)
+            LOGGER.debug("CameraOverview: scheduling worker to probe cameras")
         except Exception:
             pass
 
@@ -3262,83 +3366,126 @@ class CameraOverviewTableModel(QAbstractTableModel):
         QTimer.singleShot(200, self._try_apply_pending)
 
     def _gather_camera_info(self):
-        try:
-            is_sim = getattr(self.view, 'is_simulator', False) and getattr(self.view, 'virtual_camera_enabled', False)
-            vc_fps = getattr(self.view, 'virtual_camera_fps', 1)
-            # Reuse existing camera objects if available to avoid opening a new USB
-            # connection while a previous connection (e.g. from take_picture) is still held.
-            existing_map = getattr(self, 'camera_overview_dict', None)
-            if existing_map and all(v is not None for v in existing_map.values()):
-                camera_dict = existing_map
-                logging.debug('CameraOverview: reusing %d existing camera object(s)', len(camera_dict))
-            else:
-                alias_map = ConfigManager().get_camera_aliases() or None
-                camera_dict = get_camera_dict(is_simulator=is_sim, alias_map=alias_map)
+        max_retries = 2
+        attempt = 0
 
-            data = []
-            seen_camera_ids: set = set()
-            for camera_name, camera in camera_dict.items():
-                # Skip bare-key aliases that point to the same physical camera object
-                # already added under its full gphoto2 name (e.g. "Sony Alpha-A7r II"
-                # is a duplicate of "Sony Alpha-A7r II (Control)").
-                cam_id = id(camera)
-                if cam_id in seen_camera_ids:
-                    logging.debug('Worker: skipping duplicate alias "%s" (same camera object)', camera_name)
-                    continue
-                seen_camera_ids.add(cam_id)
-                try:
-                    logging.debug('Worker: processing camera %s', camera_name)
-                    battery_level = get_battery_level(camera).rstrip('%')
-                    free_space_gb = get_free_space(camera)
-                    total_space = get_space(camera)
-                    if free_space_gb < 0 or total_space <= 0:
-                        free_space_gb_str = 'N/A'
-                        free_space_pct_str = 'N/A'
-                    else:
-                        free_space_gb_str = str(free_space_gb)
-                        free_space_pct_str = str(int(free_space_gb / total_space * 100))
-                    data.append([camera_name, _describe_camera_mode(camera_name, camera),
-                                 str(battery_level), free_space_gb_str, free_space_pct_str])
-                except Exception as exc:
-                    logging.exception('Worker: exception while processing camera %s', camera_name)
-                    # The row survives with N/A values, which on its own looks
-                    # like the camera is simply idle.  Say why.
-                    hardware_problems.report(
-                        str(camera_name),
-                        'Could not read battery and free space from this camera',
-                        detail=str(exc),
-                        severity='warning',
-                    )
-                    # Preserve the camera row with N/A values when probing fails so
-                    # the camera does not disappear from the UI.
+        while attempt < max_retries:
+            try:
+                is_sim = getattr(self.view, 'is_simulator', False) and getattr(self.view, 'virtual_camera_enabled', False)
+                vc_fps = getattr(self.view, 'virtual_camera_fps', 1)
+
+                # Reuse existing camera objects if available to avoid opening a new USB
+                # connection while a previous connection (e.g. from take_picture) is still held.
+                existing_map = getattr(self, 'camera_overview_dict', None)
+                force_refresh = getattr(self, '_force_camera_refresh', False)
+
+                if force_refresh or not existing_map or not all(v is not None for v in existing_map.values()):
+                    if force_refresh:
+                        logging.info('CameraOverview: forcing fresh detection (attempt %d)', attempt + 1)
+                        seen = set()
+                        for camera_name, camera in (existing_map or {}).items():
+                            if camera is None or id(camera) in seen:
+                                continue
+                            seen.add(id(camera))
+                            try:
+                                camera.disconnect()
+                            except Exception:
+                                logging.debug('Worker: disconnect of %s raised (non-fatal)', camera_name)
+                        self._force_camera_refresh = False
+
+                    alias_map = ConfigManager().get_camera_aliases() or None
+                    camera_dict = get_camera_dict(is_simulator=is_sim, alias_map=alias_map)
+                    logging.debug('CameraOverview: fresh camera detection performed')
+                else:
+                    camera_dict = existing_map
+                    logging.debug('CameraOverview: reusing %d existing camera object(s)', len(camera_dict))
+
+                data = []
+                seen_camera_ids: set = set()
+                needs_refresh = False
+
+                for camera_name, camera in camera_dict.items():
+                    # Skip bare-key aliases that point to the same physical camera object
+                    # already added under its full gphoto2 name (e.g. "Sony Alpha-A7r II"
+                    # is a duplicate of "Sony Alpha-A7r II (Control)").
+                    cam_id = id(camera)
+                    if cam_id in seen_camera_ids:
+                        logging.debug('Worker: skipping duplicate alias "%s" (same camera object)', camera_name)
+                        continue
+                    seen_camera_ids.add(cam_id)
                     try:
-                        data.append([camera_name, 'N/A', 'N/A', 'N/A', 'N/A'])
-                    except Exception:
-                        pass
+                        logging.debug('Worker: processing camera %s', camera_name)
+                        battery_level = get_battery_level(camera).rstrip('%')
+                        free_space_gb = get_free_space(camera)
+                        total_space = get_space(camera)
+                        if free_space_gb < 0 or total_space <= 0:
+                            free_space_gb_str = 'N/A'
+                            free_space_pct_str = 'N/A'
+                        else:
+                            free_space_gb_str = str(free_space_gb)
+                            free_space_pct_str = str(int(free_space_gb / total_space * 100))
+                        data.append([camera_name, _describe_camera_mode(camera_name, camera),
+                                     str(battery_level), free_space_gb_str, free_space_pct_str])
+                    except Exception as exc:
+                        error_str = str(exc).lower()
+                        if any(x in error_str for x in ['-52', '-2', 'could not find the requested device', 'bad parameters']):
+                            logging.warning('Stale camera connection detected on %s (%s)', camera_name, exc)
+                            hardware_problems.report(
+                                str(camera_name),
+                                'Lost the USB connection to this camera',
+                                detail=str(exc),
+                            )
+                            needs_refresh = True
+                            self._force_camera_refresh = True
+                            break
+                        logging.exception('Worker: exception while processing camera %s', camera_name)
+                        # The row survives with N/A values, which on its own looks
+                        # like the camera is simply idle.  Say why.
+                        hardware_problems.report(
+                            str(camera_name),
+                            'Could not read battery and free space from this camera',
+                            detail=str(exc),
+                            severity='warning',
+                        )
+                        # Preserve the camera row with N/A values when probing fails so
+                        # the camera does not disappear from the UI.
+                        try:
+                            data.append([camera_name, 'N/A', 'N/A', 'N/A', 'N/A'])
+                        except Exception:
+                            pass
+                        continue
+
+                # If we hit critical errors, retry once with fresh objects
+                if needs_refresh and attempt == 0:
+                    logging.info("Critical USB errors detected - resetting camera_overview_dict and retrying...")
+                    self.camera_overview_dict = None
+                    attempt += 1
                     continue
-            # schedule UI update on main thread
-            try:
-                print('Worker: gathered camera overview data:', data, flush=True)
-            except Exception:
-                pass
-            # write pending data and the camera objects for the main thread poll to pick up
-            try:
-                self._pending_data = data
-                # keep the mapping of camera name -> camera object for later actions
-                self._pending_camera_map = camera_dict
-            except Exception:
-                logging.exception('Worker: could not set pending data')
-        except Exception as exc:
-            logging.exception('Worker: failed to gather camera info')
-            hardware_problems.report(
-                'Cameras',
-                'Could not read the connected cameras',
-                detail=str(exc),
-            )
+
+                # schedule UI update on main thread
+                LOGGER.debug('Worker: gathered camera overview data: %s', data)
+                # write pending data and the camera objects for the main thread poll to pick up
+                try:
+                    self._pending_data = data
+                    # keep the mapping of camera name -> camera object for later actions
+                    self._pending_camera_map = camera_dict
+                except Exception:
+                    logging.exception('Worker: could not set pending data')
+                break
+            except Exception as exc:
+                logging.exception('Worker: failed to gather camera info')
+                attempt += 1
+                if attempt >= max_retries:
+                    hardware_problems.report(
+                        'Cameras',
+                        'Could not read the connected cameras',
+                        detail=str(exc),
+                    )
+                    break
 
     def _on_data_ready(self, data):
         try:
-            print('CameraOverview: on_data_ready called with', data, flush=True)
+            LOGGER.debug("CameraOverview: on_data_ready called with " + data)
         except Exception:
             pass
         # Update internal dict for other parts of the app (store camera objects if available)
@@ -3422,9 +3569,111 @@ class CameraOverviewTableModel(QAbstractTableModel):
                 except Exception:
                     pass
                 self.view.camera_overview.repaint()
-                print('CameraOverview: view updated', flush=True)
+                LOGGER.debug("CameraOverview: view updated")
         except Exception:
             logging.exception('Could not update camera overview view after data ready')
+
+        # If we have actual camera objects, start the Sony background downloader
+        # automatically only when the camera reports PC-Only save destination.
+        # Also, show an informational banner about the relevant settings.
+        try:
+            pm = getattr(self, 'camera_overview_dict', None)
+
+            if pm:
+                seen = set()
+                banner_lines = []
+                sony_banner_label_visibility = False
+
+                for cam in pm.values():
+                    camera_vendor = getattr(cam, 'vendor', None)
+
+                    if camera_vendor == "Sony":
+                        try:
+                            if cam is None:
+                                continue
+                            if id(cam) in seen:
+                                continue
+                            seen.add(id(cam))
+
+                            dest = get_sony_save_destination(cam)
+                            image_quality = get_sony_image_quality(cam)
+                            camera_model = getattr(cam, 'name', 'Unknown Sony')
+
+                            # Decide action + message for this camera
+                            if dest == "sdram":
+                                text = (f"{camera_model}: currently saving photos to PC. "
+                                        f"We recommend testing if 'PC+Camera' mode is faster.")
+                                if image_quality != "RAW":
+                                    text += f" Also, 'File Format' is set to '{image_quality}'. Please set it to 'RAW'!"
+                                try:
+                                    cam.start_background_downloader()
+                                except Exception:
+                                    logging.warning('%s: failed to start Background Downloader', camera_model)
+
+                                banner_lines.append(text)
+                                sony_banner_label_visibility = True
+
+                            elif dest == "card+sdram":
+                                text = (f"{camera_model}: currently in 'PC+Camera' mode. "
+                                        f"We recommend testing if 'PC' mode is faster.")
+                                if not image_quality.startswith("RAW+JPEG"):
+                                    text += (" Also, 'File Format' is set to '{}'."
+                                            " Please set it to 'RAW+JPEG' and choose 'JPEG Only' "
+                                            "for 'RAW+J PC Save Img'.").format(image_quality)
+                                try:
+                                    cam.stop_background_downloader()
+                                except Exception:
+                                    pass
+
+                                banner_lines.append(text)
+                                sony_banner_label_visibility = True
+
+                            elif dest == "card":
+                                if image_quality != "RAW":
+                                    text = f"{camera_model}: 'File Format' is set to '{image_quality}'. Please set it to 'RAW'!"
+                                    banner_lines.append(text)
+                                    sony_banner_label_visibility = True
+                                else:
+                                    # No banner needed for good RAW + Card-only config
+                                    try:
+                                        cam.stop_background_downloader()
+                                    except Exception:
+                                        pass
+                            else:
+                                # Unknown / unavailable destination
+                                if image_quality != "RAW":
+                                    text = f"{camera_model}: 'Quality' is set to '{image_quality}'. Please set it to 'RAW'!"
+                                    banner_lines.append(text)
+                                    sony_banner_label_visibility = True
+                                else:
+                                    try:
+                                        cam.start_background_downloader()
+                                    except Exception:
+                                        logging.warning(
+                                            '%s: failed to start Background Downlaoder', camera_model)
+
+                        except Exception:
+                            logging.debug('Error while checking Sony save destination for a camera', exc_info=True)
+
+                # === Build final banner text ===
+                if banner_lines:
+                    full_text = "\n".join(banner_lines)
+                    full_text += "\nIf this info is wrong or you changed settings - press 'Camera(s)' again!"
+
+                    if hasattr(self, 'view') and getattr(self.view, 'sony_banner_label', None) is not None:
+                        self.view.sony_banner_label.setText(full_text)
+                        self.view.sony_banner_label.setVisible(sony_banner_label_visibility)
+                        logging.info("Sony banner updated to:\n%s", full_text)
+                else:
+                    # Hide banner if no messages
+                    if hasattr(self, 'view') and getattr(self.view, 'sony_banner_label', None) is not None:
+                        self.view.sony_banner_label.setVisible(False)
+            else:
+                # Hide banner if no Sony cameras connected
+                if hasattr(self, 'view') and getattr(self.view, 'sony_banner_label', None) is not None:
+                    self.view.sony_banner_label.setVisible(False)
+        except Exception:
+            logging.exception("Error updating Sony banner / background downloaders")
 
         # Notify controller that cameras are ready (fires sync_camera_time + check_camera_state)
         cb = getattr(self, 'on_ready_callback', None)
@@ -3435,70 +3684,6 @@ class CameraOverviewTableModel(QAbstractTableModel):
                 logging.exception('on_ready_callback raised an exception')
             finally:
                 self.on_ready_callback = None
-
-        # Show/hide Sony reminder banner in the main view depending on whether
-        # a Sony camera is present. Use vendor attribute when available, else
-        # fall back to camera name containing 'sony'.
-        try:
-            sony_present = False
-            pm = getattr(self, 'camera_overview_dict', None)
-            if pm:
-                for cam in pm.values():
-                    if cam is None:
-                        # fallback to names in data rows
-                        break
-                    if getattr(cam, 'vendor', None) == 'Sony':
-                        sony_present = True
-                        break
-            if not sony_present:
-                # fallback: check camera names from the table rows
-                for row in data:
-                    name = str(row[0]).lower()
-                    if 'sony' in name:
-                        sony_present = True
-                        break
-            if hasattr(self, 'view') and getattr(self.view, 'sony_reminder_label', None) is not None:
-                self.view.sony_reminder_label.setVisible(bool(sony_present))
-        except Exception:
-            logging.debug('Could not update Sony reminder visibility', exc_info=True)
-
-        # If we have actual camera objects, start the Sony background downloader
-        # automatically only when the camera reports PC-Only save destination.
-        try:
-            from solareclipseworkbench.camera import get_sony_save_destination
-            if pm:
-                for cam in pm.values():
-                    try:
-                        if cam is None:
-                            continue
-                        if getattr(cam, 'vendor', None) != 'Sony':
-                            # ensure any previously running downloader is stopped
-                            try:
-                                cam.stop_background_downloader()
-                            except Exception:
-                                pass
-                            continue
-                        dest = get_sony_save_destination(cam)
-                        # Start downloader only when destination clearly says
-                        # PC-only. If destination is unavailable (common with
-                        # localized camera menus), avoid downloading to protect
-                        # shot timing.
-                        if sony_save_destination_needs_downloader(dest):
-                            try:
-                                cam.start_background_downloader()
-                            except Exception:
-                                logging.exception('Failed to start downloader for Sony camera')
-                        else:
-                            try:
-                                cam.stop_background_downloader()
-                            except Exception:
-                                pass
-                    except Exception:
-                        logging.debug('Error while checking Sony save destination', exc_info=True)
-        except Exception:
-            logging.debug('Could not auto-start Sony downloader', exc_info=True)
-        except Exception:
-            logging.debug('Could not update Sony reminder visibility', exc_info=True)
 
     def _try_apply_pending(self):
         """Poll for pending data written by the background worker and apply it on the GUI thread."""
@@ -3615,8 +3800,8 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 self.execution_times_local_as_datetime.append(execution_time_local)
                 formatted_execution_time_local = format_time(execution_time_local, self.time_format)
 
-                data.append([countdown, formatted_execution_time_local, formatted_execution_time_utc, job_string,
-                             description])
+                data.append([countdown, formatted_execution_time_local, formatted_execution_time_utc,
+                             job_string, description])
 
         self._data = pd.DataFrame(data, columns=[JobsTableColumnNames.COUNTDOWN.value,
                                                  JobsTableColumnNames.EXEC_TIME_LOCAL.value,
@@ -3729,8 +3914,6 @@ def main():
     console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     logging.getLogger().addHandler(console_handler)
     LOGGER.info("Starting up Solar Eclipse Workbench")
-    # Reminder for Sony users: prefer PC+Camera (writes to SD card + RAM)
-    LOGGER.info("Sony users: set 'PC Remote Settings → Save Destination' to 'PC+Camera' (or 'Camera Only') to keep images on the SD card and preserve tight shot timing")
 
     parser = argparse.ArgumentParser(description="Solar Eclipse Workbench")
     parser.add_argument(
@@ -3741,6 +3924,7 @@ def main():
         action='store_true'
     )
     parser.add_argument(
+        "-vc",
         "--virtual-camera",
         help="Enable virtual camera (when starting GUI in simulator mode)",
         action='store_true',
@@ -3785,8 +3969,14 @@ def main():
         default=False,
     )
 
-    args = parser.parse_args()
+    parser.add_argument(
+        "-scm",
+        "--sony-cont-mode",
+        help="Specify continuous mode name for Sony cameras"
+    )
 
+    args = parser.parse_args()
+    configuration.SONY_CONTINUOUS_MODE = args.sony_cont_mode
     # args[1:1] = ["-stylesheet", str(styles_location)]
     app = QApplication(list(sys.argv))
     apply_system_color_scheme(app)
@@ -3836,8 +4026,17 @@ def sync_cameras(controller: SolarEclipseController):
         - Check whether the focus mode and shooting mode of all connected cameras is set to 'Manual'.
 
     Args:
-        - controller: Controller of the Solar Eclipse Workbench UI
+        - controller: Controller of the Solar Eclipse Workbench UI, or None when
+                      running headless (sew.py without --gui).
     """
+
+    if controller is None:
+        # What this refreshes is a Qt table, so headless there is nothing to do.
+        # Raising instead would turn every sync_cameras line in a script into a
+        # traceback: observe_solar_eclipse passes None for the controller on the
+        # command-line path, and the scripts all carry several syncs.
+        logging.info('sync_cameras: running headless, no camera overview to refresh')
+        return
 
     controller.model.camera_overview.update_camera_overview()
 
