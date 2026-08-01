@@ -15,6 +15,8 @@ ICRF -- the difference is a few tenths of a degree, which is kilometres along
 the limb.
 """
 
+import math
+
 import numpy as np
 from skyfield import framelib
 from skyfield.api import load, wgs84
@@ -121,3 +123,110 @@ def contact_position_angle(elements):
     last sliver before totality is the eastern one.
     """
     return np.degrees(np.arctan2(-elements["u"], -elements["v"])) % 360.0
+
+
+def solar_limb_reach(elements, position_angles):
+    """How far the Sun's limb reaches from the Moon's centre, per position angle.
+
+    Everything is in fundamental-plane units, where the Moon's mean radius is
+    k2 and lengths are Earth radii.  For a total eclipse L2' is negative and
+    |L2'| is the umbral radius, which is the Moon's radius less the Sun's, so
+    the Sun's radius is k2 + L2'.
+
+    Along the ray leaving the Moon's centre at position angle P, the far
+    intersection with the Sun's disk is at
+
+        rho * cos(P - Q) + sqrt(R_sun^2 - rho^2 * sin^2(P - Q))
+
+    with rho the centre separation and Q the position angle of the Sun's centre.
+    """
+    rho = math.hypot(elements["u"], elements["v"])
+    q = contact_position_angle(elements)
+    r_sun = K2 + elements["L2p"]
+
+    offset = np.radians(np.asarray(position_angles, dtype=np.float64) - q)
+    under_root = r_sun * r_sun - (rho * np.sin(offset)) ** 2
+    return rho * np.cos(offset) + np.sqrt(np.clip(under_root, 0.0, None))
+
+
+def sunlight_margin(elements, position_angles, heights_km):
+    """Positive where the Sun still shows past the true limb, per position angle.
+
+    Totality is exactly the state where this is negative everywhere; the arcs
+    where it is positive are the Baily's beads.
+    """
+    true_radius = K2 + np.asarray(heights_km, dtype=np.float64) / EARTH_RADIUS_KM
+    return solar_limb_reach(elements, position_angles) - true_radius
+
+
+def solve_limb_contact(elements, evaluate, start_hours, entering,
+                       position_angles, heights_km,
+                       search_hours=40.0 / 3600.0, step_hours=0.25 / 3600.0):
+    """Find C2 or C3 as the moment the last, or first, bead is on the limb.
+
+    `evaluate` is solar_eclipse.get_elements already bound to a place, and
+    `start_hours` the uncorrected contact it should refine.  With `entering`
+    true this returns C2, the instant sunlight last vanishes from every position
+    angle; with it false, C3, when it first returns.
+
+    Unlike a correction applied at a single position angle, this is set by the
+    lowest limb point anywhere along the relevant arc.  That arc is wide: for
+    disks of ratio 1.04 the radial gap grows as only about 21 arcsec per radian
+    squared, so a 1 km valley 9 degrees away still governs the contact.
+    """
+    def worst(when):
+        return sunlight_margin(evaluate(when), position_angles, heights_km).max()
+
+    # Totality is margin < 0.  Step outwards from the uncorrected contact until
+    # the sign flips, then bisect.  Stepping away from totality means going
+    # backwards for C2 and forwards for C3.
+    direction = -1.0 if entering else 1.0
+
+    inside = start_hours
+    for _ in range(int(search_hours / step_hours) + 1):
+        if worst(inside) < 0.0:
+            break
+        inside += direction * -step_hours
+    else:
+        raise ValueError("no totality found near the uncorrected contact")
+
+    outside = inside
+    for _ in range(int(search_hours / step_hours) + 1):
+        outside += direction * step_hours
+        if worst(outside) >= 0.0:
+            break
+    else:
+        raise ValueError("totality does not end within the search window")
+
+    for _ in range(60):
+        middle = 0.5 * (inside + outside)
+        if worst(middle) < 0.0:
+            inside = middle
+        else:
+            outside = middle
+    return 0.5 * (inside + outside)
+
+
+def beads(elements, position_angles, heights_km):
+    """Position angle ranges where sunlight still shows, as (start, end) pairs.
+
+    The ranges wrap around 360 degrees, so a bead straddling north is reported
+    once, with a start angle larger than its end.
+    """
+    lit = sunlight_margin(elements, position_angles, heights_km) > 0.0
+    angles = np.asarray(position_angles, dtype=np.float64)
+
+    if lit.all():
+        return [(float(angles[0]), float(angles[-1]))]
+    if not lit.any():
+        return []
+
+    # Rotate so the array starts on an unlit sample; runs are then contiguous.
+    first_dark = int(np.flatnonzero(~lit)[0])
+    order = np.roll(np.arange(angles.size), -first_dark)
+    rolled = lit[order]
+
+    starts = np.flatnonzero(rolled & ~np.roll(rolled, 1))
+    ends = np.flatnonzero(rolled & ~np.roll(rolled, -1))
+    return [(float(angles[order[start]]), float(angles[order[end]]))
+            for start, end in zip(starts, ends)]

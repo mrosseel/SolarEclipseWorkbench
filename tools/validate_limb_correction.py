@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from solareclipseworkbench.limb_correction import (  # noqa: E402
-    K2, EARTH_RADIUS_KM, LunarLimb, contact_position_angle)
+    K2, EARTH_RADIUS_KM, LunarLimb, beads, contact_position_angle, solve_limb_contact)
 from solareclipseworkbench.solar_eclipse import get_element_coeffs, get_elements  # noqa: E402
 
 DATA = ROOT / "data"
@@ -116,23 +116,39 @@ def main():
           f"{heights_km.min():+.3f} .. {heights_km.max():+.3f} km, "
           f"mean {heights_km.mean():+.3f} km")
 
+    o2 = get_elements(elements, c2, latitude, longitude, height)
+    o3 = get_elements(elements, c3, latitude, longitude, height)
+    print(f"contact position angles: C2 {contact_position_angle(o2):.2f} deg, "
+          f"C3 {contact_position_angle(o3):.2f} deg")
+
+    # Single position angle, the way the first cut did it, for comparison.
     def corrected_umbral_radius(o, _when):
         angle = contact_position_angle(o)
         height_km = float(np.interp(angle, angles, heights_km, period=360.0))
         return o["L2p"] - height_km / EARTH_RADIUS_KM
 
-    c3_corrected = solve_internal_contact(elements, c3, latitude, longitude, height,
-                                          -1, corrected_umbral_radius)
-    c2_corrected = solve_internal_contact(elements, c2, latitude, longitude, height,
-                                          +1, corrected_umbral_radius)
+    point_c2 = solve_internal_contact(elements, c2, latitude, longitude, height,
+                                      +1, corrected_umbral_radius)
+    point_c3 = solve_internal_contact(elements, c3, latitude, longitude, height,
+                                      -1, corrected_umbral_radius)
+    print(f"\nsingle position angle: C2 {(point_c2 - c2) * 3600:+.2f}s  "
+          f"C3 {(point_c3 - c3) * 3600:+.2f}s")
+
+    # The whole arc: the contact is set by the lowest limb point anywhere.
+    def evaluate(when):
+        return get_elements(elements, when, latitude, longitude, height)
+
+    c2_corrected = solve_limb_contact(elements, evaluate, c2, True, angles, heights_km)
+    c3_corrected = solve_limb_contact(elements, evaluate, c3, False, angles, heights_km)
 
     c2_shift = (c2_corrected - c2) * 3600.0
     c3_shift = (c3_corrected - c3) * 3600.0
 
-    o2 = get_elements(elements, c2, latitude, longitude, height)
-    o3 = get_elements(elements, c3, latitude, longitude, height)
-    print(f"contact position angles: C2 {contact_position_angle(o2):.2f} deg, "
-          f"C3 {contact_position_angle(o3):.2f} deg")
+    for label, when in (("C2", c2_corrected), ("C3", c3_corrected)):
+        for offset in (-1.0, 1.0):
+            lit = beads(evaluate(when + offset / 3600.0), angles, heights_km)
+            spans = ", ".join(f"{a:.1f}-{b:.1f}" for a, b in lit[:4])
+            print(f"beads {offset:+.0f}s around {label}: {len(lit)} at {spans or 'none'} deg")
 
     print(f"\ncorrection   C2 {c2_shift:+.2f}s  C3 {c3_shift:+.2f}s  "
           f"duration {(c3_shift - c2_shift):+.2f}s")

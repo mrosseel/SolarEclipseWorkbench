@@ -169,19 +169,29 @@ topography entirely.  Jubier corrects them with an LRO/Kaguya limb profile.
       and C3 on its west, as the eastward relative motion requires.
       Independent confirmation of k2: the mean limb height over the whole profile
       comes out at +0.015 km above k2 * R_earth = 1736.635 km.
-- [ ] Close the last few tenths of a second on the correction.  Current state on the
-      2015 Svalbard case: C2 +0.98s (Jubier +0.40s), C3 -3.08s (Jubier -2.80s),
-      duration -4.06s (Jubier -3.20s).  Two known causes, in order of size:
-      1. We evaluate the limb height at the single nominal contact position angle.
-         The real contact is the extremum over an arc: for two internally tangent
-         disks with ratio 1.043 the radial gap grows as about 21.5 * theta^2 arcsec,
-         so a 1 km feature still matters +/-9 deg away and a 3 km valley +/-16 deg.
-         C2 and C3 are both set by the *lowest* limb point in that window.  This is
-         the same computation as the Baily's beads prediction, so do them together.
-      2. Our uncorrected C3 is already 1.23 s from Jubier's before any limb data is
-         involved (C2 is +0.14 s).  Check the catalogue dt against his 67.73 s and
-         dUT1 -0.55 s before blaming the limb model.
-- [ ] Baily's beads window as a by-product of the same arc computation
+- [x] Arc treatment: totality holds only while the Sun's limb is inside the true limb
+      at *every* position angle.  `sunlight_margin()` gives that per angle,
+      `solve_limb_contact()` bisects for the moment it last goes negative, and
+      `beads()` returns the lit arcs.  Physically well behaved: 1 s before C2 it
+      finds 7 small beads at PA 80-82 deg and none 1 s after; 1 s after C3, three
+      beads spanning 239-249 deg, a broad valley.
+- [ ] Reconcile with Jubier -- the arc result moved *away* from his figures:
+
+      |            | single PA | whole arc | Jubier |
+      |------------|-----------|-----------|--------|
+      | C2         | +0.98s    | +1.83s    | +0.40s |
+      | C3         | -3.08s    | -3.25s    | -2.80s |
+      | duration   | -4.06s    | -5.08s    | -3.20s |
+
+      Leading hypothesis: his C2'/C3' are not the last-bead instants.  Our arc
+      result sits *outside* his on both sides -- later C2, earlier C3, totality
+      1.9 s shorter -- which is what you get if he quotes a contact defined nearer
+      the mean limb over the contact region while we quote the extreme bead.  His
+      own sheet carries a separate "Baily's Beads: +/-3.0s" figure, the same order
+      as the gap.  Decide which definition we want before tuning anything.
+- [ ] Our uncorrected C3 is already 1.23 s from Jubier's before any limb data is
+      involved (C2 is +0.14 s).  Check the catalogue dt against his 67.73 s and
+      dUT1 -0.55 s -- part of the residual is not a limb problem at all.
 - [ ] Second validation case: TSE 2024-04-08 near the northern limit, C2 +1.3s,
       C3 -31.6s -- an extreme test of the arc treatment above
 - [ ] Ship the blob as a release asset with its SHA256, downloaded on first use
