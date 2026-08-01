@@ -6,7 +6,7 @@ the camera hard enough to need a battery pull.  fujixsdk's drain discards the
 queued PC transfer with DeleteImage and *believes* the image is already on the
 card — a claim July explicitly left unverified.
 
-This deliberately shoots ~90 frames, three times the wedge threshold, with the
+This deliberately shoots ~100 frames, three times the wedge threshold, with the
 drain running, while walking the exposure ladder over USB.  It proves, or
 disproves, in one sitting:
 
@@ -87,7 +87,7 @@ class DrainLoop(threading.Thread):
 
 def main() -> None:
     print("Camera: drive CH, shutter dial T, aimed at the clock, USB connected.")
-    print(f"{DIM}This takes ~90 frames with the drain loop live — three times the\n"
+    print(f"{DIM}This takes ~100 frames with the drain loop live — three times the\n"
           f"wedge threshold on purpose.{RESET}")
     if input("Ready? [y/n] > ").strip().lower() not in ("y", "yes"):
         return
@@ -146,6 +146,28 @@ def main() -> None:
                 trigger.shoot(pulse=0.08)
                 note("ramp_tap", speed=speed, started=started)
                 time.sleep(1.2)
+
+        print(f"{DIM}phase 4: the hybrid pattern — SDK-triggered singles, speeds over USB{RESET}")
+        for speed in ("1/500", "1/30", "1/500", "1/30", "1/500"):
+            started = time.time()
+            error = None
+            try:
+                camera.configure(shutter_speed=speed)
+                camera.capture()
+            except Exception as exc:
+                error = str(exc)
+            note("sdk_shot", speed=speed, error=error, started=started,
+                 took_s=round(time.time() - started, 3))
+            marker = f"{RED}{error}{RESET}" if error else f"{GREEN}ok{RESET}"
+            print(f"    sdk shot at {speed:>6} {marker}  "
+                  f"{DIM}{time.time() - started:.2f} s{RESET}")
+            time.sleep(0.8)
+
+        print(f"{DIM}phase 5: relay burst straight after SDK shots — the C2 handover{RESET}")
+        started = time.time()
+        with trigger.pressed():
+            time.sleep(2.0)
+        note("handover_burst", started=started)
 
         try:
             camera.configure(shutter_speed="1/125")
