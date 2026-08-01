@@ -15,7 +15,10 @@ ICRF -- the difference is a few tenths of a degree, which is kilometres along
 the limb.
 """
 
+import logging
 import math
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 from skyfield import framelib
@@ -26,6 +29,15 @@ from solareclipseworkbench.constants import EARTH_RADIUS
 from solareclipseworkbench.lunar_limb import LimbBand
 
 EARTH_RADIUS_KM = EARTH_RADIUS / 1000.0
+
+# Where the blob and the orientation kernels live.  The blob is a 72 MB download
+# rather than part of the checkout, so everything here degrades to None when it
+# is absent and the caller falls back to mean-limb contacts.
+DATA_DIRECTORY = Path(__file__).resolve().parents[2] / "data"
+BAND_FILE = DATA_DIRECTORY / "lunar_limb_band_v1.bin"
+FRAME_KERNEL = DATA_DIRECTORY / "moon_080317.tf"
+ORIENTATION_KERNEL = DATA_DIRECTORY / "moon_pa_de421_1900-2050.bpc"
+EPHEMERIS = Path(__file__).resolve().parent / "de440s.bsp"
 
 # The reduced mean limb radius the l2 coefficients are built on.  Jubier charts
 # the same value as k2, and it is already the constant used when we generate
@@ -260,3 +272,97 @@ def beads(elements, position_angles, heights_km):
     ends = np.flatnonzero(rolled & ~np.roll(rolled, -1))
     return [(float(angles[order[start]]), float(angles[order[end]]))
             for start, end in zip(starts, ends)]
+
+
+def load_default_limb():
+    """The limb model built from the shipped data, or None if it is not installed."""
+    missing = [str(path) for path in (BAND_FILE, FRAME_KERNEL, ORIENTATION_KERNEL, EPHEMERIS)
+               if not path.exists()]
+    if missing:
+        logging.info("Lunar limb profile unavailable, contacts will use the mean limb. "
+                     "Missing: %s", ", ".join(missing))
+        return None
+    return LunarLimb(BAND_FILE, FRAME_KERNEL, ORIENTATION_KERNEL, EPHEMERIS)
+
+
+def _refine_internal_contact(elements, evaluate, start_hours, entering):
+    """Newton-iterate an uncorrected internal contact from a starting guess."""
+    sign = 1.0 if entering else -1.0
+    contact = start_hours
+    for _ in range(20):
+        o = evaluate(contact)
+        s = (o["a"] * o["v"] - o["u"] * o["b"]) / (o["n"] * o["L2p"])
+        step = (-(o["u"] * o["a"] + o["v"] * o["b"]) / (o["n"] * o["n"])
+                + sign * o["L2p"] / o["n"] * math.sqrt(max(0.0, 1 - s * s)))
+        contact += step
+        if abs(step) < 1e-12:
+            break
+    return contact
+
+
+def bead_reference_moments(eclipse_date, latitude, longitude, elevation_m,
+                           limb=None, arc_degrees=20.0, profile_step_deg=0.01):
+    """Limb-corrected contacts and bead windows, as UTC datetimes.
+
+    Returns a dict keyed by reference-moment name, empty if there is no totality
+    at this place or the limb data is not installed.  The keys are the ones a
+    script can schedule against:
+
+        C2_LIMB, C3_LIMB              the limb-corrected internal contacts
+        BEADS_C2, BEADS_C3            the middle of each bead window
+        BEADS_C2_START / _END         its edges, and likewise for C3
+
+    `arc_degrees` sets how much sunlight still counts as beads rather than a
+    crescent; see bead_window().
+    """
+    from solareclipseworkbench.solar_eclipse import get_element_coeffs, get_elements
+
+    limb = limb or load_default_limb()
+    if limb is None:
+        return {}
+
+    elements = get_element_coeffs(eclipse_date)
+
+    # The solver takes west longitude as positive.
+    def evaluate(when):
+        return get_elements(elements, when, latitude, -longitude, elevation_m)
+
+    maximum = 0.0
+    for _ in range(30):
+        o = evaluate(maximum)
+        maximum += -(o["u"] * o["a"] + o["v"] * o["b"]) / (o["n"] * o["n"])
+
+    o = evaluate(maximum)
+    if o["L2p"] >= 0.0:
+        return {}      # annular or partial here: no totality to bracket
+
+    s = (o["a"] * o["v"] - o["u"] * o["b"]) / (o["n"] * o["L2p"])
+    half = o["L2p"] / o["n"] * math.sqrt(max(0.0, 1 - s * s))
+
+    c2 = _refine_internal_contact(elements, evaluate, maximum + half, True)
+    c3 = _refine_internal_contact(elements, evaluate, maximum - half, False)
+
+    delta_t_hours = elements["Δt"] / 3600.0
+    day = datetime.strptime(eclipse_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+    def to_utc(hours):
+        return day + timedelta(hours=hours + elements["T0"] - delta_t_hours)
+
+    # One profile for the whole of totality, evaluated at maximum eclipse.
+    timescale = load.timescale()
+    moment = timescale.ut1(day.year, day.month, day.day, 0, 0,
+                           (maximum + elements["T0"] - delta_t_hours) * 3600.0)
+    angles = np.arange(0.0, 360.0, profile_step_deg)
+    heights_km = limb.height_above_k2(moment, latitude, longitude, elevation_m, angles)
+
+    c2_limb = solve_limb_contact(elements, evaluate, c2, True, angles, heights_km)
+    c3_limb = solve_limb_contact(elements, evaluate, c3, False, angles, heights_km)
+
+    moments = {"C2_LIMB": to_utc(c2_limb), "C3_LIMB": to_utc(c3_limb)}
+    for name, contact, entering in (("C2", c2_limb, True), ("C3", c3_limb, False)):
+        start, end = bead_window(evaluate, contact, entering, angles, heights_km,
+                                 max_arc_deg=arc_degrees)
+        moments[f"BEADS_{name}_START"] = to_utc(start)
+        moments[f"BEADS_{name}_END"] = to_utc(end)
+        moments[f"BEADS_{name}"] = to_utc(0.5 * (start + end))
+    return moments

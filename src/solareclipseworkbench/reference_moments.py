@@ -7,6 +7,7 @@ Reference moments of a solar eclipse:
     - C4: Fourth contact;
     - MAX: Maximum eclipse.
 """
+import logging
 from datetime import datetime, timedelta
 
 import astropy.units as u
@@ -17,6 +18,7 @@ from skyfield import almanac
 from skyfield.api import load, wgs84, Topos
 from skyfield.units import Angle
 from timezonefinder import TimezoneFinder
+from solareclipseworkbench.limb_correction import bead_reference_moments
 from solareclipseworkbench.solar_eclipse import get_local_circumstances
 
 def ut_to_hms(ut):
@@ -170,6 +172,25 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
             timings["C3"] = c3
 
             timings["duration"] = timedelta(hours=(result['ut_third_contact'] - result['ut_second_contact']))
+
+            # Limb-corrected contacts and the bead windows around them, so a
+            # burst can be scheduled on the diamond ring rather than on a
+            # nominal contact.  Silently absent when the limb blob is not
+            # installed; the mean-limb C2 and C3 above are always there.
+            try:
+                bead_moments = bead_reference_moments(
+                    f"{time.datetime.year:04d}-{time.datetime.month:02d}-{time.datetime.day:02d}",
+                    location.lat.value, location.lon.value, location.height.value)
+            except Exception as exc:
+                logging.warning("Could not compute the lunar limb corrections, "
+                                "falling back to mean-limb contacts: %s", exc)
+                bead_moments = {}
+
+            for name, moment in bead_moments.items():
+                near_c2 = "C2" in name
+                azimuth = second_contact_az if near_c2 else third_contact_az
+                altitude = second_contact_alt if near_c2 else third_contact_alt
+                timings[name] = ReferenceMomentInfo(moment, azimuth, altitude.degrees, timezone)
 
         sc_h, sc_m, sc_s = ut_to_hms(result['ut_last_contact'])
         sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
