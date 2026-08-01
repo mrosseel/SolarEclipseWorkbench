@@ -27,6 +27,10 @@ from solareclipseworkbench.limb_correction import (K2, EARTH_RADIUS_KM, is_enabl
 SLIDER_RANGE_S = 8.0
 SLIDER_STEPS = 320
 
+# How far either side of totality the live view still has geometry worth
+# drawing.  Beyond this the limbs are nowhere near tangent.
+LIVE_MARGIN_S = 30.0
+
 PROFILE_COLOUR = QColor(150, 120, 200)
 SUN_COLOUR = QColor(240, 170, 60)
 BEAD_COLOUR = QColor(255, 220, 90)
@@ -71,6 +75,7 @@ class BeadsView(QWidget):
         self.mode = "profile"
         self.exaggeration = 50.0
         self.live_hours = None
+        self.waiting = False
         self.setMinimumSize(320, 140)
 
     def set_mode(self, mode):
@@ -96,6 +101,11 @@ class BeadsView(QWidget):
         base = (self.solution.c2_limb if self.contact == "C2" else self.solution.c3_limb)
         return base + self.offset_s / 3600.0
 
+    def set_waiting(self, waiting):
+        """Draw nothing but a note: the clock is outside totality."""
+        self.waiting = waiting
+        self.update()
+
     def set_live_hours(self, hours):
         """Follow the clock, or None to go back to the slider."""
         self.live_hours = hours
@@ -114,6 +124,12 @@ class BeadsView(QWidget):
 
         solution = self.solution
         if solution is None:
+            return
+
+        if self.waiting:
+            painter.setPen(QColor(150, 150, 160))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                             "waiting for totality")
             return
 
         if self.mode == "preview":
@@ -390,14 +406,32 @@ class BeadsPanel(QWidget):
         self.contact_box.setEnabled(not live and self.solution is not None)
         self.slider.setEnabled(not live and self.solution is not None)
         if not live:
+            self.view.set_waiting(False)
             self.view.set_live_hours(None)
             self._on_slider(self.slider.value())
 
     def set_current_time(self, moment_utc):
-        """Called on every clock tick; only does anything in Live mode."""
+        """Called on every clock tick; only does anything in Live mode.
+
+        Outside totality there is no contact geometry to draw -- the Sun and
+        Moon are nowhere near tangent, and the curves degenerate into nonsense --
+        so say how far away it is rather than drawing it.
+        """
         if self.solution is None or not self.is_live():
             return
+
         hours = self.solution.from_utc(moment_utc)
+        solution = self.solution
+        if not (solution.c2_limb - LIVE_MARGIN_S / 3600.0 <= hours
+                <= solution.c3_limb + LIVE_MARGIN_S / 3600.0):
+            self.view.set_live_hours(None)
+            self.view.set_waiting(True)
+            away = (solution.c2_limb - hours) * 3600.0
+            self.time_label.setText(f"C2 in {away / 60:.0f} min" if away > 0
+                                    else "after totality")
+            return
+
+        self.view.set_waiting(False)
         self.view.set_live_hours(hours)
         self.time_label.setText(moment_utc.strftime("%H:%M:%S") + "  live")
 
