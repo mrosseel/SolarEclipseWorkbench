@@ -209,9 +209,12 @@ class BeadsView(QWidget):
         sun_km = (solar_limb_reach(elements, angles) - K2) * EARTH_RADIUS_KM
         # Away from the contact the Sun sits far inside the limb, and at this
         # exaggeration its radius would go negative and turn the polygon inside
-        # out.  Clamp it well within the Moon, where it is hidden anyway, so only
-        # the part that genuinely protrudes is ever seen.
-        sun_km = np.maximum(sun_km, -0.5 * mean_km / self.exaggeration)
+        # out.  Clamp it just inside the deepest valley: any lower and the clamp
+        # itself becomes visible as a small disc, any higher and it pokes out
+        # where it should not.
+        floor_km = solution.heights_km.min() - 0.02 * (solution.heights_km.max()
+                                                       - solution.heights_km.min())
+        sun_km = np.maximum(sun_km, floor_km)
 
         def polygon(heights):
             points = []
