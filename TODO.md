@@ -208,12 +208,36 @@ topography entirely.  Jubier corrects them with an LRO/Kaguya limb profile.
       the lowest lunar profile feature in the vicinity".  Their epicyclic
       approximation h = S(m-1)(1-cos C) is the small-angle form of our exact
       `solar_limb_reach()`.
-- [ ] Remaining: C2 correction +1.82s against Jubier's +0.40s, robust to the solar
-      radius (it moved by 0.01 s).  C3 is within 0.45 s.  With the method and the
-      baseline both accounted for, the suspect is now the profile itself near PA 80
-      deg -- our LOLA-only sampling against his Kaguya/LRO blend, or the 1-pixel
-      registration ambiguity in the LDEM label.  Needs a second published case to
-      separate the two.
+- [x] Second reference case, NASA/TP-1999-209484 for Lusaka at TSE 2001-06-21
+      (`--case lusaka2001`).  Three independent confirmations fell out of it:
+      - contact position angles come out at **118.08 and 246.82 deg** against NASA's
+        published P2 = 118 and P3 = 247.  That validates the atan2(-u, -v) sign.
+      - uncorrected duration **193.5 s against their 193.5 s** exactly, with what is
+        left a pure +0.85 s epoch shift on both contacts.
+      - the arc treatment is vindicated where the single-angle one fails outright:
+        single angle gives C2 **-1.67 s, the wrong sign**, while the arc gives
+        **+3.15 s** against their +4.0 s.
+
+      | case                  | single PA | whole arc | reference |
+      |-----------------------|-----------|-----------|-----------|
+      | Svalbard 2015 C2      | +0.98s    | +1.82s    | +0.40s    |
+      | Svalbard 2015 C3      | -3.08s    | -3.25s    | -2.80s    |
+      | Lusaka 2001 C2        | -1.67s    | +3.15s    | +4.00s    |
+      | Lusaka 2001 C3        | -0.20s    | -2.75s    | -1.20s    |
+
+- [ ] Residuals are 0.45 to 1.55 s and do not sit one way, so this is scatter rather
+      than a bias to chase.  Three things could each account for a second, and they
+      have to be separated before any of it is called an error:
+      - the two references use different limb data.  Svalbard is LRO/Kaguya, Lusaka
+        is Watts, whose errors reach 0.4 arcsec -- about a second of time -- and
+        Jubier's own note is that LRO and Kaguya are "much more accurate than the
+        Watts even after correction".
+      - NASA's Lusaka figures were read off a graph, and our Lusaka coordinates are
+        their city-database entry to the arcminute, so about +/-1 km.  Near the limb
+        that changes which valley governs.
+      - the 1-pixel registration ambiguity in the LDEM label, worth 237 m.
+      A real test needs a case with precise coordinates and a published LRO-based
+      correction, or better, an observed contact timing.
 - [ ] Second validation case: TSE 2024-04-08 near the northern limit, C2 +1.3s,
       C3 -31.6s -- an extreme test of the arc treatment above
 - [ ] Ship the blob as a release asset with its SHA256, downloaded on first use

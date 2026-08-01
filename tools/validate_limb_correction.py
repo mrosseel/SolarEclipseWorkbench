@@ -31,16 +31,34 @@ from solareclipseworkbench.solar_eclipse import get_element_coeffs, get_elements
 DATA = ROOT / "data"
 SRC = ROOT / "src" / "solareclipseworkbench"
 
-SITE_LAT = 78 + 13.328 / 60
-SITE_LON = 15 + 39.028 / 60
-SITE_ELEVATION = 6.1
-ECLIPSE_DATE = "2015-03-20"
-
-JUBIER = {
-    "c2": 10 + 10 / 60 + 43.9 / 3600,
-    "c3": 10 + 13 / 60 + 11.5 / 3600,
-    "c2_correction": +0.4,
-    "c3_correction": -2.8,
+CASES = {
+    # Solar Eclipse Maestro limb profile, LRO/Kaguya.
+    "svalbard2015": {
+        "date": "2015-03-20",
+        "latitude": 78 + 13.328 / 60,
+        "longitude": 15 + 39.028 / 60,
+        "elevation": 6.1,
+        "c2": 10 + 10 / 60 + 43.9 / 3600,
+        "c3": 10 + 13 / 60 + 11.5 / 3600,
+        "c2_correction": +0.4,
+        "c3_correction": -2.8,
+        "source": "Jubier, Solar Eclipse Maestro (LRO/Kaguya)",
+    },
+    # NASA/TP-1999-209484, worked example for Lusaka.  Watts-based, but the
+    # publication states the result is within 0.2 s of a rigorous calculation
+    # from the actual limb profile.  Coordinates are NASA's city database entry.
+    "lusaka2001": {
+        "date": "2001-06-21",
+        "latitude": -(15 + 25 / 60),
+        "longitude": 28 + 17 / 60,
+        "elevation": 1277.0,
+        "c2": 13 + 9 / 60 + 19.3 / 3600,
+        "c3": 13 + 12 / 60 + 32.8 / 3600,
+        "c2_correction": +4.0,
+        "c3_correction": -1.2,
+        "position_angles": (118.0, 247.0),
+        "source": "NASA/TP-1999-209484 table 15 and figure 8 (Watts)",
+    },
 }
 
 
@@ -73,6 +91,8 @@ def solve_internal_contact(elements, start, latitude, longitude, height, sign, u
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--case", choices=sorted(CASES), default="svalbard2015",
+                        help="which published reference case to check against")
     parser.add_argument("--solar-radius-arcsec", type=float, default=None,
                         help="override the solar radius at 1 au; Solar Eclipse Maestro "
                              "defaults to the standard 959.63, ours is 959.94")
@@ -84,8 +104,15 @@ def main():
             astronomical_unit_m * math.tan(math.radians(options.solar_radius_arcsec / 3600.0)))
         print(f"solar radius overridden to {options.solar_radius_arcsec:.2f} arcsec\n")
 
-    latitude, longitude, height = SITE_LAT, -SITE_LON, SITE_ELEVATION
-    elements = get_element_coeffs(ECLIPSE_DATE)
+    case = CASES[options.case]
+    site_lat, site_lon = case["latitude"], case["longitude"]
+    reference = case
+    eclipse_date = case["date"]
+    print(f"case {options.case}: {case['source']}")
+
+    # The solver takes west longitude as positive.
+    latitude, longitude, height = site_lat, -site_lon, case["elevation"]
+    elements = get_element_coeffs(eclipse_date)
 
     # Maximum eclipse, then the uncorrected internal contacts, using the same
     # geometry the application already uses.
@@ -109,10 +136,10 @@ def main():
 
     print(f"uncorrected  C2 {hms(ut_c2)}  C3 {hms(ut_c3)}  "
           f"duration {(ut_c3 - ut_c2) * 3600:6.1f}s")
-    print(f"     Jubier  C2 {hms(JUBIER['c2'])}  C3 {hms(JUBIER['c3'])}  "
-          f"duration {(JUBIER['c3'] - JUBIER['c2']) * 3600:6.1f}s")
-    print(f"     offset  C2 {(ut_c2 - JUBIER['c2']) * 3600:+.2f}s  "
-          f"C3 {(ut_c3 - JUBIER['c3']) * 3600:+.2f}s")
+    print(f"  reference C2 {hms(reference['c2'])}  C3 {hms(reference['c3'])}  "
+          f"duration {(reference['c3'] - reference['c2']) * 3600:6.1f}s")
+    print(f"     offset  C2 {(ut_c2 - reference['c2']) * 3600:+.2f}s  "
+          f"C3 {(ut_c3 - reference['c3']) * 3600:+.2f}s")
 
     limb = LunarLimb(DATA / "lunar_limb_band_v1.bin",
                      DATA / "moon_080317.tf",
@@ -121,11 +148,11 @@ def main():
 
     # The profile is evaluated once, at maximum eclipse, the way Jubier does.
     ts = load.timescale()
-    year, month, day = (int(part) for part in ECLIPSE_DATE.split("-"))
+    year, month, day = (int(part) for part in eclipse_date.split("-"))
     moment = ts.ut1(year, month, day, 0, 0, ut_max * 3600.0)
 
     angles = np.arange(0.0, 360.0, 0.01)
-    heights_km = limb.height_above_k2(moment, SITE_LAT, SITE_LON, SITE_ELEVATION, angles)
+    heights_km = limb.height_above_k2(moment, site_lat, site_lon, case["elevation"], angles)
     print(f"\nlimb heights vs k2 ({K2 * EARTH_RADIUS_KM:.3f} km): "
           f"{heights_km.min():+.3f} .. {heights_km.max():+.3f} km, "
           f"mean {heights_km.mean():+.3f} km")
@@ -166,14 +193,14 @@ def main():
 
     print(f"\ncorrection   C2 {c2_shift:+.2f}s  C3 {c3_shift:+.2f}s  "
           f"duration {(c3_shift - c2_shift):+.2f}s")
-    print(f"     Jubier  C2 {JUBIER['c2_correction']:+.2f}s  "
-          f"C3 {JUBIER['c3_correction']:+.2f}s  duration "
-          f"{JUBIER['c3_correction'] - JUBIER['c2_correction']:+.2f}s")
+    print(f"  reference C2 {reference['c2_correction']:+.2f}s  "
+          f"C3 {reference['c3_correction']:+.2f}s  duration "
+          f"{reference['c3_correction'] - reference['c2_correction']:+.2f}s")
 
-    errors = (abs(c2_shift - JUBIER["c2_correction"]), abs(c3_shift - JUBIER["c3_correction"]))
+    errors = (abs(c2_shift - reference["c2_correction"]), abs(c3_shift - reference["c3_correction"]))
     print(f"     residual C2 {errors[0]:.2f}s  C3 {errors[1]:.2f}s")
     ok = max(errors) < 0.5
-    print("PASS" if ok else "FAIL: correction differs from Jubier by more than 0.5 s")
+    print("PASS" if ok else "FAIL: correction differs from the reference by more than 0.5 s")
     return 0 if ok else 1
 
 
