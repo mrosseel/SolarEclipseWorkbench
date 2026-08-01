@@ -28,6 +28,11 @@ from solareclipseworkbench.limb_correction import (K2, EARTH_RADIUS_KM, is_enabl
 SLIDER_RANGE_S = 8.0
 SLIDER_STEPS = 320
 
+# Live only draws the run-up to the beads.  Earlier than this the Sun's limb is
+# far outside the Moon and, at these exaggerations, fills the frame with a slab
+# of yellow that reads as a sun receding rather than beads approaching.
+LIVE_APPROACH_S = 25.0
+
 PROFILE_COLOUR = QColor(150, 120, 200)
 SUN_COLOUR = QColor(240, 170, 60)
 BEAD_COLOUR = QColor(255, 220, 90)
@@ -72,7 +77,7 @@ class BeadsView(QWidget):
         self.mode = "profile"
         self.exaggeration = 50.0
         self.live_hours = None
-        self.waiting = False
+        self.countdown = None
         self.setMinimumSize(320, 140)
 
     def set_mode(self, mode):
@@ -98,9 +103,9 @@ class BeadsView(QWidget):
         base = (self.solution.c2_limb if self.contact == "C2" else self.solution.c3_limb)
         return base + self.offset_s / 3600.0
 
-    def set_waiting(self, waiting):
-        """Draw nothing but a note: the clock is outside totality."""
-        self.waiting = waiting
+    def set_countdown(self, text):
+        """Show a countdown instead of the profile, or None to draw again."""
+        self.countdown = text
         self.update()
 
     def set_live_hours(self, hours):
@@ -123,10 +128,12 @@ class BeadsView(QWidget):
         if solution is None:
             return
 
-        if self.waiting:
-            painter.setPen(QColor(150, 150, 160))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                             "waiting for the eclipse")
+        if self.countdown is not None:
+            font = painter.font()
+            font.setPointSize(max(14, int(self.height() * 0.12)))
+            painter.setFont(font)
+            painter.setPen(QColor(170, 170, 185))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.countdown)
             return
 
         if self.mode == "preview":
@@ -403,7 +410,7 @@ class BeadsPanel(QWidget):
         self.contact_box.setEnabled(not live and self.solution is not None)
         self.slider.setEnabled(not live and self.solution is not None)
         if not live:
-            self.view.set_waiting(False)
+            self.view.set_countdown(None)
             self.view.set_live_hours(None)
             self._on_slider(self.slider.value())
 
@@ -420,25 +427,32 @@ class BeadsPanel(QWidget):
         hours = self.solution.from_utc(moment_utc)
         solution = self.solution
 
-        # Draw whenever the discs actually overlap, which is the whole eclipse
-        # from C1 to C4, not just totality: the geometry is sound throughout and
-        # watching the limb close in is the point.  Outside that the limbs are
-        # nowhere near each other and the curves degenerate.
-        elements = solution.evaluate(hours)
-        separation = math.hypot(elements["u"], elements["v"])
-        overlapping = separation < 2.0 * K2 + elements["L2p"]
+        # Each bead window, plus a short run-up so they can be seen arriving.
+        windows = [(solution.c2_limb - LIVE_APPROACH_S / 3600.0, solution.c2_limb, "C2"),
+                   (solution.c3_limb, solution.c3_limb + LIVE_APPROACH_S / 3600.0, "C3")]
 
-        if not overlapping:
-            self.view.set_live_hours(None)
-            self.view.set_waiting(True)
-            away = (solution.c2_limb - hours) * 3600.0
-            self.time_label.setText(f"C2 in {away / 60:.0f} min" if away > 0
-                                    else "eclipse over")
-            return
+        for start, end, name in windows:
+            if start <= hours <= end:
+                self.view.set_countdown(None)
+                self.view.set_live_hours(hours)
+                self.view.contact = name
+                edge = end if name == "C2" else start
+                self.time_label.setText(f"{name} {(hours - edge) * 3600:+.1f} s")
+                return
 
-        self.view.set_waiting(False)
-        self.view.set_live_hours(hours)
-        self.time_label.setText(moment_utc.strftime("%H:%M:%S") + "  live")
+        # Otherwise count down to whichever set of beads is still to come.
+        for start, _end, name in windows:
+            away = (start - hours) * 3600.0
+            if away > 0:
+                minutes, seconds = divmod(int(away), 60)
+                self.view.set_countdown(f"{name} beads in {minutes:d}:{seconds:02d}")
+                self.time_label.setText(f"{name} beads in {minutes:d}:{seconds:02d}")
+                self.view.set_live_hours(None)
+                return
+
+        self.view.set_countdown("eclipse over")
+        self.time_label.setText("eclipse over")
+        self.view.set_live_hours(None)
 
     def _on_contact(self, contact):
         self.view.set_contact(contact)
