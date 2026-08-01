@@ -1,10 +1,14 @@
-"""Baily's beads window, and the switch that governs the limb correction.
+"""Baily's beads, drawn under the eclipse geometry.
 
-Two jobs in one dialog.  It draws the true lunar limb against the Sun's limb so
-the beads can be seen forming and going out, and it carries the switch that
-decides whether the corrected contacts reach the scheduler at all -- with the
-size of the correction spelled out next to it, so an implausible one at an
-untested location is obvious before it is trusted.
+The true lunar limb against the Sun's limb, with the arcs where sunlight still
+gets through filled in, and a slider over the seconds either side of a contact
+so the beads can be watched forming and going out.  At the corrected contact the
+solar limb sits tangent to the deepest valley and nothing is lit, which is the
+arc calculation made visible.
+
+The panel also states how large the correction is and whether it is being
+applied, so an implausible one at an untested location is visible before it is
+trusted.  The toolbar button is what turns it on and off.
 """
 
 import logging
@@ -13,11 +17,10 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PyQt6.QtCore import QPointF
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel,
-                             QSlider, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QSlider,
+                             QVBoxLayout, QWidget)
 
-from solareclipseworkbench.limb_correction import (K2, EARTH_RADIUS_KM, is_enabled,
-                                                   set_enabled, solve_limb)
+from solareclipseworkbench.limb_correction import K2, EARTH_RADIUS_KM, is_enabled, solve_limb
 
 # How far either side of a contact the slider reaches.
 SLIDER_RANGE_S = 8.0
@@ -42,7 +45,7 @@ class BeadsView(QWidget):
         self.solution = solution
         self.contact = "C2"
         self.offset_s = 0.0
-        self.setMinimumSize(720, 320)
+        self.setMinimumSize(320, 140)
 
     def set_contact(self, contact):
         self.contact = contact
@@ -69,6 +72,8 @@ class BeadsView(QWidget):
         painter.fillRect(self.rect(), QColor(18, 18, 22))
 
         solution = self.solution
+        if solution is None:
+            return
         hours = self.moment_hours()
         elements = solution.evaluate(hours)
 
@@ -158,12 +163,57 @@ class BeadsView(QWidget):
         painter.drawPolygon(QPolygonF(points))
 
 
-class BeadsWindow(QDialog):
-    """Baily's beads, and the limb-correction switch."""
+class BeadsPanel(QWidget):
+    """Baily's beads, sitting under the eclipse geometry.
 
-    def __init__(self, eclipse_date, longitude, latitude, altitude, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Baily's beads")
+    Idle until it is told where and when the eclipse is; solving the limb
+    profile costs a couple of seconds, so it happens once per location or date
+    rather than on every repaint.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.solution = None
+        self._context = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+
+        self.summary = QLabel("Baily's beads: set a location and an eclipse date.")
+        self.summary.setWordWrap(True)
+        layout.addWidget(self.summary)
+
+        self.view = BeadsView(None)
+        self.view.setMinimumHeight(150)
+        layout.addWidget(self.view, 1)
+
+        controls = QHBoxLayout()
+        self.contact_box = QComboBox()
+        self.contact_box.addItems(["C2", "C3"])
+        self.contact_box.currentTextChanged.connect(self._on_contact)
+        controls.addWidget(self.contact_box)
+
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(-SLIDER_STEPS, SLIDER_STEPS)
+        self.slider.valueChanged.connect(self._on_slider)
+        controls.addWidget(self.slider, 1)
+
+        self.time_label = QLabel("-")
+        controls.addWidget(self.time_label)
+        layout.addLayout(controls)
+
+        self._set_controls_enabled(False)
+
+    def _set_controls_enabled(self, enabled):
+        self.contact_box.setEnabled(enabled)
+        self.slider.setEnabled(enabled)
+
+    def set_context(self, eclipse_date, longitude, latitude, altitude):
+        """Point the panel at a place and a date, and solve the limb there."""
+        context = (eclipse_date, longitude, latitude, altitude)
+        if context == self._context:
+            return
+        self._context = context
 
         try:
             self.solution = solve_limb(eclipse_date, latitude, longitude, altitude)
@@ -171,84 +221,47 @@ class BeadsWindow(QDialog):
             logging.warning("Could not solve the lunar limb profile: %s", exc)
             self.solution = None
 
-        layout = QVBoxLayout(self)
+        self.view.solution = self.solution
+        self._set_controls_enabled(self.solution is not None)
+        self.slider.setValue(0)
+        self.refresh()
 
+    def refresh(self):
+        """Redraw the summary, which depends on whether the correction is on."""
         if self.solution is None:
-            layout.addWidget(QLabel(
-                "No limb profile available here.\n\n"
-                "Either this location sees no totality, or the lunar limb blob is not\n"
-                "installed.  Contact times will use the mean lunar limb."))
+            self.summary.setText(
+                "Baily's beads: no limb profile here. Either this location sees no "
+                "totality, or the lunar limb data is not installed, and contact "
+                "times will use the mean lunar limb.")
+            self.view.update()
             return
 
-        layout.addWidget(QLabel(self._summary()))
-
-        self.enabled_box = QCheckBox("Apply the limb correction to scheduled moments")
-        self.enabled_box.setChecked(is_enabled())
-        self.enabled_box.toggled.connect(self._on_toggled)
-        layout.addWidget(self.enabled_box)
-
-        self.warning = QLabel()
-        self.warning.setWordWrap(True)
-        layout.addWidget(self.warning)
-
-        self.view = BeadsView(self.solution)
-        layout.addWidget(self.view)
-
-        controls = QHBoxLayout()
-        self.contact_box = QComboBox()
-        self.contact_box.addItems(["C2", "C3"])
-        self.contact_box.currentTextChanged.connect(self.view.set_contact)
-        self.contact_box.currentTextChanged.connect(lambda _: self.slider.setValue(0))
-        controls.addWidget(self.contact_box)
-
-        self.slider = QSlider(Qt.Orientation.Horizontal)
-        self.slider.setRange(-SLIDER_STEPS, SLIDER_STEPS)
-        self.slider.setValue(0)
-        self.slider.valueChanged.connect(self._on_slider)
-        controls.addWidget(self.slider, 1)
-
-        self.time_label = QLabel()
-        controls.addWidget(self.time_label)
-        layout.addLayout(controls)
-
-        self._on_slider(0)
-        self._check_plausibility()
-
-    def _summary(self):
         solution = self.solution
-        lines = []
+        state = "applied" if is_enabled() else "NOT applied, showing what it would be"
+        parts = [f"Limb correction {state}."]
         for name in ("C2", "C3"):
-            contact = solution.c2 if name == "C2" else solution.c3
-            corrected = solution.c2_limb if name == "C2" else solution.c3_limb
-            lines.append(
-                f"{name}  mean limb {solution.to_utc(contact).strftime('%H:%M:%S.%f')[:-4]}"
-                f"   corrected {solution.to_utc(corrected).strftime('%H:%M:%S.%f')[:-4]}"
-                f"   {solution.correction_seconds(name):+.2f} s"
-                f"   bead window {solution.window_seconds(name):.1f} s")
-        mean_duration = (solution.c3 - solution.c2) * 3600.0
-        corrected_duration = (solution.c3_limb - solution.c2_limb) * 3600.0
-        lines.append(f"totality  {mean_duration:.1f} s  ->  {corrected_duration:.1f} s "
-                     f"({corrected_duration - mean_duration:+.1f} s)")
-        return "\n".join(lines)
+            parts.append(f"{name} {solution.correction_seconds(name):+.2f} s, "
+                         f"beads {solution.window_seconds(name):.1f} s")
+        change = ((solution.c3_limb - solution.c2_limb) - (solution.c3 - solution.c2)) * 3600.0
+        parts.append(f"totality {change:+.1f} s")
 
-    def _check_plausibility(self):
-        """Say so when a correction is large enough to deserve a second look."""
-        biggest = max(abs(self.solution.correction_seconds(name)) for name in ("C2", "C3"))
+        biggest = max(abs(solution.correction_seconds(name)) for name in ("C2", "C3"))
         if biggest > 15.0:
-            self.warning.setText(
-                f"This correction is {biggest:.0f} s, which is large.  That is normal "
-                "close to the edge of the path, where a single valley governs the "
-                "contact, but it is also what a bad profile looks like.  Check the "
-                "beads below against the shape you expect before trusting it.")
-            self.warning.setStyleSheet("color: #e0a030;")
-        else:
-            self.warning.setText("")
+            parts.append(f"— {biggest:.0f} s is large: normal near the path edge, "
+                         f"but also what a bad profile looks like. Check the beads.")
 
-    def _on_toggled(self, checked):
-        set_enabled(checked)
-        logging.info("Lunar limb correction %s", "enabled" if checked else "disabled")
+        self.summary.setText("   ".join(parts))
+        self._on_slider(self.slider.value())
+        self.view.update()
+
+    def _on_contact(self, contact):
+        self.view.set_contact(contact)
+        self.slider.setValue(0)
+        self._on_slider(0)
 
     def _on_slider(self, value):
+        if self.solution is None:
+            return
         offset = value / SLIDER_STEPS * SLIDER_RANGE_S
         self.view.set_offset(offset)
         moment = self.view.moment_hours()

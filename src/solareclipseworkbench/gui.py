@@ -51,7 +51,8 @@ from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wiring, discover_relays,
                                                  list_backends, make_backend)
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
-from solareclipseworkbench.limb_ui import BeadsWindow
+from solareclipseworkbench.limb_correction import set_enabled as set_limb_correction_enabled
+from solareclipseworkbench.limb_ui import BeadsPanel
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
 from solareclipseworkbench.constants import SUN_RADIUS, MOON_RADIUS
@@ -526,6 +527,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.camera_overview = QTableView()
 
         self.eclipse_visualization = EclipsePlotWidget()
+        self.beads_panel = BeadsPanel()
 
         self.jobs_table = QJobsTableView()
 
@@ -691,8 +693,16 @@ class SolarEclipseView(QMainWindow, Observable):
         # costs no button anywhere.
         self.eclipse_visualization.setMinimumWidth(240)
 
+        # Geometry above, beads below: both are pictures of the same moment, and
+        # a splitter lets whichever matters take the room.
+        self.geometry_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.geometry_splitter.addWidget(self.eclipse_visualization)
+        self.geometry_splitter.addWidget(self.beads_panel)
+        self.geometry_splitter.setStretchFactor(0, 3)
+        self.geometry_splitter.setStretchFactor(1, 2)
+
         self.output_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.output_splitter.addWidget(self.eclipse_visualization)
+        self.output_splitter.addWidget(self.geometry_splitter)
         self.output_splitter.addWidget(self.jobs_table)
         self.output_splitter.setStretchFactor(0, 1)
         self.output_splitter.setStretchFactor(1, 3)
@@ -800,8 +810,11 @@ class SolarEclipseView(QMainWindow, Observable):
 
         # Relay trigger
 
-        self.beads_action.setStatusTip("Baily's beads and the lunar limb correction")
+        self.beads_action.setStatusTip(
+            "Apply the lunar limb correction to the contact times")
         self.beads_action.setIcon(QIcon(str(ICON_PATH / "clock.png")))
+        self.beads_action.setCheckable(True)
+        self.beads_action.setChecked(True)
         self.beads_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.beads_action)
 
@@ -1101,6 +1114,21 @@ class SolarEclipseController(Observer):
 
         self.load_settings()
 
+    def _refresh_beads_panel(self):
+        """Point the beads panel at the current location and eclipse, if both are set.
+
+        Solving the limb costs a couple of seconds, so the panel only redoes it
+        when the place or the date actually changes.
+        """
+        if not (self.model.is_location_set and self.model.is_eclipse_date_set):
+            return
+        try:
+            date = str(self.model.eclipse_date).split(" ")[0]
+            self.view.beads_panel.set_context(date, self.model.longitude,
+                                              self.model.latitude, self.model.altitude)
+        except Exception as exc:
+            logging.warning("Could not update the Baily's beads panel: %s", exc)
+
     def _run_in_progress(self) -> bool:
         """True while a schedule is loaded and running."""
         try:
@@ -1243,6 +1271,7 @@ class SolarEclipseController(Observer):
             self.view.altitude_label.setText(str(altitude))
 
             self.view.eclipse_visualization.set_location(longitude, latitude, altitude)
+            self._refresh_beads_panel()
 
             return
 
@@ -1254,6 +1283,7 @@ class SolarEclipseController(Observer):
                 Time(datetime.datetime.strptime(eclipse_date_str, DATE_FORMATS[self.view.date_format])))
 
             self.view.eclipse_date.setText(eclipse_date_str)
+            self._refresh_beads_panel()
             return
 
         elif isinstance(changed_object, SimulatorPopup):
@@ -1448,16 +1478,8 @@ class SolarEclipseController(Observer):
             self.simulator_popup.show()
 
         elif text == "Baily's beads":
-            if self.model.is_location_set and self.model.is_eclipse_date_set:
-                date = str(self.model.eclipse_date).split(" ")[0]
-                self.beads_window = BeadsWindow(date, self.model.longitude, self.model.latitude,
-                                                self.model.altitude, self.view)
-                self.beads_window.show()
-            else:
-                QMessageBox.information(
-                    self.view, "Baily's beads",
-                    "Set the location and the eclipse date first: the limb profile "
-                    "depends on both.")
+            set_limb_correction_enabled(self.view.beads_action.isChecked())
+            self.view.beads_panel.refresh()
 
         elif text == "Relay":
             self.relay_popup = RelayPopup(self)
@@ -1770,6 +1792,7 @@ class SolarEclipseController(Observer):
                 self.view.eclipse_date.setText(date.strftime(DATE_FORMATS[self.view.date_format]))
 
             self.model.set_eclipse_date(Time(date))
+            self._refresh_beads_panel()
             return True
 
         return False
