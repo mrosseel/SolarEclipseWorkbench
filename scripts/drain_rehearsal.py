@@ -105,8 +105,24 @@ def main() -> None:
         return
     name, camera = next(iter(cameras.items()))
     sdk_cam = camera._sdk_cam
-    print(f"{GREEN}Connected:{RESET} {name}  {DIM}(no priority calls){RESET}")
-    note("connected", camera=name)
+
+    # Detect can succeed on a stale stack and hand back a phantom handle whose
+    # every call fails 0x2001 — one dead run clicked through 100 frames before
+    # anyone noticed.  A buffer poll is the cheapest proof of life.
+    try:
+        captured, total = sdk_cam.get_buffer_capacity()
+    except Exception as exc:
+        print(f"{RED}Connected but the session is dead ({exc}).{RESET}")
+        print("Power cycle the camera with the cable in and rerun.  If it repeats,")
+        print("kill ptpcamerad/mscamerad-xpc and power cycle again.")
+        try:
+            camera.exit()
+        except Exception:
+            pass
+        return
+    print(f"{GREEN}Connected:{RESET} {name}  buffer {captured}/{total}  "
+          f"{DIM}(no priority calls){RESET}")
+    note("connected", camera=name, buffer=[captured, total])
 
     drain = DrainLoop(sdk_cam, note)
     drain.start()
