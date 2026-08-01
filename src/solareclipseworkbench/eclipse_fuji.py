@@ -122,23 +122,48 @@ def fuji_beads_burst(camera, trigger, duration) -> None:
         _drain(camera)
 
 
-def fuji_ladder(camera, trigger, speeds: str, taps_per_speed=1) -> None:
-    """One corona exposure ladder: set each speed over USB, tap, then drain.
+def _speed_seconds(speed: str) -> float:
+    """Duration of an exposure given its script spelling ("1/500", "2")."""
+    try:
+        if "/" in speed:
+            num, den = speed.split("/")
+            return float(num) / float(den)
+        return float(speed)
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def fuji_ladder(camera, trigger, speeds: str, taps_per_speed=1, rounds=1) -> None:
+    """Corona exposure ladders: set each speed over USB, tap, drain at the end.
 
     ``speeds`` is semicolon-separated ("1/2000;1/500;...;2") because the script
     format uses commas.  Frames per tap follow the CH quantum: 2 at fast
     speeds, 1 once the exposure outlasts the tap window (~1/15 and slower).
+
+    The gap after each tap scales with the exposure — a 2 s frame must finish
+    before the next speed change is sent, which a fixed gap would violate.
+
+    ``rounds`` runs the ladder several times back to back with ONE drain at the
+    end: a drain costs ~2.5 s of dark time, and two rounds fit comfortably
+    under the 32-slot wedge (~11 frames each), so pairing rounds nearly doubles
+    the fraction of totality spent actually exposing.  Rounds are clamped so
+    the pending queue cannot reach the wedge.
     """
     steps = [s.strip() for s in speeds.split(";") if s.strip()]
     taps_per_speed = int(taps_per_speed)
+    frames_per_round = sum(
+        (2 if _speed_seconds(sp) < 1 / 15 else 1) * taps_per_speed for sp in steps)
+    rounds = max(1, min(int(rounds), 24 // max(frames_per_round, 1)))
     with SHOOTING_LOCK:
-        logger.info("fuji_ladder: %s (%d tap(s) per speed)", steps, taps_per_speed)
+        logger.info("fuji_ladder: %s x%d round(s), ~%d frames per round",
+                    steps, rounds, frames_per_round)
         trigger.half_press()
-        for speed in steps:
-            _set_speed(camera, speed)
-            for _ in range(taps_per_speed):
-                trigger.shoot(pulse=TAP_S)
-                time.sleep(TAP_GAP_S)
+        for _ in range(rounds):
+            for speed in steps:
+                _set_speed(camera, speed)
+                for _ in range(taps_per_speed):
+                    trigger.shoot(pulse=TAP_S)
+                    time.sleep(max(TAP_GAP_S, _speed_seconds(speed) + 0.3))
         trigger.release_all()
         time.sleep(SETTLE_BEFORE_DRAIN_S)
         _drain(camera)

@@ -64,7 +64,7 @@ def main() -> None:
 
     scheduler = start_scheduler()
     script = Path(__file__).resolve().parent.parent / (
-        "src/solareclipseworkbench/example_scripts/xt4_relay_eclipse.txt")
+        "scripts/xt4_relay_eclipse.txt")
     schedule_commands(str(script), scheduler, moments, cameras, None, None, None)
 
     jobs = scheduler.get_jobs()
