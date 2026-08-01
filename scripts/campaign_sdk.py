@@ -6,14 +6,15 @@ that one contact closure runs an entire auto-bracket sequence which completes ev
 the contact opens.  Three questions it could not answer are the ones the production
 script actually turns on:
 
-  1. does a held contact *repeat* the bracket, or is one tap one sequence?  Every ladder
-     tried last time took longer than the hold it ran inside, so nothing was learned.
-  2. which ladder fits?  9 frames at 3 EV spans 24 EV and the body has about 18, so three
-     frames piled up against the 1/8000 wall.
-  3. does the release jack still fire while the SDK holds a USB session, and can a shutter
-     speed set over USB reach the camera between relay-driven frames?
+  1. one closure ran exactly one sequence on the one ladder tried — confirm on a fast
+     ladder with room for a dozen repeats, and find a ladder that fits the body's range.
+  2. does a bracket sequence survive buffer pressure, and can it be tapped on a cadence?
+     This is the production shape and nothing has tested it.
+  3. does the release jack still fire while the SDK holds a USB session — in BOTH priority
+     modes, since a July run suggested PC priority may kill it — and can a shutter speed
+     set over USB reach the camera between relay-driven frames?
 
-Blocks 1 to 5 need no USB and run first, so a wedged session cannot cost them.  The SDK
+Blocks 1 to 7 need no USB and run first, so a wedged session cannot cost them.  The SDK
 has been seen to leave the body enumerating as "(unknown)", needing a power cycle.
 
     .venv/bin/python scripts/campaign_sdk.py
@@ -59,7 +60,7 @@ BRACKETS = [
         "said": "block two, corona bracket",
         "setup": ["BKT to 9 frames, 2 EV steps", "shutter 1/30"],
         "expect": "1/8000, 1/2000, 1/500, 1/125, 1/30, 1/8, 1/2, 2s, 8s — nothing clamped",
-        "hold_s": 30.0,
+        "hold_s": 15.0,
         "recover_s": 20.0,
     },
     {
@@ -68,7 +69,7 @@ BRACKETS = [
         "said": "block three, working bracket",
         "setup": ["BKT to 7 frames, 2 EV steps", "shutter 1/125"],
         "expect": "1/8000 to 1/2, about a second and a half, repeatable through totality",
-        "hold_s": 20.0,
+        "hold_s": 10.0,
         "recover_s": 12.0,
     },
 ]
@@ -140,14 +141,15 @@ class Campaign:
         print(f"    set {speed:>7}  {(ended - started) * 1000:6.1f} ms  {marker}")
         return error is None
 
-    def slate(self, number: int) -> None:
-        print(f"    {DIM}slate: {number} frame(s){RESET}", flush=True)
-        for index in range(number):
+    def slate(self, count: int) -> None:
+        print(f"    {DIM}slate: {count} frame(s){RESET}", flush=True)
+        for index in range(count):
             self.pulse(80, label="slate")
-            if index < number - 1:
+            if index < count - 1:
                 time.sleep(1.5)
 
-    def begin(self, number: int, title: str, setup: list) -> bool:
+    def begin(self, number: int, title: str, setup: list,
+              slate_count: int = None) -> bool:
         self.block = f"{number}:{title}"
         print(f"\n{BOLD}{'=' * 70}{RESET}")
         print(f"{BOLD}Block {number} — {title}{RESET}\n")
@@ -158,7 +160,9 @@ class Campaign:
             print(f"  {YELLOW}skipped{RESET}")
             return False
         self.quiet(8.0, "settling gap so the block boundary is visible")
-        self.slate(number)
+        # In BKT drive one pulse runs a whole sequence, so bracket blocks slate
+        # with a single pulse and are identified by their ladder signature.
+        self.slate(number if slate_count is None else slate_count)
         time.sleep(2.0)
         return True
 
@@ -195,7 +199,8 @@ def connect_camera():
 def run_bracket_blocks(run: Campaign) -> None:
     for number, bracket in enumerate(BRACKETS, start=1):
         if not run.begin(number, bracket["title"],
-                         ["DRIVE to BKT, AE bracketing", *bracket["setup"]]):
+                         ["DRIVE to BKT, AE bracketing", *bracket["setup"]],
+                         slate_count=1):
             continue
         say(bracket["said"])
         print(f"\n  {DIM}expect {bracket['expect']}{RESET}")
@@ -208,17 +213,47 @@ def run_bracket_blocks(run: Campaign) -> None:
         run.quiet(bracket["recover_s"], "letting the buffer drain")
 
 
+def run_cadence_block(run: Campaign) -> None:
+    """The production shape: the working ladder tapped on a schedule for a minute.
+
+    Two things can break it and neither has been observed: the buffer filling
+    mid-sequence (does the ladder stall, stretching its timing?), and a tap
+    arriving while a sequence is still running (ignored, or queued?).
+    """
+    if not run.begin(4, "the working ladder on a cadence, under buffer pressure", [
+        "leave everything as block 3 — BKT, 7 frames, 2 EV, base 1/125",
+    ], slate_count=1):
+        return
+    say("block four, bracket cadence")
+
+    print(f"\n  {DIM}twelve taps, one every 5 s — a minute of production cadence{RESET}")
+    for tap in range(12):
+        run.pulse(40, label=f"cadence_tap_{tap + 1:02d}")
+        time.sleep(5.0)
+
+    run.quiet(30.0, "letting the buffer drain")
+    print(f"  {DIM}two taps 0.5 s apart — the second lands mid-sequence{RESET}")
+    run.pulse(40, label="collide_tap_1")
+    time.sleep(0.5)
+    run.pulse(40, label="collide_tap_2")
+    run.observation()
+    run.quiet(15.0, "letting the buffer drain")
+
+
 def run_latency_block(run: Campaign) -> None:
     """Three ways to fire one frame, to price the S1 pre-arm."""
-    if not run.begin(4, "what the S1 pre-arm actually costs", [
+    if not run.begin(5, "what the S1 pre-arm actually costs", [
         "DRIVE dial back to S (single)",
         "shutter 1/125",
         "still aimed at the clock — this block is read off the digits in frame",
     ]):
         return
-    say("block four, trigger latency")
+    say("block five, trigger latency")
 
-    print(f"\n  {DIM}cold: 30 s idle, then S2 alone with no pre-arm at all{RESET}")
+    setting = input("\n  What is the camera's POWER SAVE / auto power off setting? > ").strip()
+    run.notes["power_save_setting"] = setting or "not answered"
+    print(f"\n  {DIM}cold: 30 s idle, then S2 alone with no pre-arm at all.{RESET}")
+    print(f"  {DIM}Only genuinely cold if power save kicks in within 30 s — noted above.{RESET}")
     for _ in range(3):
         run.quiet(30.0, "letting the body go idle")
         run.s2_only(80, label="latency_cold_s2_only")
@@ -241,13 +276,13 @@ def run_latency_block(run: Campaign) -> None:
 
 def run_max_rate_block(run: Campaign) -> None:
     """The burst window is where the high frame rate lives, and beads live there too."""
-    if not run.begin(5, "maximum burst rate, mechanical then electronic", [
+    if not run.begin(6, "maximum burst rate, mechanical then electronic", [
         "DRIVE dial to CH",
         "CH speed to 15 fps",
         "mechanical shutter, shutter 1/2000",
     ]):
         return
-    say("block five, maximum rate")
+    say("block six, maximum rate")
     run.hold(4.0, label="max_rate_mech_15")
     run.quiet(45.0, "letting the buffer drain")
 
@@ -265,11 +300,11 @@ def run_duty_cycle_block(run: Campaign) -> None:
     measuring rather than assuming, because it turns on how fast the buffer really
     recovers, which no datasheet states.
     """
-    if not run.begin(6, "clustered bursts against one continuous hold", [
+    if not run.begin(7, "clustered bursts against one continuous hold", [
         "still CH at 15 fps, mechanical, shutter 1/2000",
     ]):
         return
-    say("block six, duty cycle")
+    say("block seven, duty cycle")
 
     print(f"\n  {DIM}three cycles of 2.5 s burst then 10 s drain{RESET}")
     for cycle in range(3):
@@ -284,22 +319,39 @@ def run_duty_cycle_block(run: Campaign) -> None:
 
 
 def run_sdk_blocks(run: Campaign) -> None:
-    if run.begin(7, "does the jack still fire with a USB session open", [
+    if run.begin(8, "does the jack still fire with a USB session open", [
         "nothing to change — the SDK session is now open",
     ]):
-        say("block seven, does the jack still fire")
-        print(f"\n  {DIM}three single frames through the relay{RESET}")
-        for _ in range(3):
-            run.pulse(80, label="relay_shot_sdk_open")
-            time.sleep(3.0)
-        print(f"  {DIM}three second burst through the relay{RESET}")
-        run.hold(3.0, label="relay_burst_sdk_open")
-        run.observation()
+        say("block eight, does the jack still fire")
+        for mode_name in ("CAMERA", "PC"):
+            error = None
+            try:
+                from fujixsdk._constants import PRIORITY_CAMERA, PRIORITY_PC
+                run.camera._sdk_cam.set_priority(
+                    PRIORITY_CAMERA if mode_name == "CAMERA" else PRIORITY_PC)
+            except Exception as exc:
+                error = str(exc)
+            run.add("set_priority", time.time(), time.time(),
+                    mode=mode_name, error=error)
+            if error:
+                print(f"  {YELLOW}priority {mode_name} failed: {error}{RESET}")
+            print(f"\n  {DIM}priority {mode_name}: three singles, then a 3 s burst{RESET}")
+            for _ in range(3):
+                run.pulse(80, label=f"relay_shot_prio_{mode_name.lower()}")
+                time.sleep(3.0)
+            run.hold(3.0, label=f"relay_burst_prio_{mode_name.lower()}")
+            run.observation()
+        # Leave the body in camera priority, the mode the jack is believed to like.
+        try:
+            from fujixsdk._constants import PRIORITY_CAMERA
+            run.camera._sdk_cam.set_priority(PRIORITY_CAMERA)
+        except Exception:
+            pass
 
-    if run.begin(8, "shutter speed set over USB, frames driven by the relay", [
+    if run.begin(9, "shutter speed set over USB, frames driven by the relay", [
         "nothing to change",
     ]):
-        say("block eight, exposure ramp")
+        say("block nine, exposure ramp")
         print(f"\n  {DIM}each speed is set, then two frames fired 500 ms apart.{RESET}")
         print(f"  {DIM}EXIF then says which frame the change actually reached.{RESET}\n")
         for speed in SPEED_LADDER:
@@ -311,10 +363,10 @@ def run_sdk_blocks(run: Campaign) -> None:
             time.sleep(1.5)
         run.observation()
 
-    if run.begin(9, "ramping mid-burst, the way totality would need it", [
+    if run.begin(10, "ramping mid-burst, the way totality would need it", [
         "nothing to change",
     ]):
-        say("block nine, ramping mid burst")
+        say("block ten, ramping mid burst")
         print(f"\n  {DIM}S1 stays closed throughout; S2 pulses while the speed moves{RESET}")
         started = time.time()
         run.trigger.half_press()
@@ -338,8 +390,10 @@ def main() -> None:
     print(f"{CYAN}Before starting:{RESET}")
     print("  - relay wired to the release jack, camera aimed at the clock page")
     print("  - RAW only, manual focus, f/2, ISO 320 as before")
-    print("  - USB cable NOT connected yet — the first five blocks run on the relay alone")
-    print(f"\n{CYAN}Expect{RESET} roughly 35 minutes and 700 frames.")
+    print("  - USB cable NOT connected yet — blocks 1 to 7 run on the relay alone")
+    print("  - set the camera's clock to this laptop's time (menu > date/time) —")
+    print("    it saves the analysis hunting for the offset afterwards")
+    print(f"\n{CYAN}Expect{RESET} roughly 40 minutes and 800 frames.")
     if input(f"\n  Ready?  [y/n] > ").strip().lower() not in ("y", "yes"):
         print("Nothing done.")
         return
@@ -351,6 +405,7 @@ def main() -> None:
 
     try:
         run_bracket_blocks(run)
+        run_cadence_block(run)
         run_latency_block(run)
         run_max_rate_block(run)
         run_duty_cycle_block(run)
@@ -377,7 +432,9 @@ def main() -> None:
 
     say("campaign finished")
     print(f"\n{GREEN}Done.{RESET}  {len(run.records)} actions logged to\n  {log_path}")
-    print("\nTake the card out and put it in the reader.")
+    print("\nTake the card out and COPY THE WHOLE CARD to disk before it ever")
+    print("goes back in the camera — analysis questions come up later, and last")
+    print("time two of them died when the card was reformatted.")
 
 
 if __name__ == "__main__":
