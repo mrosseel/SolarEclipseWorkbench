@@ -816,3 +816,20 @@ def relay_bulb(trigger: RelayTrigger, seconds: float) -> None:
     seconds = float(seconds)
     logger.info("relay_bulb: %.3f s", seconds)
     trigger.bulb(seconds)
+
+
+def relay_arm(trigger: RelayTrigger) -> None:
+    """Close S1 and leave it closed.
+
+    Pre-arming drops per-frame trigger latency from ~170 ms to the body's own
+    ~45 ms and keeps it awake; ``pressed()`` recognises the held S1 and leaves
+    it closed on the way out, so the arm survives shots and bursts.
+    """
+    logger.info("relay_arm: S1 held")
+    trigger.half_press()
+
+
+def relay_release(trigger: RelayTrigger) -> None:
+    """Open every contact — the counterpart of relay_arm."""
+    logger.info("relay_release")
+    trigger.release_all()

@@ -17,6 +17,8 @@ HARDWARE_COMMANDS = {
     'relay_shoot': 'relay',
     'relay_burst': 'relay',
     'relay_bulb': 'relay',
+    'relay_arm': 'relay',
+    'relay_release': 'relay',
     'mount_track_sun': 'mount',
     'mount_goto_sun': 'mount',
     'mount_tracking': 'mount',
