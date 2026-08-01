@@ -3836,8 +3836,17 @@ def sync_cameras(controller: SolarEclipseController):
         - Check whether the focus mode and shooting mode of all connected cameras is set to 'Manual'.
 
     Args:
-        - controller: Controller of the Solar Eclipse Workbench UI
+        - controller: Controller of the Solar Eclipse Workbench UI, or None when
+                      running headless (sew.py without --gui).
     """
+
+    if controller is None:
+        # What this refreshes is a Qt table, so headless there is nothing to do.
+        # Raising instead would turn every sync_cameras line in a script into a
+        # traceback: observe_solar_eclipse passes None for the controller on the
+        # command-line path, and the scripts all carry several syncs.
+        logging.info('sync_cameras: running headless, no camera overview to refresh')
+        return
 
     controller.model.camera_overview.update_camera_overview()
 
