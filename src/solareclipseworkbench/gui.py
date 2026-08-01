@@ -1081,14 +1081,7 @@ class SolarEclipseController(Observer):
         self.time_display_timer.setInterval(1000)
         self.time_display_timer.start()
 
-        # Hardware problems are raised on worker threads, so they are queued and
-        # picked up here on the UI thread.
-        self._problem_timer = QTimer()
-        self._problem_timer.timeout.connect(self._show_hardware_problems)
-        self._problem_timer.setInterval(2000)
-        self._problem_timer.start()
-
-        # Camera problems are raised on worker threads, which cannot open a
+        # Hardware problems are raised on worker threads, which cannot open a
         # dialog, so they are queued and collected here on the UI thread.
         self._problem_timer = QTimer()
         self._problem_timer.timeout.connect(self._show_camera_problems)
