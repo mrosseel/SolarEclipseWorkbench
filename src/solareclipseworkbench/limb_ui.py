@@ -12,6 +12,7 @@ trusted.  The toolbar button is what turns it on and off.
 """
 
 import logging
+import math
 
 import numpy as np
 from PyQt6.QtCore import Qt
@@ -26,10 +27,6 @@ from solareclipseworkbench.limb_correction import (K2, EARTH_RADIUS_KM, is_enabl
 # How far either side of a contact the slider reaches.
 SLIDER_RANGE_S = 8.0
 SLIDER_STEPS = 320
-
-# How far either side of totality the live view still has geometry worth
-# drawing.  Beyond this the limbs are nowhere near tangent.
-LIVE_MARGIN_S = 30.0
 
 PROFILE_COLOUR = QColor(150, 120, 200)
 SUN_COLOUR = QColor(240, 170, 60)
@@ -129,7 +126,7 @@ class BeadsView(QWidget):
         if self.waiting:
             painter.setPen(QColor(150, 150, 160))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                             "waiting for totality")
+                             "waiting for the eclipse")
             return
 
         if self.mode == "preview":
@@ -422,13 +419,21 @@ class BeadsPanel(QWidget):
 
         hours = self.solution.from_utc(moment_utc)
         solution = self.solution
-        if not (solution.c2_limb - LIVE_MARGIN_S / 3600.0 <= hours
-                <= solution.c3_limb + LIVE_MARGIN_S / 3600.0):
+
+        # Draw whenever the discs actually overlap, which is the whole eclipse
+        # from C1 to C4, not just totality: the geometry is sound throughout and
+        # watching the limb close in is the point.  Outside that the limbs are
+        # nowhere near each other and the curves degenerate.
+        elements = solution.evaluate(hours)
+        separation = math.hypot(elements["u"], elements["v"])
+        overlapping = separation < 2.0 * K2 + elements["L2p"]
+
+        if not overlapping:
             self.view.set_live_hours(None)
             self.view.set_waiting(True)
             away = (solution.c2_limb - hours) * 3600.0
             self.time_label.setText(f"C2 in {away / 60:.0f} min" if away > 0
-                                    else "after totality")
+                                    else "eclipse over")
             return
 
         self.view.set_waiting(False)
