@@ -15,7 +15,7 @@ import logging
 
 import numpy as np
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QSlider,
                              QVBoxLayout, QWidget)
@@ -32,9 +32,31 @@ BEAD_COLOUR = QColor(255, 220, 90)
 MEAN_COLOUR = QColor(130, 130, 130)
 
 
-def _to_arcsec(value_km, distance_km):
-    """Convert a radial distance in km at the Moon into arcseconds."""
-    return np.degrees(value_km / distance_km) * 3600.0
+def beads_icon(size=32):
+    """A diamond ring, drawn rather than shipped: no icon in img/ suits this."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(QColor(0, 0, 0, 0))
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    margin = size * 0.12
+    diameter = size - 2 * margin
+
+    # The corona, then the Moon covering it, offset just enough to leave a bead.
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(SUN_COLOUR)
+    painter.drawEllipse(QPointF(size / 2, size / 2), diameter / 2, diameter / 2)
+
+    painter.setBrush(QColor(30, 30, 36))
+    painter.drawEllipse(QPointF(size / 2 - size * 0.04, size / 2),
+                        diameter / 2 * 0.94, diameter / 2 * 0.94)
+
+    painter.setBrush(BEAD_COLOUR)
+    painter.drawEllipse(QPointF(size / 2 + diameter / 2 * 0.86, size / 2 - size * 0.06),
+                        size * 0.11, size * 0.11)
+    painter.end()
+    return QIcon(pixmap)
 
 
 class BeadsView(QWidget):
@@ -179,7 +201,7 @@ class BeadsPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
 
-        self.summary = QLabel("Baily's beads: set a location and an eclipse date.")
+        self.summary = QLabel("Limb correction \u2014 set a location and a date")
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
 
@@ -228,29 +250,27 @@ class BeadsPanel(QWidget):
 
     def refresh(self):
         """Redraw the summary, which depends on whether the correction is on."""
+        mark = "\u2713" if is_enabled() else "\u2717"
+
         if self.solution is None:
-            self.summary.setText(
-                "Baily's beads: no limb profile here. Either this location sees no "
-                "totality, or the lunar limb data is not installed, and contact "
-                "times will use the mean lunar limb.")
+            self.summary.setText(f"{mark} Limb correction \u2014 no profile here")
             self.view.update()
             return
 
         solution = self.solution
-        state = "applied" if is_enabled() else "NOT applied, showing what it would be"
-        parts = [f"Limb correction {state}."]
-        for name in ("C2", "C3"):
-            parts.append(f"{name} {solution.correction_seconds(name):+.2f} s, "
-                         f"beads {solution.window_seconds(name):.1f} s")
         change = ((solution.c3_limb - solution.c2_limb) - (solution.c3 - solution.c2)) * 3600.0
-        parts.append(f"totality {change:+.1f} s")
+        text = (f"{mark} Limb correction{'' if is_enabled() else ' (off)'}   "
+                f"C2 {solution.correction_seconds('C2'):+.1f}s   "
+                f"C3 {solution.correction_seconds('C3'):+.1f}s   "
+                f"beads {solution.window_seconds('C2'):.1f}/{solution.window_seconds('C3'):.1f}s   "
+                f"totality {change:+.1f}s")
 
         biggest = max(abs(solution.correction_seconds(name)) for name in ("C2", "C3"))
         if biggest > 15.0:
-            parts.append(f"— {biggest:.0f} s is large: normal near the path edge, "
-                         f"but also what a bad profile looks like. Check the beads.")
+            text += "   \u26a0 large, check the beads"
 
-        self.summary.setText("   ".join(parts))
+        self.summary.setText(text)
+        self.summary.setStyleSheet("color: #e0a030;" if biggest > 15.0 else "")
         self._on_slider(self.slider.value())
         self.view.update()
 

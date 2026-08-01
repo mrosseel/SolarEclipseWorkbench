@@ -25,7 +25,7 @@ import pandas as pd
 import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
-from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, \
+from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
 QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
 QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter
 from PyQt6 import QtWidgets
@@ -52,7 +52,7 @@ from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wirin
                                                  list_backends, make_backend)
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.limb_correction import set_enabled as set_limb_correction_enabled
-from solareclipseworkbench.limb_ui import BeadsPanel
+from solareclipseworkbench.limb_ui import BeadsPanel, beads_icon
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
 from solareclipseworkbench.constants import SUN_RADIUS, MOON_RADIUS
@@ -428,7 +428,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.file_action = QAction("File", self)
         self.shutdown_scheduler_action = QAction("Stop", self)
         self.relay_action = QAction("Relay", self)
-        self.beads_action = QAction("Baily's beads", self)
+        self.beads_action = QAction("Limb correction", self)
         self.datetime_format_action = QAction("Datetime format", self)
         self.save_action = QAction("Save", self)
         self.live_view_action = QAction("Live View", self)
@@ -810,14 +810,6 @@ class SolarEclipseView(QMainWindow, Observable):
 
         # Relay trigger
 
-        self.beads_action.setStatusTip(
-            "Apply the lunar limb correction to the contact times")
-        self.beads_action.setIcon(QIcon(str(ICON_PATH / "clock.png")))
-        self.beads_action.setCheckable(True)
-        self.beads_action.setChecked(True)
-        self.beads_action.triggered.connect(self.on_toolbar_button_click)
-        self.toolbar.addAction(self.beads_action)
-
         # Relay trigger
 
         self.relay_action.setStatusTip("Relay shutter trigger")
@@ -853,6 +845,21 @@ class SolarEclipseView(QMainWindow, Observable):
             self.refresh_plot_action.setIcon(QIcon(str(ICON_PATH / "refresh.png")))
             self.refresh_plot_action.triggered.connect(self.on_toolbar_button_click)
             self.toolbar.addAction(self.refresh_plot_action)
+
+        # Lunar limb correction.  This one sets an option rather than performing
+        # an action, so it is pushed to the far end, away from the buttons that
+        # do something when pressed.
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.toolbar.addWidget(spacer)
+
+        self.beads_action.setStatusTip(
+            "Apply the lunar limb correction to the contact times")
+        self.beads_action.setIcon(beads_icon())
+        self.beads_action.setCheckable(True)
+        self.beads_action.setChecked(True)
+        self.beads_action.triggered.connect(self.on_toolbar_button_click)
+        self.toolbar.addAction(self.beads_action)
 
     def on_toolbar_button_click(self):
         """ Action triggered when a toolbar button is clicked."""
@@ -1477,7 +1484,7 @@ class SolarEclipseController(Observer):
             self.simulator_popup = SimulatorPopup(self)
             self.simulator_popup.show()
 
-        elif text == "Baily's beads":
+        elif text == "Limb correction":
             set_limb_correction_enabled(self.view.beads_action.isChecked())
             self.view.beads_panel.refresh()
 
