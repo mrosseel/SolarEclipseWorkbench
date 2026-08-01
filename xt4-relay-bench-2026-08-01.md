@@ -60,7 +60,17 @@ Full rate for about 4 seconds — roughly a 28-frame buffer — then a floor of 
 The proof that it is the card and not the shutter: **electronic and mechanical shutter
 returned identical 9.6 fps**. CH was configured to 10 fps for this run; the body offers
 15 fps mechanical and 20 fps electronic, so the burst window can be made denser, but the
-floor after it cannot. **A faster card is the highest-leverage upgrade to this rig.**
+floor after it cannot.
+
+**A faster card is the highest-leverage upgrade, with a known ceiling.** The tail wobbled
+3–4 fps, so the card's real figure is 63–84 MB/s — UHS-I class. Slot 1 of the X-T4 is
+UHS-II: a V90 card (~260 MB/s sustained) would lift the floor to roughly 12 fps. Nothing
+reaches the 313 MB/s that 15 fps × 20.9 MB would need, so the burst window never becomes
+permanent — but 3 fps versus 12 fps is the difference between one corona ladder per 7 s
+and four. Worth checking which card was in the slot before buying anything. Also note
+EXIF's `AutoBracketing` tag read "On" for 385 of 396 frames including every CH burst — it
+reflects a menu setting, not activity, and must never be used to identify bracket frames;
+the ladder signature in `ExposureTime` + `SequenceNumber` is the reliable marker.
 
 Rate also collapses once exposures get long, as they will during totality:
 
@@ -151,9 +161,12 @@ Which prices the candidates: the 9 x 2 EV corona ladder needs ~11.4 s per sequen
 because of its 8-second frame, while 7 frames x 2 EV from 1/125 needs only ~1.4 s and can
 therefore repeat throughout totality.
 
-Note the first frame lands within ~10 ms of S2 closing, against ~46 ms for a single shot —
-`hold()` asserts S1 120 ms earlier, so this confirms the pre-arm result by a second and
-independent route.
+The first frame *appears* to land within ~10 ms of S2 closing — but treat that as an
+anomaly, not a result. The photographed digits read 7 ms *before* the command, which is
+impossible; the display's 0–16 ms render lag just about explains it, but an error band
+containing impossible values is noise, and it disagrees with the ~46 ms single-shot figure
+for no known reason. Block 5 of the second campaign re-measures pre-armed latency with
+proper samples.
 
 ## Accuracy of the clock rig
 
