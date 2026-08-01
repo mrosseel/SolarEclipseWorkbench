@@ -318,11 +318,12 @@ def is_enabled() -> bool:
 class LimbSolution:
     """Everything a limb-corrected eclipse needs, for scheduling or for drawing."""
 
-    def __init__(self, elements, evaluate, to_utc, angles, heights_km,
+    def __init__(self, elements, evaluate, to_utc, from_utc, angles, heights_km,
                  c2, c3, c2_limb, c3_limb, windows):
         self.elements = elements
         self.evaluate = evaluate
         self.to_utc = to_utc
+        self.from_utc = from_utc
         self.angles = angles
         self.heights_km = heights_km
         self.c2 = c2
@@ -386,6 +387,10 @@ def solve_limb(eclipse_date, latitude, longitude, elevation_m,
     def to_utc(hours):
         return day + timedelta(hours=hours + elements["T0"] - delta_t_hours)
 
+    def from_utc(moment):
+        return ((moment - day).total_seconds() / 3600.0
+                - elements["T0"] + delta_t_hours)
+
     # One profile for the whole of totality, evaluated at maximum eclipse.
     timescale = load.timescale()
     moment = timescale.ut1(day.year, day.month, day.day, 0, 0,
@@ -400,7 +405,7 @@ def solve_limb(eclipse_date, latitude, longitude, elevation_m,
         "C2": bead_window(evaluate, c2_limb, True, angles, heights_km, max_arc_deg=arc_degrees),
         "C3": bead_window(evaluate, c3_limb, False, angles, heights_km, max_arc_deg=arc_degrees),
     }
-    return LimbSolution(elements, evaluate, to_utc, angles, heights_km,
+    return LimbSolution(elements, evaluate, to_utc, from_utc, angles, heights_km,
                         c2, c3, c2_limb, c3_limb, windows)
 
 

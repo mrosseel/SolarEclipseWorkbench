@@ -20,7 +20,8 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QSlider,
                              QVBoxLayout, QWidget)
 
-from solareclipseworkbench.limb_correction import K2, EARTH_RADIUS_KM, is_enabled, solve_limb
+from solareclipseworkbench.limb_correction import (K2, EARTH_RADIUS_KM, is_enabled,
+                                                   solar_limb_reach, solve_limb)
 
 # How far either side of a contact the slider reaches.
 SLIDER_RANGE_S = 8.0
@@ -67,7 +68,18 @@ class BeadsView(QWidget):
         self.solution = solution
         self.contact = "C2"
         self.offset_s = 0.0
+        self.mode = "profile"
+        self.exaggeration = 50.0
+        self.live_hours = None
         self.setMinimumSize(320, 140)
+
+    def set_mode(self, mode):
+        self.mode = mode
+        self.update()
+
+    def set_exaggeration(self, factor):
+        self.exaggeration = float(factor)
+        self.update()
 
     def set_contact(self, contact):
         self.contact = contact
@@ -79,8 +91,15 @@ class BeadsView(QWidget):
         self.update()
 
     def moment_hours(self):
+        if self.live_hours is not None:
+            return self.live_hours
         base = (self.solution.c2_limb if self.contact == "C2" else self.solution.c3_limb)
         return base + self.offset_s / 3600.0
+
+    def set_live_hours(self, hours):
+        """Follow the clock, or None to go back to the slider."""
+        self.live_hours = hours
+        self.update()
 
     def visible_angles(self, span_deg=40.0):
         """The arc worth drawing: centred on where the contact happens."""
@@ -95,6 +114,10 @@ class BeadsView(QWidget):
 
         solution = self.solution
         if solution is None:
+            return
+
+        if self.mode == "preview":
+            self._paint_preview(painter)
             return
         hours = self.moment_hours()
         elements = solution.evaluate(hours)
@@ -164,6 +187,63 @@ class BeadsView(QWidget):
         painter.setPen(PROFILE_COLOUR)
         painter.drawText(8, int(to_y(high_km)) + 20, "km")
 
+    def _paint_preview(self, painter):
+        """The Moon over the Sun, the way SEM draws it: polar, relief exaggerated.
+
+        Real limb relief is about 0.2% of the lunar radius, so at true scale the
+        beads are sub-pixel.  Exaggerating the departure from the mean limb --
+        the same thing SEM does with its height exaggeration factor -- is what
+        makes the shape of the contact legible.
+        """
+        solution = self.solution
+        elements = solution.evaluate(self.moment_hours())
+        angles = solution.angles
+
+        mean_km = K2 * EARTH_RADIUS_KM
+        base = min(self.width(), self.height()) * 0.42
+        centre = QPointF(self.width() / 2, self.height() / 2)
+
+        def radius(height_km):
+            return base * (1.0 + self.exaggeration * height_km / mean_km)
+
+        sun_km = (solar_limb_reach(elements, angles) - K2) * EARTH_RADIUS_KM
+        # Away from the contact the Sun sits far inside the limb, and at this
+        # exaggeration its radius would go negative and turn the polygon inside
+        # out.  Clamp it well within the Moon, where it is hidden anyway, so only
+        # the part that genuinely protrudes is ever seen.
+        sun_km = np.maximum(sun_km, -0.5 * mean_km / self.exaggeration)
+
+        def polygon(heights):
+            points = []
+            for angle, height in zip(angles, heights):
+                r = radius(height)
+                # Position angle runs from north through east; screen y is down.
+                theta = np.radians(angle)
+                points.append(QPointF(centre.x() + r * np.sin(theta),
+                                      centre.y() - r * np.cos(theta)))
+            return QPolygonF(points)
+
+        painter.setClipRect(self.rect())
+
+        # Sunlight first, then the Moon over it: what is left showing is a bead.
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(BEAD_COLOUR)
+        painter.drawPolygon(polygon(sun_km))
+
+        painter.setBrush(QColor(24, 24, 30))
+        painter.setPen(QPen(PROFILE_COLOUR, 1))
+        painter.drawPolygon(polygon(solution.heights_km))
+
+        # The mean limb, for scale.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(MEAN_COLOUR, 1, Qt.PenStyle.DashLine))
+        painter.drawEllipse(centre, base, base)
+
+        painter.setPen(QColor(200, 200, 210))
+        painter.drawText(8, 16, f"{self.contact} {self.offset_s:+.2f} s")
+        painter.drawText(8, self.height() - 8,
+                         f"relief exaggerated {self.exaggeration:.0f}x")
+
     @staticmethod
     def _bead_count(lit):
         return int((lit & ~np.roll(lit, 1)).sum())
@@ -210,6 +290,27 @@ class BeadsPanel(QWidget):
         layout.addWidget(self.view, 1)
 
         controls = QHBoxLayout()
+
+        self.mode_box = QComboBox()
+        self.mode_box.addItems(["Profile", "Preview"])
+        self.mode_box.currentTextChanged.connect(
+            lambda text: self.view.set_mode(text.lower()))
+        controls.addWidget(self.mode_box)
+
+        self.exaggeration_box = QComboBox()
+        self.exaggeration_box.addItems(["10x", "25x", "50x", "100x"])
+        self.exaggeration_box.setCurrentText("50x")
+        self.exaggeration_box.currentTextChanged.connect(
+            lambda text: self.view.set_exaggeration(float(text.rstrip("x"))))
+        controls.addWidget(self.exaggeration_box)
+
+        # Free scrubs the seconds around a contact; Live pins the picture to the
+        # clock, which is what it should show while an eclipse is actually on.
+        self.follow_box = QComboBox()
+        self.follow_box.addItems(["Free", "Live"])
+        self.follow_box.currentTextChanged.connect(self._on_follow)
+        controls.addWidget(self.follow_box)
+
         self.contact_box = QComboBox()
         self.contact_box.addItems(["C2", "C3"])
         self.contact_box.currentTextChanged.connect(self._on_contact)
@@ -227,8 +328,12 @@ class BeadsPanel(QWidget):
         self._set_controls_enabled(False)
 
     def _set_controls_enabled(self, enabled):
-        self.contact_box.setEnabled(enabled)
-        self.slider.setEnabled(enabled)
+        live = self.follow_box.currentText() == "Live"
+        self.contact_box.setEnabled(enabled and not live)
+        self.slider.setEnabled(enabled and not live)
+        self.mode_box.setEnabled(enabled)
+        self.exaggeration_box.setEnabled(enabled)
+        self.follow_box.setEnabled(enabled)
 
     def set_context(self, eclipse_date, longitude, latitude, altitude):
         """Point the panel at a place and a date, and solve the limb there."""
@@ -273,6 +378,25 @@ class BeadsPanel(QWidget):
         self.summary.setStyleSheet("color: #e0a030;" if biggest > 15.0 else "")
         self._on_slider(self.slider.value())
         self.view.update()
+
+    def is_live(self):
+        return self.follow_box.currentText() == "Live"
+
+    def _on_follow(self, _text):
+        live = self.is_live()
+        self.contact_box.setEnabled(not live and self.solution is not None)
+        self.slider.setEnabled(not live and self.solution is not None)
+        if not live:
+            self.view.set_live_hours(None)
+            self._on_slider(self.slider.value())
+
+    def set_current_time(self, moment_utc):
+        """Called on every clock tick; only does anything in Live mode."""
+        if self.solution is None or not self.is_live():
+            return
+        hours = self.solution.from_utc(moment_utc)
+        self.view.set_live_hours(hours)
+        self.time_label.setText(moment_utc.strftime("%H:%M:%S") + "  live")
 
     def _on_contact(self, contact):
         self.view.set_contact(contact)

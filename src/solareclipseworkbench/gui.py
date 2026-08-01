@@ -886,6 +886,8 @@ class SolarEclipseView(QMainWindow, Observable):
             - countdown_sunset: Countdown clock to sunset
         """
 
+        self.beads_panel.set_current_time(current_time_utc)
+
         self.eclipse_date_label.setText(f"Eclipse date [{self.date_format}]")
 
         self.date_label.setText(f"Date [{self.date_format}]")
