@@ -14,7 +14,7 @@ script actually turns on:
      modes, since a July run suggested PC priority may kill it — and can a shutter speed
      set over USB reach the camera between relay-driven frames?
 
-Blocks 1 to 7 need no USB and run first, so a wedged session cannot cost them.  The SDK
+Blocks 1 to 8 need no USB and run first, so a wedged session cannot cost them.  The SDK
 has been seen to leave the body enumerating as "(unknown)", needing a power cycle.
 
     .venv/bin/python scripts/campaign_sdk.py
@@ -331,11 +331,32 @@ def run_duty_cycle_block(run: Campaign) -> None:
     run.quiet(60.0, "letting the buffer drain")
 
 
+def run_single_in_ch_block(run: Campaign) -> None:
+    """Find the pulse width that gives exactly one frame with the dial on CH.
+
+    The drive dial cannot be touched during the eclipse, so if it lives on CH
+    for the beads bursts, every partial-phase single must also come from CH —
+    and campaign one showed an 80 ms pulse there yields 2 to 6 frames.  Frame
+    counts per pulse come out of Image Count afterwards.
+    """
+    if not run.begin(8, "single frames with the dial on CH", [
+        "leave the dial on CH at 15 fps, mechanical, shutter 1/2000",
+    ], slate_count=1):
+        return
+    say("block eight, single frames in continuous drive")
+    for pulse_ms in (15, 25, 40, 60):
+        print(f"    {DIM}4 pulses at {pulse_ms} ms{RESET}")
+        for _ in range(4):
+            run.pulse(pulse_ms, label=f"ch_single_{pulse_ms}ms")
+            time.sleep(2.5)
+    run.observation()
+
+
 def run_sdk_blocks(run: Campaign) -> None:
-    if run.begin(8, "does the jack still fire with a USB session open", [
+    if run.begin(9, "does the jack still fire with a USB session open", [
         "nothing to change — the SDK session is now open",
     ]):
-        say("block eight, does the jack still fire")
+        say("block nine, does the jack still fire")
         for mode_name in ("CAMERA", "PC"):
             error = None
             try:
@@ -361,10 +382,11 @@ def run_sdk_blocks(run: Campaign) -> None:
         except Exception:
             pass
 
-    if run.begin(9, "shutter speed set over USB, frames driven by the relay", [
-        "nothing to change",
+    if run.begin(10, "shutter speed set over USB, frames driven by the relay", [
+        "shutter speed dial to T — the SDK sets speeds from here on, as it must\n"
+        "    during the eclipse when no dial can be touched",
     ]):
-        say("block nine, exposure ramp")
+        say("block ten, exposure ramp")
         print(f"\n  {DIM}each speed is set, then two frames fired 500 ms apart.{RESET}")
         print(f"  {DIM}EXIF then says which frame the change actually reached.{RESET}\n")
         for speed in SPEED_LADDER:
@@ -376,10 +398,10 @@ def run_sdk_blocks(run: Campaign) -> None:
             time.sleep(1.5)
         run.observation()
 
-    if run.begin(10, "ramping mid-burst, the way totality would need it", [
+    if run.begin(11, "ramping mid-burst, the way totality would need it", [
         "nothing to change",
     ]):
-        say("block ten, ramping mid burst")
+        say("block eleven, ramping mid burst")
         print(f"\n  {DIM}S1 stays closed throughout; S2 pulses while the speed moves{RESET}")
         started = time.time()
         run.trigger.half_press()
@@ -403,12 +425,12 @@ def main() -> None:
     print(f"{CYAN}Before starting:{RESET}")
     print("  - relay wired to the release jack, camera aimed at the clock page")
     print("  - RAW only, manual focus, f/2, ISO 320 as before")
-    print("  - USB cable NOT connected yet — blocks 1 to 7 run on the relay alone")
+    print("  - USB cable NOT connected yet — blocks 1 to 8 run on the relay alone")
     print("  - DRIVE dial on S, shutter 1/125 to start: the run opens with clock-sync")
     print("    frames.  The camera's clock is NOT assumed to match this laptop's —")
     print("    each sync frame photographs the laptop's milliseconds while its EXIF")
     print("    carries the camera's clock, and the difference IS the offset.")
-    print(f"\n{CYAN}Expect{RESET} roughly 40 minutes and 800 frames.")
+    print(f"\n{CYAN}Expect{RESET} roughly 45 minutes and 850 frames.")
     if input(f"\n  Ready?  [y/n] > ").strip().lower() not in ("y", "yes"):
         print("Nothing done.")
         return
