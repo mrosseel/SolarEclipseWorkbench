@@ -276,3 +276,15 @@ ramp with shutter alone.
   (~95 ms/frame) scheduled between shooting groups, never concurrent.
 - Fallback: USB death leaves the relay fully functional at the last-set exposure.
   Recovery ritual (daemon reset + camera power cycle) is built into detect.
+
+## ISO over USB: gated on an empty transfer queue
+
+With the ISO dial on C (where it had been all along — the earlier "dial wins"
+reading was wrong, built on phase-6 evidence that was worthless in both
+directions): the first `set_iso` after connect was accepted with the pending
+queue empty; every one after a tap failed 0x1006 Camera busy.  So
+`set_shutter_speed` tolerates pending frames and `set_iso` does not — same
+clean-queue gate as `SetPriorityMode`.  Whether the accepted set *applied*
+awaits the next card read (probe frames should read ISO 160).  Production is
+unaffected: the ramp stays shutter-only; ISO changes are possible but only
+deliberately, straight after a drain.
