@@ -121,16 +121,23 @@ def fuji_partial(camera, trigger, speed: str = "") -> None:
         _drain(camera)
 
 
-def fuji_beads_burst(camera, trigger, duration) -> None:
+def fuji_beads_burst(camera, trigger, duration, speed: str = "") -> None:
     """A beads/diamond-ring burst, clamped below the wedge line, then drained.
 
     S1 should already be held (``relay_arm``) so the burst starts within the
     body's ~45 ms release lag; ``pressed()`` leaves a pre-armed S1 closed on
     exit, so consecutive bursts keep the low latency.
+
+    An optional ``speed`` is set first — the composite starts with the queue
+    freshly drained and the body idle, the one moment a set cannot go busy, so
+    consecutive bursts can bracket the contact (ring bright, beads mid,
+    chromosphere slow) without any mid-burst change.
     """
     duration = min(float(duration), MAX_BURST_S)
     with SHOOTING_LOCK:
-        logger.info("fuji_beads_burst %.2f s", duration)
+        logger.info("fuji_beads_burst %.2f s%s", duration, f" at {speed}" if speed else "")
+        if speed:
+            _set_speed(camera, speed)
         with trigger.pressed():
             time.sleep(duration)
         time.sleep(SETTLE_BEFORE_DRAIN_S)
