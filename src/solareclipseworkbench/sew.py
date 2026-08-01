@@ -1,4 +1,8 @@
 import argparse
+import logging
+
+from solareclipseworkbench.hardware_registry import register_hardware
+from solareclipseworkbench.relay_trigger import open_trigger
 from time import sleep
 
 from astropy.time import Time
@@ -30,6 +34,17 @@ def main(args):
                 is_simulator=args.virtual_camera,
                 alias_map=ConfigManager().get_camera_aliases() or None,
             )
+
+            # The GUI registers the relay from its toolbar; headless has no
+            # toolbar, so open it here — the eclipse script's relay and fuji
+            # commands are silently skipped without it.  Wiring matches the
+            # bench rig: CH1 holds S1 (ring), CH2 fires S2 (tip).
+            try:
+                register_hardware('relay', open_trigger('auto', s1_channel=1, s2_channel=2))
+            except Exception:
+                logging.warning(
+                    'No relay could be opened; relay and fuji commands in the '
+                    'script will be skipped.', exc_info=True)
 
             # Only do a simulation if args.c1 is set
             if args.ref_moment:
