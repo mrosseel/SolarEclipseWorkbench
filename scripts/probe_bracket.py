@@ -66,20 +66,21 @@ def queue(camera):
 
 
 def probe(camera, speed: str, iso: int, steps: str) -> None:
-    before, total = queue(camera)
+    _, total = queue(camera)
     print(f"\n{BOLD}base {speed}  ISO {iso}  {steps}{RESET}")
 
     started = time.time()
     try:
-        take_bracket(camera, CameraSettings(camera.name, speed, "-", iso), steps)
+        taken = take_bracket(camera, CameraSettings(camera.name, speed, "-", iso), steps)
     except Exception as exc:
         print(f"  {RED}take_bracket raised: {exc}{RESET}")
         return
     elapsed = time.time() - started
 
-    after, _ = queue(camera)
-    frames = (after - before) if None not in (after, before) else None
-    print(f"  {frames} frame(s) in {elapsed:.2f} s, queue {before} -> {after} of {total}")
+    # The count comes from take_bracket, not from the queue: the bracket drains
+    # the queue before it returns, so reading it here reported 0 however much
+    # was shot — which is what it did until 2 August.
+    print(f"  {taken} tap(s) in {elapsed:.2f} s, buffer {total} slot(s)")
 
     try:
         camera.drain()
