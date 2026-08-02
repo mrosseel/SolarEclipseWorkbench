@@ -67,6 +67,14 @@ hid = ["hidapi>=0.14"]
 [dependency-groups]
 dev = ["pytest>=9"]
 
+[tool.pytest.ini_options]
+# tests/manual is run by hand: most of it wants a camera on USB, and collecting
+# the rest alongside the suite crashes the interpreter outright.
+addopts = "--ignore=tests/manual"
+# Without this a bare `pytest` walks into .venv and collects the test suite of
+# every installed package - 257 collection errors before it reaches ours.
+testpaths = ["tests"]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
