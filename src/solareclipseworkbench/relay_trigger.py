@@ -36,7 +36,9 @@ from typing import Optional
 import serial
 import serial.tools.list_ports
 
+from solareclipseworkbench import hardware_problems
 from solareclipseworkbench.discovery import Candidate
+from solareclipseworkbench.hardware_registry import HARDWARE
 from solareclipseworkbench.serial_ports import usb_serial_ports
 
 try:
@@ -420,11 +422,10 @@ class HidRelayBackend(Backend):
     def __init__(self, vendor_id: int = 0x16C0, product_id: int = 0x05DF, **config):
         if hid is None:
             raise RelayError(
-                "the 'hid' package is required for HID relay boards: 'uv pip install hid'.  "
-                + ("It loads the hidapi shared library at runtime, so install that too: "
-                   "'brew install hidapi'." if sys.platform == "darwin" else
-                   "It loads the hidapi shared library at runtime, so libhidapi must be "
-                   "installed and findable.")
+                "HID relay boards need the hidapi bindings: 'uv pip install hidapi', or "
+                "install this project with its 'hid' extra.  Take care to install 'hidapi' "
+                "and not the similarly named 'hid', which imports the same but expects the "
+                "shared library to already be on the system."
             )
         try:
             self._device = hid.device()
@@ -624,7 +625,11 @@ class RelayTrigger:
         Transitions are still recorded, so the bench console's event log shows
         releases as well as closures.
         """
-        for channel in self.wiring.channels:
+        self._release(self.wiring.channels)
+
+    def _release(self, channels) -> None:
+        """Open the given channels without ever raising."""
+        for channel in channels:
             started = time.perf_counter()
             error = None
             try:
@@ -669,16 +674,25 @@ class RelayTrigger:
 
         The release runs in a finally, so an exception inside the block still
         lets the shutter go.
+
+        If S1 is already closed when this is entered — the caller has pre-armed
+        with ``half_press()`` — the settle is skipped and S1 is left closed on
+        the way out.  On an X-T4 the settle is 120 ms of a 170 ms trigger
+        latency while the body's own release lag is only about 46 ms, so holding
+        S1 across a sequence of frames is most of the delay gone.  Pre-arming
+        keeps the camera awake as well, which is the reason the settle exists.
         """
         settle_s = self.wiring.settle_s if settle is None else settle
+        pre_armed = (not self.wiring.is_single_channel
+                     and self.wiring.s1_channel in self._closed_channels)
         try:
             self.half_press()
-            if not self.wiring.is_single_channel and settle_s > 0:
+            if not self.wiring.is_single_channel and settle_s > 0 and not pre_armed:
                 time.sleep(settle_s)
             self._set(self.wiring.s2_channel, True)
             yield
         finally:
-            self.release_all()
+            self._release([self.wiring.s2_channel] if pre_armed else self.wiring.channels)
 
     def shoot(self, pulse: Optional[float] = None) -> None:
         """Take one frame."""
@@ -791,12 +805,42 @@ def relay_burst(trigger: RelayTrigger, duration: float, interval: Optional[float
     """Hold the shutter for ``duration`` seconds, or pulse it at ``interval``.
 
     Arguments arrive from the script as strings, so they are coerced before use.
+
+    A held burst runs at the body's own continuous rate with the host out of the
+    loop, so it can outrun the transfer queue of an open SDK session — 15 fps
+    fills 32 slots in a little over two seconds, and a full queue stops the
+    camera dead in the middle of totality.  The hold is therefore capped at
+    whatever that session says is safe, and the queue is drained afterwards.
+    Both are no-ops when no SDK session is open: without one there is no queue.
     """
     duration = float(duration)
     interval = None if interval in (None, "") else float(interval)
+
+    owner = HARDWARE.get('sdk_camera')
+    limit = getattr(owner, 'max_relay_hold_s', None)
+    if limit is not None and interval is None and duration > limit:
+        logger.warning("relay_burst: %.3f s would overrun the %s transfer queue, "
+                       "holding %.3f s instead", duration, getattr(owner, 'name', 'camera'), limit)
+        hardware_problems.report(
+            getattr(owner, 'name', 'camera'),
+            'A relay burst in the script is longer than the camera can buffer',
+            detail=f'{duration:.2f} s shortened to {limit:.2f} s',
+            severity='warning',
+        )
+        duration = limit
+
     logger.info("relay_burst: %.3f s (interval %s)", duration, interval)
     pulses = trigger.burst(duration, interval)
     logger.info("relay_burst issued %d pulse(s)", pulses)
+
+    if owner is not None:
+        # Every contact open first.  A burst that was pre-armed leaves S1 closed
+        # on the way out — that is the point of pre-arming — but draining with S1
+        # still held drops the USB session for good with 0x2001, proven twice on
+        # the bench.  Re-arming before the next burst is free; losing exposure
+        # control in the middle of totality is not.
+        trigger.release_all()
+        owner.drain()
 
 
 def relay_bulb(trigger: RelayTrigger, seconds: float) -> None:
@@ -804,3 +848,20 @@ def relay_bulb(trigger: RelayTrigger, seconds: float) -> None:
     seconds = float(seconds)
     logger.info("relay_bulb: %.3f s", seconds)
     trigger.bulb(seconds)
+
+
+def relay_arm(trigger: RelayTrigger) -> None:
+    """Close S1 and leave it closed.
+
+    Pre-arming drops per-frame trigger latency from ~170 ms to the body's own
+    ~45 ms and keeps it awake; ``pressed()`` recognises the held S1 and leaves
+    it closed on the way out, so the arm survives shots and bursts.
+    """
+    logger.info("relay_arm: S1 held")
+    trigger.half_press()
+
+
+def relay_release(trigger: RelayTrigger) -> None:
+    """Open every contact — the counterpart of relay_arm."""
+    logger.info("relay_release")
+    trigger.release_all()

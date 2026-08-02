@@ -1,5 +1,9 @@
+from unittest.mock import MagicMock
+
 import pytest
 
+from solareclipseworkbench import hardware_problems
+from solareclipseworkbench.hardware_registry import register_hardware
 from solareclipseworkbench.relay_trigger import (
     Backend,
     RelayError,
@@ -228,3 +232,65 @@ def test_discovered_candidates_are_tagged_as_relays():
     for candidate in discover_relays():
         assert candidate.kind == "relay"
         assert candidate.driver
+
+
+def test_a_held_burst_is_capped_to_what_the_open_session_can_buffer():
+    # 15 fps fills the 32-slot transfer queue in a little over two seconds, and a
+    # full queue stops the body dead - in the middle of totality, if the script
+    # asked for a long hold at a contact.
+    trigger = _trigger()
+    camera = MagicMock(max_relay_hold_s=1.9, name="X-T4")
+    register_hardware("sdk_camera", camera)
+    try:
+        relay_burst(trigger, "2.5")
+    finally:
+        register_hardware("sdk_camera", None)
+        hardware_problems.clear()
+
+    held = trigger.events[-1].at - trigger.events[0].at
+    assert held == pytest.approx(1.9, abs=0.2)
+    assert camera.drain.called
+
+
+def test_a_burst_drains_the_queue_it_filled():
+    trigger = _trigger()
+    camera = MagicMock(max_relay_hold_s=1.9)
+    register_hardware("sdk_camera", camera)
+    try:
+        relay_burst(trigger, "0.05")
+    finally:
+        register_hardware("sdk_camera", None)
+
+    assert camera.drain.called
+    assert trigger.closed_channels == set()
+
+
+def test_a_burst_without_an_open_session_is_left_alone():
+    # No SDK session means no transfer queue, so there is nothing to cap or drain
+    # and the script gets exactly the hold it asked for.
+    trigger = _trigger()
+
+    relay_burst(trigger, "0.05")
+
+    assert trigger.closed_channels == set()
+
+
+def test_a_burst_opens_every_contact_before_it_drains():
+    # Pre-arming leaves S1 closed on the way out of the burst, and the bench
+    # proved twice that draining with S1 still held drops the USB session for
+    # good.  The order matters more than the arm does.
+    order = []
+    trigger = _trigger(single=False)
+    trigger.half_press()                       # pre-armed, as a contact burst is
+
+    camera = MagicMock(max_relay_hold_s=1.9)
+    camera.drain.side_effect = lambda: order.append(("drain", trigger.closed_channels.copy()))
+    register_hardware("sdk_camera", camera)
+    try:
+        relay_burst(trigger, "0.05")
+    finally:
+        register_hardware("sdk_camera", None)
+
+    assert order, "the burst never drained"
+    _, closed_when_draining = order[0]
+    assert closed_when_draining == set()

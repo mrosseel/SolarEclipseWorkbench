@@ -523,12 +523,18 @@ class EclipseShooter:
     def bracket_no_download(
         self,
         speeds: list[int],
-        iso: int = C.ISO_100,
+        iso: Optional[int] = None,
         aperture: Optional[int] = None,
     ) -> int:
-        """Bracket at different speeds without downloading. Returns shots taken."""
+        """Bracket at different speeds without downloading. Returns shots taken.
+
+        ISO and aperture are left alone unless given: the caller has usually
+        just dialled them in, and defaulting to a value here would silently
+        photograph the bracket at an ISO nobody asked for.
+        """
         self.camera.set_ae_mode(C.AE_OFF)
-        self.camera.set_iso(iso)
+        if iso is not None:
+            self.camera.set_iso(iso)
         if aperture is not None:
             self.camera.set_aperture(aperture)
         taken = 0
