@@ -1,0 +1,27 @@
+[
+  {
+    "iso": 160,
+    "error": null,
+    "tapped_at": 1785619797.66079
+  },
+  {
+    "iso": 800,
+    "error": "Fuji Fujifilm X-T4: could not apply ISO=800 rejected by the camera (XSDK error 0x00001006: Camera is busy)",
+    "tapped_at": 1785619799.290497
+  },
+  {
+    "iso": 3200,
+    "error": "Fuji Fujifilm X-T4: could not apply ISO=3200 rejected by the camera (XSDK error 0x00001006: Camera is busy)",
+    "tapped_at": 1785619800.916936
+  },
+  {
+    "iso": 12800,
+    "error": "Fuji Fujifilm X-T4: could not apply ISO=12800 rejected by the camera (XSDK error 0x00001006: Camera is busy)",
+    "tapped_at": 1785619802.541517
+  },
+  {
+    "iso": 320,
+    "error": "Fuji Fujifilm X-T4: could not apply ISO=320 rejected by the camera (XSDK error 0x00001006: Camera is busy)",
+    "tapped_at": 1785619804.1847749
+  }
+]

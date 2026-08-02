@@ -1,0 +1,725 @@
+{
+  "notes": {
+    "1:fast ladder \u2014 does a held contact repeat it": "seemed fine",
+    "2:the corona ladder \u2014 9 frames at 2 EV": "seeme fine",
+    "3:a working ladder \u2014 7 frames at 2 EV, no long tail": "seemed fine",
+    "4:the working ladder on a cadence, under buffer pressure": "some space between bracket runs so not exactly production cadence i think",
+    "power_save_setting": "auto power off is OFF, perfarmonc is boot, auto power off tem HIGH",
+    "6:maximum burst rate, mechanical then electronic": "relay clicked didn't hear much from the camera"
+  },
+  "records": [
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785604903.3884318,
+      "wall_end": 1785604903.612702,
+      "duration_s": 0.2243,
+      "pulse_ms": 80
+    },
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785604905.6162739,
+      "wall_end": 1785604905.829838,
+      "duration_s": 0.2136,
+      "pulse_ms": 80
+    },
+    {
+      "block": "preflight",
+      "action": "clock_sync_start",
+      "wall_start": 1785604907.8383482,
+      "wall_end": 1785604908.059873,
+      "duration_s": 0.2215,
+      "pulse_ms": 80
+    },
+    {
+      "block": "1:fast ladder \u2014 does a held contact repeat it",
+      "action": "quiet",
+      "wall_start": 1785604972.304053,
+      "wall_end": 1785604980.3073559,
+      "duration_s": 8.0033,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "1:fast ladder \u2014 does a held contact repeat it",
+      "action": "slate",
+      "wall_start": 1785604980.309345,
+      "wall_end": 1785604980.529056,
+      "duration_s": 0.2197,
+      "pulse_ms": 80
+    },
+    {
+      "block": "1:fast ladder \u2014 does a held contact repeat it",
+      "action": "bkt_fast_1ev_single",
+      "wall_start": 1785604986.217729,
+      "wall_end": 1785604986.403467,
+      "duration_s": 0.1857,
+      "pulse_ms": 40
+    },
+    {
+      "block": "1:fast ladder \u2014 does a held contact repeat it",
+      "action": "quiet",
+      "wall_start": 1785604986.404452,
+      "wall_end": 1785604998.408952,
+      "duration_s": 12.0045,
+      "why": "letting the sequence finish and the buffer drain"
+    },
+    {
+      "block": "1:fast ladder \u2014 does a held contact repeat it",
+      "action": "bkt_fast_1ev_hold",
+      "wall_start": 1785604998.412695,
+      "wall_end": 1785605013.557817,
+      "duration_s": 15.1451,
+      "hold_s": 15.0,
+      "s2_closed_at": 1785604998.542903
+    },
+    {
+      "block": "1:fast ladder \u2014 does a held contact repeat it",
+      "action": "quiet",
+      "wall_start": 1785605027.1203132,
+      "wall_end": 1785605039.125162,
+      "duration_s": 12.0048,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "2:the corona ladder \u2014 9 frames at 2 EV",
+      "action": "quiet",
+      "wall_start": 1785605085.6515222,
+      "wall_end": 1785605093.668247,
+      "duration_s": 8.0167,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "2:the corona ladder \u2014 9 frames at 2 EV",
+      "action": "slate",
+      "wall_start": 1785605093.679896,
+      "wall_end": 1785605093.9085782,
+      "duration_s": 0.2287,
+      "pulse_ms": 80
+    },
+    {
+      "block": "2:the corona ladder \u2014 9 frames at 2 EV",
+      "action": "bkt_corona_2ev_single",
+      "wall_start": 1785605101.549422,
+      "wall_end": 1785605101.724766,
+      "duration_s": 0.1753,
+      "pulse_ms": 40
+    },
+    {
+      "block": "2:the corona ladder \u2014 9 frames at 2 EV",
+      "action": "quiet",
+      "wall_start": 1785605101.725913,
+      "wall_end": 1785605121.730295,
+      "duration_s": 20.0044,
+      "why": "letting the sequence finish and the buffer drain"
+    },
+    {
+      "block": "2:the corona ladder \u2014 9 frames at 2 EV",
+      "action": "bkt_corona_2ev_hold",
+      "wall_start": 1785605121.736413,
+      "wall_end": 1785605136.873003,
+      "duration_s": 15.1366,
+      "hold_s": 15.0,
+      "s2_closed_at": 1785605121.8632479
+    },
+    {
+      "block": "2:the corona ladder \u2014 9 frames at 2 EV",
+      "action": "quiet",
+      "wall_start": 1785605141.8756108,
+      "wall_end": 1785605161.8818612,
+      "duration_s": 20.0063,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "3:a working ladder \u2014 7 frames at 2 EV, no long tail",
+      "action": "quiet",
+      "wall_start": 1785605192.75239,
+      "wall_end": 1785605200.757447,
+      "duration_s": 8.0051,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "3:a working ladder \u2014 7 frames at 2 EV, no long tail",
+      "action": "slate",
+      "wall_start": 1785605200.760423,
+      "wall_end": 1785605200.9770648,
+      "duration_s": 0.2166,
+      "pulse_ms": 80
+    },
+    {
+      "block": "3:a working ladder \u2014 7 frames at 2 EV, no long tail",
+      "action": "bkt_working_7f_single",
+      "wall_start": 1785605205.920608,
+      "wall_end": 1785605206.093717,
+      "duration_s": 0.1731,
+      "pulse_ms": 40
+    },
+    {
+      "block": "3:a working ladder \u2014 7 frames at 2 EV, no long tail",
+      "action": "quiet",
+      "wall_start": 1785605206.0955808,
+      "wall_end": 1785605218.099969,
+      "duration_s": 12.0044,
+      "why": "letting the sequence finish and the buffer drain"
+    },
+    {
+      "block": "3:a working ladder \u2014 7 frames at 2 EV, no long tail",
+      "action": "bkt_working_7f_hold",
+      "wall_start": 1785605218.101314,
+      "wall_end": 1785605228.2404091,
+      "duration_s": 10.1391,
+      "hold_s": 10.0,
+      "s2_closed_at": 1785605218.232097
+    },
+    {
+      "block": "3:a working ladder \u2014 7 frames at 2 EV, no long tail",
+      "action": "quiet",
+      "wall_start": 1785605238.955533,
+      "wall_end": 1785605250.96102,
+      "duration_s": 12.0055,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "quiet",
+      "wall_start": 1785605256.308346,
+      "wall_end": 1785605264.313801,
+      "duration_s": 8.0055,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "slate",
+      "wall_start": 1785605264.3167622,
+      "wall_end": 1785605264.5352771,
+      "duration_s": 0.2185,
+      "pulse_ms": 80
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_01",
+      "wall_start": 1785605269.400047,
+      "wall_end": 1785605269.583526,
+      "duration_s": 0.1835,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_02",
+      "wall_start": 1785605274.589458,
+      "wall_end": 1785605274.764807,
+      "duration_s": 0.1753,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_03",
+      "wall_start": 1785605279.769023,
+      "wall_end": 1785605279.946441,
+      "duration_s": 0.1774,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_04",
+      "wall_start": 1785605284.953156,
+      "wall_end": 1785605285.131603,
+      "duration_s": 0.1784,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_05",
+      "wall_start": 1785605290.134948,
+      "wall_end": 1785605290.3162298,
+      "duration_s": 0.1813,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_06",
+      "wall_start": 1785605295.321826,
+      "wall_end": 1785605295.50014,
+      "duration_s": 0.1783,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_07",
+      "wall_start": 1785605300.5037062,
+      "wall_end": 1785605300.678029,
+      "duration_s": 0.1743,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_08",
+      "wall_start": 1785605305.6866932,
+      "wall_end": 1785605305.8601532,
+      "duration_s": 0.1735,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_09",
+      "wall_start": 1785605310.861881,
+      "wall_end": 1785605311.0359628,
+      "duration_s": 0.1741,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_10",
+      "wall_start": 1785605316.039383,
+      "wall_end": 1785605316.2187788,
+      "duration_s": 0.1794,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_11",
+      "wall_start": 1785605321.221589,
+      "wall_end": 1785605321.396097,
+      "duration_s": 0.1745,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "cadence_tap_12",
+      "wall_start": 1785605326.402472,
+      "wall_end": 1785605326.5817442,
+      "duration_s": 0.1793,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "quiet",
+      "wall_start": 1785605331.585873,
+      "wall_end": 1785605361.590254,
+      "duration_s": 30.0044,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "collide_tap_1",
+      "wall_start": 1785605361.592701,
+      "wall_end": 1785605361.768241,
+      "duration_s": 0.1755,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "collide_tap_2",
+      "wall_start": 1785605362.269842,
+      "wall_end": 1785605362.452401,
+      "duration_s": 0.1826,
+      "pulse_ms": 40
+    },
+    {
+      "block": "4:the working ladder on a cadence, under buffer pressure",
+      "action": "quiet",
+      "wall_start": 1785605387.01498,
+      "wall_end": 1785605402.018613,
+      "duration_s": 15.0036,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "quiet",
+      "wall_start": 1785605428.577922,
+      "wall_end": 1785605436.600728,
+      "duration_s": 8.0228,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "slate",
+      "wall_start": 1785605436.628675,
+      "wall_end": 1785605436.863629,
+      "duration_s": 0.235,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "slate",
+      "wall_start": 1785605438.3710852,
+      "wall_end": 1785605438.5883,
+      "duration_s": 0.2172,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "slate",
+      "wall_start": 1785605440.096266,
+      "wall_end": 1785605440.313885,
+      "duration_s": 0.2176,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "slate",
+      "wall_start": 1785605441.818918,
+      "wall_end": 1785605442.03715,
+      "duration_s": 0.2182,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "slate",
+      "wall_start": 1785605443.539946,
+      "wall_end": 1785605443.7593012,
+      "duration_s": 0.2194,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "quiet",
+      "wall_start": 1785605507.300638,
+      "wall_end": 1785605537.309062,
+      "duration_s": 30.0084,
+      "why": "letting the body go idle"
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "latency_cold_s2_only",
+      "wall_start": 1785605537.3274539,
+      "wall_end": 1785605537.425459,
+      "duration_s": 0.098,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "quiet",
+      "wall_start": 1785605537.429576,
+      "wall_end": 1785605567.435777,
+      "duration_s": 30.0062,
+      "why": "letting the body go idle"
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "latency_cold_s2_only",
+      "wall_start": 1785605567.444324,
+      "wall_end": 1785605567.533995,
+      "duration_s": 0.0897,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "quiet",
+      "wall_start": 1785605567.541693,
+      "wall_end": 1785605597.547657,
+      "duration_s": 30.006,
+      "why": "letting the body go idle"
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "latency_cold_s2_only",
+      "wall_start": 1785605597.552265,
+      "wall_end": 1785605597.639921,
+      "duration_s": 0.0877,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "latency_prearmed",
+      "wall_start": 1785605600.650509,
+      "wall_end": 1785605600.744736,
+      "duration_s": 0.0942,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "latency_prearmed",
+      "wall_start": 1785605603.755458,
+      "wall_end": 1785605603.847692,
+      "duration_s": 0.0922,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "latency_prearmed",
+      "wall_start": 1785605606.860488,
+      "wall_end": 1785605606.966979,
+      "duration_s": 0.1065,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "latency_normal",
+      "wall_start": 1785605613.03399,
+      "wall_end": 1785605613.2528489,
+      "duration_s": 0.2189,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "latency_normal",
+      "wall_start": 1785605616.277426,
+      "wall_end": 1785605616.5020952,
+      "duration_s": 0.2247,
+      "pulse_ms": 80
+    },
+    {
+      "block": "5:what the S1 pre-arm actually costs",
+      "action": "latency_normal",
+      "wall_start": 1785605619.5204759,
+      "wall_end": 1785605619.739198,
+      "duration_s": 0.2187,
+      "pulse_ms": 80
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "quiet",
+      "wall_start": 1785605682.254973,
+      "wall_end": 1785605690.261683,
+      "duration_s": 8.0067,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "slate",
+      "wall_start": 1785605690.278346,
+      "wall_end": 1785605690.500064,
+      "duration_s": 0.2217,
+      "pulse_ms": 80
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "slate",
+      "wall_start": 1785605692.011919,
+      "wall_end": 1785605692.229706,
+      "duration_s": 0.2178,
+      "pulse_ms": 80
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "slate",
+      "wall_start": 1785605693.739029,
+      "wall_end": 1785605693.9695911,
+      "duration_s": 0.2306,
+      "pulse_ms": 80
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "slate",
+      "wall_start": 1785605695.4856188,
+      "wall_end": 1785605695.6985312,
+      "duration_s": 0.2129,
+      "pulse_ms": 80
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "slate",
+      "wall_start": 1785605697.2067819,
+      "wall_end": 1785605697.426385,
+      "duration_s": 0.2196,
+      "pulse_ms": 80
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "slate",
+      "wall_start": 1785605698.938566,
+      "wall_end": 1785605699.157218,
+      "duration_s": 0.2187,
+      "pulse_ms": 80
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "max_rate_mech_15",
+      "wall_start": 1785605704.7496371,
+      "wall_end": 1785605708.891979,
+      "duration_s": 4.1423,
+      "hold_s": 4.0,
+      "s2_closed_at": 1785605704.880873
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "quiet",
+      "wall_start": 1785605708.902982,
+      "wall_end": 1785605753.906301,
+      "duration_s": 45.0033,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "max_rate_elec_20",
+      "wall_start": 1785605793.756365,
+      "wall_end": 1785605797.908148,
+      "duration_s": 4.1518,
+      "hold_s": 4.0,
+      "s2_closed_at": 1785605793.902231
+    },
+    {
+      "block": "6:maximum burst rate, mechanical then electronic",
+      "action": "quiet",
+      "wall_start": 1785605811.1100008,
+      "wall_end": 1785605856.115654,
+      "duration_s": 45.0057,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "quiet",
+      "wall_start": 1785605909.489865,
+      "wall_end": 1785605917.49933,
+      "duration_s": 8.0095,
+      "why": "settling gap so the block boundary is visible"
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "slate",
+      "wall_start": 1785605917.5461938,
+      "wall_end": 1785605917.777897,
+      "duration_s": 0.2317,
+      "pulse_ms": 80
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "slate",
+      "wall_start": 1785605919.2839072,
+      "wall_end": 1785605919.501485,
+      "duration_s": 0.2176,
+      "pulse_ms": 80
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "slate",
+      "wall_start": 1785605921.0086982,
+      "wall_end": 1785605921.220705,
+      "duration_s": 0.212,
+      "pulse_ms": 80
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "slate",
+      "wall_start": 1785605922.728736,
+      "wall_end": 1785605922.949354,
+      "duration_s": 0.2206,
+      "pulse_ms": 80
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "slate",
+      "wall_start": 1785605924.453986,
+      "wall_end": 1785605924.67036,
+      "duration_s": 0.2164,
+      "pulse_ms": 80
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "slate",
+      "wall_start": 1785605926.176367,
+      "wall_end": 1785605926.397654,
+      "duration_s": 0.2213,
+      "pulse_ms": 80
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "slate",
+      "wall_start": 1785605927.901428,
+      "wall_end": 1785605928.122369,
+      "duration_s": 0.2209,
+      "pulse_ms": 80
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "duty_burst_1",
+      "wall_start": 1785605934.3978162,
+      "wall_end": 1785605937.04741,
+      "duration_s": 2.6496,
+      "hold_s": 2.5,
+      "s2_closed_at": 1785605934.531258
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "quiet",
+      "wall_start": 1785605937.052248,
+      "wall_end": 1785605947.055585,
+      "duration_s": 10.0033,
+      "why": "draining between clusters"
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "duty_burst_2",
+      "wall_start": 1785605947.061719,
+      "wall_end": 1785605949.7024739,
+      "duration_s": 2.6408,
+      "hold_s": 2.5,
+      "s2_closed_at": 1785605947.187938
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "quiet",
+      "wall_start": 1785605949.7050529,
+      "wall_end": 1785605959.706932,
+      "duration_s": 10.0019,
+      "why": "draining between clusters"
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "duty_burst_3",
+      "wall_start": 1785605959.713155,
+      "wall_end": 1785605962.346821,
+      "duration_s": 2.6337,
+      "hold_s": 2.5,
+      "s2_closed_at": 1785605959.839773
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "quiet",
+      "wall_start": 1785605962.3496032,
+      "wall_end": 1785605972.3545449,
+      "duration_s": 10.0049,
+      "why": "draining between clusters"
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "quiet",
+      "wall_start": 1785605972.364275,
+      "wall_end": 1785606017.373573,
+      "duration_s": 45.0093,
+      "why": "full drain before the control run"
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "duty_control_continuous",
+      "wall_start": 1785606017.396638,
+      "wall_end": 1785606055.055221,
+      "duration_s": 37.6586,
+      "hold_s": 37.5,
+      "s2_closed_at": 1785606017.535855
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "quiet",
+      "wall_start": 1785606062.878,
+      "wall_end": 1785606122.8868659,
+      "duration_s": 60.0089,
+      "why": "letting the buffer drain"
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "clock_sync_mid",
+      "wall_start": 1785606122.903161,
+      "wall_end": 1785606123.134974,
+      "duration_s": 0.2318,
+      "pulse_ms": 80
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "clock_sync_mid",
+      "wall_start": 1785606125.1400478,
+      "wall_end": 1785606125.3592389,
+      "duration_s": 0.2192,
+      "pulse_ms": 80
+    },
+    {
+      "block": "7:clustered bursts against one continuous hold",
+      "action": "clock_sync_mid",
+      "wall_start": 1785606127.3659039,
+      "wall_end": 1785606127.586153,
+      "duration_s": 0.2202,
+      "pulse_ms": 80
+    }
+  ]
+}

@@ -1,0 +1,548 @@
+[
+  {
+    "action": "connected",
+    "at": 1785617056.290303,
+    "camera": "Fuji Fujifilm X-T4"
+  },
+  {
+    "action": "tap",
+    "at": 1785617056.439352,
+    "n": 1,
+    "started": 1785617056.343897
+  },
+  {
+    "action": "tap",
+    "at": 1785617058.540355,
+    "n": 2,
+    "started": 1785617058.441378
+  },
+  {
+    "action": "tap",
+    "at": 1785617060.636746,
+    "n": 3,
+    "started": 1785617060.543071
+  },
+  {
+    "action": "tap",
+    "at": 1785617062.7340841,
+    "n": 4,
+    "started": 1785617062.639179
+  },
+  {
+    "action": "tap",
+    "at": 1785617064.8301382,
+    "n": 5,
+    "started": 1785617064.740984
+  },
+  {
+    "action": "tap",
+    "at": 1785617066.9263282,
+    "n": 6,
+    "started": 1785617066.837267
+  },
+  {
+    "action": "tap",
+    "at": 1785617069.0291781,
+    "n": 7,
+    "started": 1785617068.938526
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617071.005708,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617071.1271338,
+    "n": 8,
+    "started": 1785617071.034035
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617072.4126039,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617073.225012,
+    "n": 9,
+    "started": 1785617073.132121
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617073.819783,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617075.2305899,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617075.319971,
+    "n": 10,
+    "started": 1785617075.229203
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617076.640707,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617077.4190369,
+    "n": 11,
+    "started": 1785617077.3248289
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617078.052402,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617079.4626062,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617079.5099132,
+    "n": 12,
+    "started": 1785617079.4204218
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617080.874353,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617082.285763,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617083.69371,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "burst",
+    "at": 1785617084.525461,
+    "n": 1,
+    "started": 1785617081.512929
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617085.10659,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617086.5188758,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617087.926934,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617089.3413498,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617090.749182,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617092.1587698,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "burst",
+    "at": 1785617093.552833,
+    "n": 2,
+    "started": 1785617090.5365288
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617093.573932,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617094.9852722,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617096.3926988,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617097.8021262,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617099.225018,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617099.559809,
+    "speed": "1/1000",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/1000' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617099.557416
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617099.6555781,
+    "speed": "1/1000",
+    "started": 1785617099.561198
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617100.640608,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617100.953401,
+    "speed": "1/1000",
+    "started": 1785617100.86183
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617102.0527308,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617102.160255,
+    "speed": "1/250",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/250' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617102.159198
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617102.256505,
+    "speed": "1/250",
+    "started": 1785617102.161421
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617103.456682,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617103.553449,
+    "speed": "1/250",
+    "started": 1785617103.460634
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617104.759653,
+    "speed": "1/60",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/60' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617104.75589
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617104.851687,
+    "speed": "1/60",
+    "started": 1785617104.7616022
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617104.864661,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617106.147425,
+    "speed": "1/60",
+    "started": 1785617106.055617
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617106.2760582,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617107.353021,
+    "speed": "1/15",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/15' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617107.3521779
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617107.444449,
+    "speed": "1/15",
+    "started": 1785617107.354222
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617107.6863601,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617108.741481,
+    "speed": "1/15",
+    "started": 1785617108.648544
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617109.09284,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617109.947718,
+    "speed": "1/4",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/4' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617109.94574
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617110.047241,
+    "speed": "1/4",
+    "started": 1785617109.95489
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617110.5119,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617111.3416052,
+    "speed": "1/4",
+    "started": 1785617111.252634
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617111.928621,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617113.338582,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617114.7466,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617116.154285,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617117.572525,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617118.9858801,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617120.39251,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617121.803875,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617123.213877,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617124.645769,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617126.0536299,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617127.468822,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617128.886682,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617130.294153,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617131.718344,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617133.1271832,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617134.543773,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617135.960122,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617137.370492,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617138.7805812,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617140.196425,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617141.6114628,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617143.036578,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617144.4447901,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617145.855701,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617147.295598,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617148.718614,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617150.134549,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617151.5411782,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617152.952987,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617154.367851,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617155.7918122,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617157.2021492,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617158.612651,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617160.021719,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617161.434943,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617162.8445141,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617164.257437,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617165.6668348,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617167.073819,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "observation",
+    "at": 1785617167.538563,
+    "text": "urpose."
+  },
+  {
+    "action": "final_drain_error",
+    "at": 1785617168.486411,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "done",
+    "at": 1785617168.493247,
+    "drained": 0,
+    "peak": 0,
+    "errors": 69
+  }
+]

@@ -1,0 +1,657 @@
+[
+  {
+    "action": "connected",
+    "at": 1785617639.457133,
+    "camera": "Fuji Fujifilm X-T4",
+    "buffer": [
+      0,
+      32
+    ]
+  },
+  {
+    "action": "battery",
+    "at": 1785617639.4733608,
+    "level": null,
+    "when": "start"
+  },
+  {
+    "action": "tap",
+    "at": 1785617639.610126,
+    "n": 1,
+    "started": 1785617639.5120158
+  },
+  {
+    "action": "tap",
+    "at": 1785617641.706825,
+    "n": 2,
+    "started": 1785617641.615254
+  },
+  {
+    "action": "tap",
+    "at": 1785617643.813349,
+    "n": 3,
+    "started": 1785617643.7180579
+  },
+  {
+    "action": "tap",
+    "at": 1785617645.9191191,
+    "n": 4,
+    "started": 1785617645.822861
+  },
+  {
+    "action": "tap",
+    "at": 1785617648.0238452,
+    "n": 5,
+    "started": 1785617647.92685
+  },
+  {
+    "action": "tap",
+    "at": 1785617650.12717,
+    "n": 6,
+    "started": 1785617650.029724
+  },
+  {
+    "action": "tap",
+    "at": 1785617652.2270532,
+    "n": 7,
+    "started": 1785617652.135472
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617654.009168,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617654.334062,
+    "n": 8,
+    "started": 1785617654.233742
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617655.427318,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617656.434102,
+    "n": 9,
+    "started": 1785617656.3451772
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617656.8448799,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617658.256756,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617658.539007,
+    "n": 10,
+    "started": 1785617658.442932
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617659.665675,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617660.639176,
+    "n": 11,
+    "started": 1785617660.547519
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617661.086518,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617662.496435,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "tap",
+    "at": 1785617662.742969,
+    "n": 12,
+    "started": 1785617662.65001
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617663.913118,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617665.35234,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617666.818701,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "burst",
+    "at": 1785617667.7698739,
+    "n": 1,
+    "started": 1785617664.752473
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617668.225585,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617669.6354759,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617671.0484438,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617672.456909,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617673.868593,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617675.276764,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617676.690681,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "burst",
+    "at": 1785617676.7818298,
+    "n": 2,
+    "started": 1785617673.770815
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617678.098926,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617679.5073211,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617680.91488,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617682.329997,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617682.786289,
+    "speed": "1/1000",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/1000' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617682.7850869
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617682.886812,
+    "speed": "1/1000",
+    "started": 1785617682.787406
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617683.737838,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617684.184795,
+    "speed": "1/1000",
+    "started": 1785617684.092801
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617685.145931,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617685.3892689,
+    "speed": "1/250",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/250' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617685.3881888
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617685.482142,
+    "speed": "1/250",
+    "started": 1785617685.3906162
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617686.552333,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617686.778862,
+    "speed": "1/250",
+    "started": 1785617686.685971
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617687.9643168,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617687.985863,
+    "speed": "1/60",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/60' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617687.9848661
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617688.075763,
+    "speed": "1/60",
+    "started": 1785617687.987023
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617689.372523,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617689.373226,
+    "speed": "1/60",
+    "started": 1785617689.2806458
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617690.581389,
+    "speed": "1/15",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/15' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617690.578253
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617690.67378,
+    "speed": "1/15",
+    "started": 1785617690.582527
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617690.783724,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617691.9667048,
+    "speed": "1/15",
+    "started": 1785617691.878577
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617692.1969001,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "set_speed",
+    "at": 1785617693.169882,
+    "speed": "1/4",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/4' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617693.16882
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617693.2657568,
+    "speed": "1/4",
+    "started": 1785617693.171284
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617693.60274,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "ramp_tap",
+    "at": 1785617694.564693,
+    "speed": "1/4",
+    "started": 1785617694.471246
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617695.008013,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785617695.7703822,
+    "speed": "1/500",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/500' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617695.769393,
+    "took_s": 0.001
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617696.416821,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785617696.580792,
+    "speed": "1/30",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/30' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617696.5797582,
+    "took_s": 0.001
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785617697.386652,
+    "speed": "1/500",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/500' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617697.385652,
+    "took_s": 0.001
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617697.824801,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785617698.1976142,
+    "speed": "1/30",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/30' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617698.192896,
+    "took_s": 0.005
+  },
+  {
+    "action": "sdk_shot",
+    "at": 1785617699.0046132,
+    "speed": "1/500",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/500' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617699.003416,
+    "took_s": 0.001
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617699.235949,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617700.6470559,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "handover_burst",
+    "at": 1785617701.8248498,
+    "started": 1785617699.811152
+  },
+  {
+    "action": "iso_shot",
+    "at": 1785617701.834781,
+    "iso": 160,
+    "error": "Fuji Fujifilm X-T4: could not apply ISO=160 rejected by the camera (XSDK error 0x00002001: Communication error); shutter speed='1/500' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617701.8326578
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617702.056104,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "iso_shot",
+    "at": 1785617702.646643,
+    "iso": 800,
+    "error": "Fuji Fujifilm X-T4: could not apply ISO=800 rejected by the camera (XSDK error 0x00002001: Communication error); shutter speed='1/500' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617702.640492
+  },
+  {
+    "action": "iso_shot",
+    "at": 1785617703.455091,
+    "iso": 3200,
+    "error": "Fuji Fujifilm X-T4: could not apply ISO=3200 rejected by the camera (XSDK error 0x00002001: Communication error); shutter speed='1/500' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617703.452966
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617703.467114,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "iso_shot",
+    "at": 1785617704.264234,
+    "iso": 320,
+    "error": "Fuji Fujifilm X-T4: could not apply ISO=320 rejected by the camera (XSDK error 0x00002001: Communication error); shutter speed='1/500' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617704.261754
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617704.8719518,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617706.2828422,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "totality_c2_burst",
+    "at": 1785617707.579062,
+    "started": 1785617705.069773
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617707.691388,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617709.103054,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.584089,
+    "round": 1,
+    "speed": "1/1000",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/1000' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.583152
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.586596,
+    "round": 1,
+    "speed": "1/125",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/125' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.585721
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.589431,
+    "round": 1,
+    "speed": "1/15",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/15' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.5883362
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.592764,
+    "round": 1,
+    "speed": "1/4",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/4' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.591451
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.599711,
+    "round": 1,
+    "speed": "1",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.598846
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.60234,
+    "round": 2,
+    "speed": "1/1000",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/1000' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.601123
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.605524,
+    "round": 2,
+    "speed": "1/125",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/125' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.604186
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.6087098,
+    "round": 2,
+    "speed": "1/15",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/15' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.6076522
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.614819,
+    "round": 2,
+    "speed": "1/4",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/4' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.61432
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.616099,
+    "round": 2,
+    "speed": "1",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.615722
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.617234,
+    "round": 3,
+    "speed": "1/1000",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/1000' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.616886
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.618369,
+    "round": 3,
+    "speed": "1/125",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/125' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.618001
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.619987,
+    "round": 3,
+    "speed": "1/15",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/15' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.619618
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.621344,
+    "round": 3,
+    "speed": "1/4",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1/4' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.620917
+  },
+  {
+    "action": "totality_ladder_shot",
+    "at": 1785617709.6225579,
+    "round": 3,
+    "speed": "1",
+    "error": "Fuji Fujifilm X-T4: could not apply shutter speed='1' rejected by the camera (XSDK error 0x00002001: Communication error)",
+    "started": 1785617709.62211
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617710.516093,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617711.921292,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "totality_c3_burst",
+    "at": 1785617712.134578,
+    "started": 1785617709.623348
+  },
+  {
+    "action": "battery",
+    "at": 1785617712.138262,
+    "level": null,
+    "when": "end"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617713.33143,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617714.739118,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617716.1518312,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617717.5641441,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "drain_error",
+    "at": 1785617718.9714298,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "observation",
+    "at": 1785617719.5092459,
+    "text": "many errors"
+  },
+  {
+    "action": "final_drain_error",
+    "at": 1785617720.384705,
+    "error": "XSDK error 0x00002001: Communication error"
+  },
+  {
+    "action": "done",
+    "at": 1785617720.39001,
+    "drained": 0,
+    "peak": 0,
+    "errors": 47
+  }
+]
