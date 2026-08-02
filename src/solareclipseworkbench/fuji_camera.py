@@ -194,7 +194,11 @@ class _RelayShooter:
         # `pressed()` leaves S1 closed when the caller pre-armed, and draining
         # with S1 still held drops the session for good (0x2001).
         self.camera.relay.release_all()
-        self.camera.drain()
+        # One round: the tail of a burst keeps arriving for two and a half
+        # seconds and chasing it costs six, which at C2 buys nothing.  Slots are
+        # what is needed, and whatever is left behind is cleared by the next
+        # bracket's own check or by `ensure_room_for` before the next burst.
+        self.camera.drain(rounds=1)
         return int(seconds * CH_FPS)
 
     def bracket_no_download(self, speeds: list, iso=None, aperture=None) -> int:
@@ -666,7 +670,7 @@ class FujiCamera(BaseCamera):
         """The relay trigger driving this body, or None if none is connected."""
         return HARDWARE.get('relay')
 
-    def drain(self) -> int:
+    def drain(self, rounds: int = None) -> int:
         """Discard the queued PC transfers once shooting has stopped.
 
         Every frame taken with an SDK session open holds one of 32 buffer
@@ -681,10 +685,15 @@ class FujiCamera(BaseCamera):
         later, and a single drain leaves the tail of the burst queued.  A bracket
         or a single settles inside the first round, so this costs them one extra
         capacity read and one short settle.
+
+        ``rounds=1`` takes whatever has arrived and leaves the rest, for callers
+        that only need slots back rather than an empty queue.  Chasing the tail
+        of a burst costs six seconds, and at C2 that is worth more than a clean
+        buffer nobody is waiting on.
         """
         drained = 0
         settle = SETTLE_BEFORE_DRAIN_S
-        for _ in range(max(1, DRAIN_ROUNDS)):
+        for _ in range(max(1, DRAIN_ROUNDS if rounds is None else rounds)):
             time.sleep(settle)
             try:
                 this_round = self._sdk_cam.drain_buffer()

@@ -1,0 +1,16 @@
+voice_prompt, C2, -, 0:00:20.0, C2_IN_20_SECONDS
+voice_prompt, C2, -, 0:00:08.0, FILTERS_OFF
+take_burst, C2, -, 0:00:02.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 28, "C2 beads - contact sits on C2, the drain runs after it"
+take_bracket, C2, +, 0:00:11.0, Fuji Fujifilm X-T4, 1/1000, -, 400, "+/- 3", "Inner corona and prominences, shortest rung first"
+take_bracket, C2, +, 0:00:31.0, Fuji Fujifilm X-T4, 1/125, -, 400, "+/- 2", "Mid corona"
+take_picture, C2, +, 0:00:47.0, Fuji Fujifilm X-T4, 1, -, 400, "Outer corona 1s"
+take_picture, C2, +, 0:00:51.0, Fuji Fujifilm X-T4, 2, -, 400, "Outer corona 2s"
+take_picture, C2, +, 0:00:55.0, Fuji Fujifilm X-T4, 4, -, 400, "Outer corona 4s - earthshine on the lunar disc if it reaches"
+for, C2, C3, 5, 62, -40
+take_picture, C2, +, 0:00:00.0, Fuji Fujifilm X-T4, 1/60, -, 400, "Corona single - these fill whatever the duration turns out to be"
+endfor
+take_bracket, C3, -, 0:00:34.0, Fuji Fujifilm X-T4, 1/125, -, 400, "+/- 2", "Mid corona, second pass"
+take_bracket, C3, -, 0:00:18.0, Fuji Fujifilm X-T4, 1/1000, -, 400, "+/- 2", "Inner corona before C3"
+voice_prompt, C3, -, 0:00:20.0, C3_IN_10_SECONDS
+take_burst, C3, -, 0:00:02.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 28, "C3 beads - contact sits on C3"
+voice_prompt, C3, +, 0:00:03.0, FILTERS_ON
