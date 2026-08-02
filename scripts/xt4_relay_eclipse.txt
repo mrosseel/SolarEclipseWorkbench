@@ -1,0 +1,96 @@
+# X-T4 through the relay — production eclipse script
+#
+# Site 41.764N 2.929W 1100 m, 12 August 2026.  C1 17:34:28Z (sun 17.6 deg),
+# C2 18:29:13Z (7.4 deg), C3 18:30:56Z, totality 1m43s.  The sun SETS at
+# 19:16Z, before fourth contact — there is no C4 to photograph.
+#
+# Standard commands throughout: the relay is a property of the camera, not of
+# the script.  take_picture taps the relay once, take_burst holds it, and
+# take_bracket sets each speed over USB between taps; every one of them drains
+# the transfer queue afterwards so the 32-frame buffer can never fill.
+# Aperture is "-" because the telescope has none the camera can set.
+#
+# BODY CONFIGURATION, locked before C1 and never touched again:
+#   drive dial CH at 15 fps, mechanical shutter, shutter speed dial T,
+#   ISO dial C, PC CONNECTION MODE = USB TETHER SHOOTING FIXED,
+#   power save OFF, RAW only, manual focus, IS off.
+#
+# LOAD ORDER: detect the camera, connect the relay (S2=2, S1=1), then load
+# this script — commands bind to their devices at load time.
+
+# ---------------------------------------------------------------- uneclipsed
+take_picture, C1, -, 0:03:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Uneclipsed reference 1"
+take_picture, C1, -, 0:02:30.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Uneclipsed reference 2"
+take_picture, C1, -, 0:02:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Uneclipsed reference 3"
+
+# ---------------------------------------------------------------- first contact
+take_picture, C1, -, 0:00:04.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "First contact (before)"
+take_picture, C1, +, 0:00:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "First contact"
+take_picture, C1, +, 0:00:04.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "First contact (after)"
+
+# ------------------------------------------------- partials C1 -> C2, every 4 min
+take_picture, C2, -, 0:52:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (1)"
+take_picture, C2, -, 0:48:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (2)"
+take_picture, C2, -, 0:44:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (3)"
+take_picture, C2, -, 0:40:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (4)"
+take_picture, C2, -, 0:36:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (5)"
+take_picture, C2, -, 0:32:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (6)"
+take_picture, C2, -, 0:28:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (7)"
+take_picture, C2, -, 0:24:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (8)"
+take_picture, C2, -, 0:20:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (9)"
+take_picture, C2, -, 0:16:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (10)"
+take_picture, C2, -, 0:12:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial C1-C2 (11)"
+take_picture, C2, -, 0:08:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Thinning crescent"
+take_picture, C2, -, 0:05:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Thinning crescent"
+take_picture, C2, -, 0:03:30.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Thinning crescent"
+take_picture, C2, -, 0:02:00.0, Fuji Fujifilm X-T4, 1/500, -, 320, "Deep crescent"
+
+# ------------------------------------------------------------- approach to C2
+# S1 held from here to past C3: it drops the trigger delay from ~170 ms to the
+# body's own ~45 ms, and keeps the camera awake.
+relay_arm, C2, -, 0:00:45.0, "S1 held from here to past C3"
+
+# Diamond ring and Baily's beads, 27 frames each (1.8 s at 15 fps, below the
+# 32-frame buffer), bracketed across the contact.  Ring speed is anchored to
+# the 2017 eclipse card (1/4000 at ISO 100, sun 45 deg): +1.7 stops for ISO
+# 320, -1.4 stops for this 7.4 deg sun at airmass 7.7.
+take_burst, C2, -, 0:00:12.0, Fuji Fujifilm X-T4, 1/5000, -, 320, 27, "Diamond ring, west limb"
+take_burst, C2, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/2000, -, 320, 27, "Baily's beads at C2"
+take_burst, C2, +, 0:00:00.5, Fuji Fujifilm X-T4, 1/500, -, 320, 27, "Chromosphere / prominences"
+
+# ------------------------------------------------------------------- totality
+# Seven-rung corona ladders, 2 EV apart, 1/2000 to 2 s — about 8 s each.  The
+# last adds the 4 s earthshine frame the 2017 sequence had at maximum, at ISO
+# 640 for one more stop at this low sun.
+take_bracket, C2, +, 0:00:08.0, Fuji Fujifilm X-T4, 1/2000, -, 320, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder 1"
+take_bracket, C2, +, 0:00:19.0, Fuji Fujifilm X-T4, 1/2000, -, 320, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder 2"
+take_bracket, C2, +, 0:00:30.0, Fuji Fujifilm X-T4, 1/2000, -, 320, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder 3"
+take_bracket, C2, +, 0:00:41.0, Fuji Fujifilm X-T4, 1/2000, -, 320, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder 4"
+take_bracket, C2, +, 0:00:52.0, Fuji Fujifilm X-T4, 1/2000, -, 320, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder 5"
+take_bracket, C2, +, 0:01:03.0, Fuji Fujifilm X-T4, 1/2000, -, 640, 1/2000;1/500;1/125;1/30;1/8;1/2;2;4, "Corona ladder 6 + earthshine"
+
+# ------------------------------------------------------------------ C3 beads
+take_burst, C3, -, 0:00:08.0, Fuji Fujifilm X-T4, 1/500, -, 320, 27, "Chromosphere before C3"
+take_burst, C3, -, 0:00:02.0, Fuji Fujifilm X-T4, 1/2000, -, 320, 27, "Baily's beads at C3"
+take_burst, C3, +, 0:00:04.0, Fuji Fujifilm X-T4, 1/5000, -, 320, 27, "Diamond ring, east limb"
+
+relay_release, C3, +, 0:00:20.0, "S1 released; latency back to normal"
+
+# ------------------------------------------------- partials C3 -> sunset, 4 min
+take_picture, C3, +, 0:02:00.0, Fuji Fujifilm X-T4, 1/500, -, 320, "Reappearing crescent"
+take_picture, C3, +, 0:04:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial after C3 (1)"
+take_picture, C3, +, 0:08:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial after C3 (2)"
+take_picture, C3, +, 0:12:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial after C3 (3)"
+take_picture, C3, +, 0:16:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial after C3 (4)"
+take_picture, C3, +, 0:20:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial after C3 (5)"
+take_picture, C3, +, 0:24:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial after C3 (6)"
+take_picture, C3, +, 0:28:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial after C3 (7)"
+take_picture, C3, +, 0:32:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial after C3 (8)"
+take_picture, C3, +, 0:36:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Partial after C3 (9)"
+
+# ------------------------------------------------------- the eclipsed sunset
+# The sun reaches the horizon at 19:16Z, C3 + 45 min, still eclipsed.
+take_picture, C3, +, 0:40:00.0, Fuji Fujifilm X-T4, 1/1000, -, 320, "Eclipsed sun, low"
+take_picture, C3, +, 0:42:00.0, Fuji Fujifilm X-T4, 1/500, -, 320, "Eclipsed sunset"
+take_picture, C3, +, 0:43:30.0, Fuji Fujifilm X-T4, 1/250, -, 320, "Eclipsed sunset"
+take_picture, C3, +, 0:44:30.0, Fuji Fujifilm X-T4, 1/125, -, 320, "Eclipsed sunset, last light"
