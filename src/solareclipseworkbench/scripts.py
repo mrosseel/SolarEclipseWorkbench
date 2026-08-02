@@ -6,13 +6,6 @@ from datetime import datetime, timedelta
 from solareclipseworkbench.hardware_registry import HARDWARE_COMMANDS
 
 
-# Composite commands that drive the X-T4 and the relay together (defined in
-# eclipse_fuji.py).  Passed through like hardware commands: the scheduler
-# resolves the camera and relay when the line is scheduled.
-FUJI_COMMANDS = ("fuji_speed", "fuji_drain", "fuji_partial",
-                 "fuji_beads_burst", "fuji_ladder")
-
-
 def convert_command(line, ref_moment, sign, time_delta, extra_comment, output_file) -> io.StringIO:
     # Use CSV parser to properly handle quoted fields with commas
     try:
@@ -65,10 +58,10 @@ def convert_command(line, ref_moment, sign, time_delta, extra_comment, output_fi
         to_execute = command_parts[4] if len(command_parts) > 4 else ""
         comment = command_parts[5] if len(command_parts) > 5 else ""
         command = "command"
-    elif command_parts[0] in HARDWARE_COMMANDS or command_parts[0] in FUJI_COMMANDS:
-        # Relay, mount and Fuji composite commands take a variable number of
-        # arguments and are resolved to their devices at scheduling time, so
-        # they only need their time delta rewritten.
+    elif command_parts[0] in HARDWARE_COMMANDS:
+        # Relay and mount commands take a variable number of arguments and are
+        # resolved to a device at scheduling time, so they only need their time
+        # delta rewritten.
         command = command_parts[0]
         hardware_args = [part.strip() for part in command_parts[4:-1]] if len(command_parts) > 4 else []
         comment = command_parts[-1] if len(command_parts) > 4 else ""
@@ -118,7 +111,7 @@ def convert_command(line, ref_moment, sign, time_delta, extra_comment, output_fi
     elif command == "command":
         output_file.write(
             f"{command}, {ref_moment}, {sign}, {time_delta}, {to_execute.strip()}, \"{comment.strip()+extra_comment}\"\n")
-    elif command in HARDWARE_COMMANDS or command in FUJI_COMMANDS:
+    elif command in HARDWARE_COMMANDS:
         fields = "".join(f"{arg}, " for arg in hardware_args)
         output_file.write(
             f"{command}, {ref_moment}, {sign}, {time_delta}, {fields}\"{comment.strip()+extra_comment}\"\n")

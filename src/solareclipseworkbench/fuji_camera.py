@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 from . import hardware_problems
 from .camera import BaseCamera, CameraError
+from .hardware_registry import HARDWARE
 
 # Lazy import — fujixsdk may not be installed / the SDK libs may be absent.
 try:
@@ -49,6 +50,92 @@ try:
 except ImportError as _exc:
     FUJIXSDK_AVAILABLE = False
     FUJIXSDK_IMPORT_ERROR = str(_exc)
+
+
+# ======================================================================
+# Relay-driven shooting
+#
+# With the drive dial on CH — which a total eclipse needs for its Baily's
+# beads bursts — the SDK cannot fire the shutter at all (0x1008).  A relay
+# on the release jack can, at the body's native 15 fps, so when one is
+# connected the relay does the firing and the SDK is left to do what it is
+# good at: exposure and draining.  Measured on the bench, 1 August 2026.
+# ======================================================================
+
+# 15 fps for longer than this reaches the 32-slot buffer before the drain that
+# follows can run, and a full buffer stops the camera dead.
+MAX_BURST_S = 1.9
+CH_FPS = 15
+
+# Contact closure per frame.  40 ms missed roughly 8% of taps; 80 ms never did.
+TAP_S = 0.08
+
+# Shortest useful gap between taps; long exposures extend it (see _tap_gap).
+TAP_GAP_S = 0.35
+
+# The session survives a drain only once the camera has genuinely stopped.
+SETTLE_BEFORE_DRAIN_S = 1.0
+
+# For about a second after a frame the body refuses exposure changes with
+# 0x1006 while it writes to the card.  The busy clears by itself.
+BUSY_RETRIES = 6
+BUSY_BACKOFF_S = 0.3
+
+
+def _retry_busy(action, what: str) -> bool:
+    """Run a camera call that may be refused while the body is busy."""
+    for attempt in range(BUSY_RETRIES):
+        try:
+            action()
+            return True
+        except Exception:
+            if attempt + 1 == BUSY_RETRIES:
+                logging.exception('%s failed after %d attempts', what, BUSY_RETRIES)
+                return False
+            time.sleep(BUSY_BACKOFF_S)
+    return False
+
+
+class _RelayShooter:
+    """Relay-driven stand-in for EclipseShooter.
+
+    Exposes the same two methods ``take_burst`` and ``take_bracket`` call, so
+    neither needs to know which mechanism is firing the shutter.
+    """
+
+    def __init__(self, camera: FujiCamera):
+        self.camera = camera
+
+    def burst_no_download(self, count: int, min_interval_ms: int = 0) -> int:
+        """Hold the release long enough for ``count`` frames at the CH rate."""
+        seconds = min(count / CH_FPS, MAX_BURST_S)
+        with self.camera.relay.pressed():
+            time.sleep(seconds)
+        self.camera.drain()
+        return int(seconds * CH_FPS)
+
+    def bracket_no_download(self, speeds: list, iso=None, aperture=None) -> int:
+        """One tap per speed, the speed set over USB between taps.
+
+        ISO and aperture are deliberately ignored: ``configure`` has already
+        applied them, and re-applying them here — as the SDK shooter does —
+        would silently undo the ISO the caller asked for.
+        """
+        relay = self.camera.relay
+        taken = 0
+        relay.half_press()
+        try:
+            for speed in speeds:
+                _retry_busy(lambda s=speed: self.camera._sdk_cam.set_shutter_speed(s),
+                            f'{self.camera.name}: set shutter speed {speed}')
+                relay.shoot(pulse=TAP_S)
+                taken += 1
+                # A slow frame must finish before the next speed is sent.
+                time.sleep(max(TAP_GAP_S, speed / 1_000_000 + 0.3))
+        finally:
+            relay.release_all()
+        self.camera.drain()
+        return taken
 
 
 # ======================================================================
@@ -286,7 +373,9 @@ class FujiCamera(BaseCamera):
             if kwargs.get('iso') is not None:
                 _apply('ISO', _parse_iso, self._sdk_cam.set_iso, kwargs['iso'])
 
-            if kwargs.get('aperture') is not None:
+            # A telescope has no electronic aperture, so a script says "-" and
+            # the setting is skipped rather than failing every single frame.
+            if kwargs.get('aperture') not in (None, '', '-'):
                 _apply('aperture', _parse_aperture, self._sdk_cam.set_aperture, kwargs['aperture'])
 
             if kwargs.get('shutter_speed') is not None:
@@ -298,9 +387,38 @@ class FujiCamera(BaseCamera):
                 f"{self.name}: could not apply " + "; ".join(failures)
             )
 
+    @property
+    def relay(self):
+        """The relay trigger driving this body, or None if none is connected."""
+        return HARDWARE.get('relay')
+
+    def drain(self) -> int:
+        """Discard the queued PC transfers once shooting has stopped.
+
+        Every frame taken with an SDK session open holds one of 32 buffer
+        slots until it is drained, and a full buffer stops the body dead —
+        recoverable only by pulling the battery.  The images themselves are
+        already on the card; only the transfer nobody asked for is discarded.
+        Callers must have released the relay first: draining while the camera
+        is still shooting drops the USB session for good.
+        """
+        time.sleep(SETTLE_BEFORE_DRAIN_S)
+        try:
+            return self._sdk_cam.drain_buffer()
+        except Exception:
+            logging.exception('%s: drain failed; shooting is unaffected', self.name)
+            return 0
+
     def capture(self):
-        """Fire the shutter without AF. Retries once after reconnect on failure."""
+        """Fire the shutter, through the relay when one is connected.
+
+        Retries once after reconnect on failure.
+        """
         with self._lock:
+            if self.relay is not None:
+                self.relay.shoot(pulse=TAP_S)
+                self.drain()
+                return
             try:
                 self._sdk_cam.shoot_no_af()
             except Exception as first_err:
@@ -349,7 +467,10 @@ class FujiCamera(BaseCamera):
 
     # Fuji-specific
     @property
-    def shooter(self) -> EclipseShooter:
+    def shooter(self):
+        """Whatever can fire this body: the relay if one is connected, else the SDK."""
+        if self.relay is not None:
+            return _RelayShooter(self)
         if self._shooter is None:
             self._shooter = EclipseShooter(self._sdk_cam)
         return self._shooter
@@ -363,7 +484,26 @@ class FujiCamera(BaseCamera):
         The workbench passes bracket steps like "+/- 1 2/3" for Canon AEB.
         For Fuji, we interpret this as EV steps around the current speed
         and return a list of SDK shutter speed constants.
+
+        A semicolon-separated list of speeds ("1/2000;1/125;1/8;2") is taken
+        literally instead.  A corona ladder spans some twelve stops in 2 EV
+        steps, which the symmetric 1/3-EV form cannot express without firing
+        dozens of redundant frames.
         """
+        if ";" in steps_str:
+            speeds, unknown = [], []
+            for text in (part.strip() for part in steps_str.split(";")):
+                if not text:
+                    continue
+                value = _parse_shutter_speed(text)
+                (speeds if value is not None else unknown).append(value or text)
+            if unknown:
+                raise CameraError(
+                    f"{self.name}: bracket lists shutter speeds this camera does "
+                    f"not have: {', '.join(unknown)}"
+                )
+            return speeds
+
         # Both of these have to succeed for a bracket to mean anything.  The
         # previous version returned an empty list when the read failed, which
         # made the bracket take no frames at all without saying so.

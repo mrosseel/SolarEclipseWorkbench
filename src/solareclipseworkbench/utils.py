@@ -9,9 +9,6 @@ from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_b
     sync_cameras, scripts, execute_command
 from solareclipseworkbench import relay_shoot, relay_burst, relay_bulb
 from solareclipseworkbench.relay_trigger import relay_arm, relay_release
-from solareclipseworkbench.eclipse_fuji import (
-    fuji_speed, fuji_drain, fuji_partial, fuji_beads_burst, fuji_ladder,
-)
 from solareclipseworkbench import mount_track_sun, mount_goto_sun, mount_tracking, mount_park, mount_unpark, mount_stop
 from solareclipseworkbench import hardware_problems
 from solareclipseworkbench.camera import CameraSettings
@@ -35,11 +32,6 @@ COMMANDS = {
     'relay_bulb': relay_bulb,
     'relay_arm': relay_arm,
     'relay_release': relay_release,
-    'fuji_speed': fuji_speed,
-    'fuji_drain': fuji_drain,
-    'fuji_partial': fuji_partial,
-    'fuji_beads_burst': fuji_beads_burst,
-    'fuji_ladder': fuji_ladder,
     'mount_track_sun': mount_track_sun,
     'mount_goto_sun': mount_goto_sun,
     'mount_tracking': mount_tracking,
@@ -249,19 +241,6 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
                     settings = CameraSettings(args[0].strip(), args[1].strip(), args[2].strip(), int(args[3].strip()))
                     new_args = [cameras[args[0].strip()], settings, int(args[4].strip())]
                     args = new_args
-                elif func_name in ("fuji_speed", "fuji_drain"):
-                    args = [cameras[args[0].strip()]] + [a.strip() for a in args[1:] if a.strip()]
-                elif func_name in ("fuji_partial", "fuji_beads_burst", "fuji_ladder"):
-                    # Composites drive the camera and the relay together.
-                    relay = HARDWARE.get("relay")
-                    if relay is None:
-                        logging.warning(
-                            'schedule_command: no relay is connected, so "%s" will be '
-                            'skipped.  Connect the relay before loading the script.',
-                            func_name,
-                        )
-                        return
-                    args = [cameras[args[0].strip()], relay] + [a.strip() for a in args[1:] if a.strip()]
                 elif func_name == "sync_cameras":
                     args = [controller]
             except KeyError:
