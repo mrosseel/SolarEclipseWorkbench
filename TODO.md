@@ -277,3 +277,35 @@ Two results that matter for scheduling:
 - [ ] Sanity-check that our 1 s absolute accuracy is comfortable here: it is a fifth
       of a bead window, so centring is safe, but the window *edges* are where it
       would show
+
+## Third reference: eclipse-chaser-log.com, 2026-08-12
+
+Their interactive map gives per-location circumstances including a limb correction,
+so it is a third independent check.  At 41.7639, -2.9294, 1180 m:
+
+| quantity      | ours       | site        | delta   |
+|---------------|------------|-------------|---------|
+| Delta T       | 69.1087 s  | 69.10 s     | exact   |
+| C2 mean limb  | 18:29:13.15| 18:29:12.66 | +0.49 s |
+| C3 mean limb  | 18:30:56.06| 18:30:56.63 | -0.57 s |
+| duration      | 102.91 s   | 103.97 s    | -1.06 s |
+| C2 correction | -0.27 s    | -1.01 s     | 0.74 s  |
+| C3 correction | -2.87 s    | -1.26 s     | 1.61 s  |
+
+Two things this settles:
+
+- **The solar radius signature repeats.**  The mean contacts straddle theirs almost
+  symmetrically (+0.49, -0.57), so the midpoint agrees to about 0.04 s and the whole
+  disagreement is 1.06 s of duration -- the same shape as the Svalbard case, and the
+  same cause: our 959.94" against the standard 959.63".  Third independent
+  confirmation, and the sign says our totality is short because our Sun is big.
+- **The correction scatter is not converging.**  0.74 s and 1.61 s here, against
+  1.42/0.45 at Svalbard and 0.85/1.55 at Lusaka.  Three references, three different
+  limb datasets, no consistent bias -- our corrections sit within about 1.6 s of all
+  of them and match none.  At a 2 to 8 s bead window that is fine for centring a
+  burst, and it is not good enough to claim sub-second contact times.
+
+- [ ] Decide what to do about SOLAR_RADIUS.  959.94" is Jubier's suggested value and
+      matches Quaglia's 959.95 +/- 0.05 from 2017 flash spectra, so it is arguably the
+      better constant -- but every reference we check against uses 959.63", so we will
+      always look 1 s short.  Either keep it and document why, or make it a setting.
