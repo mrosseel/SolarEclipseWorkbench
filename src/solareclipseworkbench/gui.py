@@ -1165,14 +1165,17 @@ class SolarEclipseController(Observer):
 
         self._live_view_window: Union[LiveViewWindow, None] = None
 
-        # Restore before connecting, so putting the box back the way the user
-        # left it does not trigger a recalculation on every start-up.
+        self.load_settings()
+
+        # After load_settings, because that is what creates view.settings.  It
+        # also schedules the reference moments onto the event loop, which has not
+        # run yet, so the correction is in place before they are first computed.
+        # Restored before the signal is connected, so putting the box back the
+        # way the user left it does not trigger a recalculation on start-up.
         remembered = self.view.settings.value("limb_correction", True, type=bool)
         self.view.limb_correction_checkbox.setChecked(remembered)
         set_limb_correction_enabled(remembered)
         self.view.limb_correction_checkbox.toggled.connect(self.on_limb_correction_toggled)
-
-        self.load_settings()
 
     def on_limb_correction_toggled(self, enabled: bool):
         """Apply or drop the lunar limb correction and redo the contact times.
