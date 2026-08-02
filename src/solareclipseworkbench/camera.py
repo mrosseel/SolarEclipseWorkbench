@@ -1713,10 +1713,9 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
                 and hasattr(camera, 'shooter')
                 and hasattr(camera, 'parse_bracket_speeds')):
             speeds = camera.parse_bracket_speeds(steps)
-            # A bracket that quietly comes back one frame long looks identical in
-            # the images to one that was never asked for.  Say what ladder was
-            # built and how much of it the body actually took, so the two can be
-            # told apart afterwards without reading EXIF off the card.
+            # Record the ladder and how much of it the body took: a short bracket
+            # is otherwise indistinguishable in the images from one never asked
+            # for, without reading EXIF off the card.
             logging.info(
                 '%s: take_bracket %s -> %d frame(s): %s',
                 camera_name, steps, len(speeds), camera.describe_speeds(speeds),
@@ -2573,11 +2572,8 @@ def get_time(camera: Camera) -> str:
 def set_time(camera: Camera) -> None:
     """ Set the computer time on the selected camera """
     # A body that is not driven through gphoto2 handles its own clock, and says
-    # so when it cannot.  Walking an SDK camera through the widget path below
-    # writes the time into a stub config that is then thrown away: the sync
-    # reports success and the camera clock never moves, which is the one outcome
-    # worse than failing, because the frames look correctly timed until they are
-    # compared against the contact times.
+    # so when it cannot.  The widget path below would write the time into a stub
+    # config and report success without moving the camera clock.
     own_sync = getattr(camera, 'sync_clock', None)
     if callable(own_sync):
         own_sync()

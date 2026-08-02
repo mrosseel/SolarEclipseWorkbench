@@ -223,13 +223,11 @@ _SPEED_MATCH_TOLERANCE = 2.0 ** (1.0 / 6.0)
 
 
 def _parse_shutter_speed(speed_str: str) -> Optional[int]:
-    """Map workbench shutter speed string to fujixsdk constant.
+    """Map a workbench shutter speed string to a fujixsdk constant.
 
-    A script writes what reads naturally at the eyepiece, and the same exposure
-    has several spellings: the table calls half a second '1/2"' while a schedule
-    of decimal-second corona frames calls it '0.5'.  Matching on the string alone
-    rejected the decimal form, and the frame was then taken at whatever speed the
-    previous line had left on the body.
+    The same exposure has several spellings — the table calls half a second
+    '1/2"', a schedule of decimal-second corona frames calls it '0.5' — so an
+    unmatched string falls back to matching on duration.
     """
     rmap = _get_speed_reverse()
     clean = speed_str.strip().rstrip('"')
@@ -559,19 +557,15 @@ class FujiCamera(BaseCamera):
             return False
 
     def sync_clock(self) -> None:
-        """Say plainly that this body's clock cannot be written from here.
+        """Report that this body's clock cannot be written from here.
 
         The Shooting SDK's model headers list a SetDateTime API code, but the
-        public headers declare no entry point for it and XAPI exports none, so
-        there is nothing to call.  The generic gphoto2 path is not an
-        alternative: ``set_config`` below is a no-op, so it would write the time
-        into a throwaway stub and report success.
+        public headers declare no entry point and XAPI exports none, so there is
+        nothing to call.  ``set_config`` below is a no-op, so the gphoto2 path is
+        not an alternative either.
 
-        Every frame therefore carries whatever the body's own clock says.  That
-        is only a problem if nobody knows about it, so it is reported rather
-        than skipped: set the clock on the camera by hand before the run, and
-        note the residual offset so the frames can be matched to contact times
-        afterwards.
+        Frames therefore carry whatever the body's own clock says: set it by hand
+        and note the residual offset.
         """
         hardware_problems.report(
             self.name,
@@ -652,9 +646,8 @@ class FujiCamera(BaseCamera):
             ) from exc
 
         if current_speed not in supported:
-            # One frame at the speed already on the body is the safest thing to
-            # do, but it is not the bracket that was asked for, and on the card
-            # it is indistinguishable from a bracket that failed halfway.
+            # One frame at the speed already on the body: safe, but not the
+            # bracket that was asked for, so it has to be said out loud.
             logging.warning(
                 '%s: the camera reports it is at %s, which is not in the %d speeds it '
                 'says it supports — bracketing %s collapses to a single frame',
@@ -691,9 +684,8 @@ class FujiCamera(BaseCamera):
 
         wanted = 2 * positions + 1
         if len(speeds) < wanted:
-            # Running off either end of the scale is worth hearing about: the
-            # bracket is then lopsided around the base exposure rather than
-            # symmetric, which is not what the schedule was computed for.
+            # Running off either end leaves the bracket lopsided around the base
+            # exposure rather than symmetric, which the schedule did not assume.
             logging.warning(
                 '%s: bracketing %s around %s wanted %d frames but the scale only '
                 'reaches %d of them',

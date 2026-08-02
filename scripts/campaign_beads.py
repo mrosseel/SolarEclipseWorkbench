@@ -1,10 +1,9 @@
 """Bench campaign: how many frames the beads can actually have.
 
-The production schedule holds the release for 1.9 s at each contact because that
-is what MAX_BURST_S says the 32-slot transfer queue will take.  1.9 s was never
-measured — it was inferred from 15 fps and a full queue stopping the body dead.
-Meanwhile the beads themselves run 3.25 s at C2 and 4.05 s at C3, so the burst
-covers barely half of what there is to photograph, and the rest is guesswork.
+The production schedule holds the release for 1.9 s at each contact, which is
+MAX_BURST_S: an estimate from 15 fps against a 32-slot transfer queue, not a
+measurement.  The beads run 3.25 s at C2 and 4.05 s at C3 for this site, so the
+burst covers barely half of what there is to photograph.
 
 Three questions, one sitting, one card:
 

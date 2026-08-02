@@ -444,8 +444,8 @@ class SolarEclipseView(QMainWindow, Observable):
 
         self.reference_moments_widget = QWidget()
 
-        # The bead windows are the other thing the correction buys, and until now
-        # there was nowhere to see them: a burst is aimed at these, not at C2.
+        # A contact burst is aimed at the bead window rather than at the contact,
+        # so the window is worth reading directly.
         self.beads_c2_label = QLabel()
         self.beads_c2_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.beads_c3_label = QLabel()
@@ -453,9 +453,7 @@ class SolarEclipseView(QMainWindow, Observable):
 
         self.limb_correction_checkbox = QCheckBox(
             "Apply the lunar limb correction to the contact times")
-        # On unless the user has said otherwise: the corrected contacts are the
-        # real ones, and a smooth Moon is the approximation.  The controller may
-        # replace this with what was remembered from the last run.
+        # The controller replaces this with whatever was remembered.
         self.limb_correction_checkbox.setChecked(True)
         self.limb_correction_checkbox.setToolTip(
             "The Moon's limb is mountainous, so second and third contact do not "
@@ -598,11 +596,10 @@ class SolarEclipseView(QMainWindow, Observable):
         app_frame = QFrame()
         app_frame.setObjectName("AppFrame")
 
-        # Geometry and beads are two pictures of the same moment, so they are
-        # docks tabbed onto each other rather than two halves of a splitter that
-        # made both permanently half-height.  Each can be closed, floated onto a
-        # second screen for totality, or dragged to another edge, and Qt tracks
-        # all of it through toggleViewAction and saveState.
+        # Geometry and beads are two pictures of the same moment, so they share
+        # one tabbed slot.  Either can be closed, floated onto a second screen for
+        # totality, or dragged to another edge; Qt tracks that through
+        # toggleViewAction and saveState.
         self.geometry_dock = QDockWidget("Eclipse geometry", self)
         self.geometry_dock.setObjectName("geometry_dock")
         self.geometry_dock.setWidget(self.eclipse_visualization)
@@ -615,13 +612,11 @@ class SolarEclipseView(QMainWindow, Observable):
         self.tabifyDockWidget(self.geometry_dock, self.beads_dock)
         self.geometry_dock.raise_()
 
-        # The mount lives in a dock too: it has to be watchable for the whole run,
-        # and closing it must not disturb anything else on screen.  All three are
-        # built before the toolbar, which borrows their show/hide actions.
+        # The mount is watchable for the whole run, and closing it must not
+        # disturb the rest of the window.  All three docks are built before the
+        # toolbar, which borrows their show/hide actions.
         self.mount_dock = MountDock(self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.mount_dock)
-        # Visible by default.  A dock that starts hidden behind a toolbar button
-        # is indistinguishable from one that was never built.
         self.mount_dock.show()
 
         self.add_toolbar()
@@ -719,11 +714,9 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(QLabel("Baily's beads (C3)"), 9, 0)
         reference_moments_grid_layout.addWidget(self.beads_c3_label, 9, 1, 1, 2)
 
-        # The correction belongs with the numbers it changes.  C2 and C3 move by
-        # seconds when it is applied — more than a bead burst is long — so the
-        # state has to be visible next to the times, not inferred from a toolbar
-        # button somewhere else.  Default on: the corrected contacts are the real
-        # ones, and a smooth Moon is the approximation.
+        # The correction belongs with the numbers it changes: it moves C2 and C3
+        # by seconds, which is more than a bead burst is long.  Default on — the
+        # corrected contacts are the real ones, a smooth Moon is the approximation.
         reference_moments_grid_layout.addWidget(self.limb_correction_checkbox, 10, 0, 1, 6)
         reference_moments_group_box.setLayout(reference_moments_grid_layout)
         # A minimum rather than a fixed width, so the box cannot be squeezed until
@@ -759,8 +752,8 @@ class SolarEclipseView(QMainWindow, Observable):
         """Put the docks back where the user left them."""
         settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
                              QSettings.Format.IniFormat)
-        # Docks are remembered by object name, so a layout saved before one of
-        # them existed simply leaves that dock where the code put it.
+        # Docks are keyed by object name, so a layout saved before one of them
+        # existed leaves that dock where the code put it.
         dock_state = settings.value("layout/docks")
         if dock_state is not None:
             self.restoreState(dock_state)
@@ -817,8 +810,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.camera_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.camera_action)
 
-        # Relay trigger, next to the cameras: it is the shutter release for one of
-        # them, not a piece of general configuration.
+        # Next to the cameras: it is the shutter release for one of them.
 
         self.relay_action.setStatusTip("Relay shutter trigger")
         self.relay_action.setIcon(QIcon(str(ICON_PATH / "relay.png")))
@@ -874,17 +866,13 @@ class SolarEclipseView(QMainWindow, Observable):
             self.refresh_plot_action.triggered.connect(self.on_toolbar_button_click)
             self.toolbar.addAction(self.refresh_plot_action)
 
-        # Show or hide the beads graphic.  This one sets an option rather than
-        # performing an action, so it is pushed to the far end, away from the
-        # buttons that do something when pressed.  Whether the limb correction is
-        # applied to the moments is a separate question, asked in the reference
-        # moments box: hiding a picture must not silently move the contact times.
+        # These set options rather than performing actions, so they sit at the far
+        # end, away from the buttons that do something when pressed.
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.toolbar.addWidget(spacer)
 
-        # Qt's own toggles: they track a dock being closed by its X or torn off,
-        # which a hand-rolled show/hide action does not.
+        # Qt's own toggles, so closing a dock by its X keeps the button in step.
         self.geometry_dock_action = self.geometry_dock.toggleViewAction()
         self.geometry_dock_action.setText("Eclipse geometry")
         self.geometry_dock_action.setStatusTip("Show the eclipse geometry")
@@ -1013,11 +1001,9 @@ class SolarEclipseView(QMainWindow, Observable):
         # Second contact
 
         if "C2" in reference_moments:
-            # The limb-corrected moment when the correction is on and the profile
-            # is installed, the mean-limb one otherwise.  C3 here is three and a
-            # half seconds earlier than a smooth disc says — most of a bead burst
-            # — so showing the disc value while the script schedules against the
-            # real one would put the two out of step.
+            # The limb-corrected moment when there is one, the mean-limb moment
+            # otherwise.  Scripts schedule against the corrected contacts, so the
+            # display has to follow them or the two disagree.
             c2_info: ReferenceMomentInfo = reference_moments.get(
                 "C2_LIMB", reference_moments["C2"])
             self.c2_time_utc_label.setText(format_time(c2_info.time_utc, self.time_format))
@@ -1036,8 +1022,7 @@ class SolarEclipseView(QMainWindow, Observable):
             start = reference_moments.get(f"BEADS_{contact}_START")
             end = reference_moments.get(f"BEADS_{contact}_END")
             if start is None or end is None:
-                # No limb profile, or the correction is switched off.  Say which
-                # rather than leaving a blank that reads like a failed solve.
+                # Name the reason: a blank cell reads like a solve that failed.
                 label.setText("correction off" if not limb_correction_is_enabled()
                               else "no limb profile")
                 continue
@@ -1063,11 +1048,9 @@ class SolarEclipseView(QMainWindow, Observable):
         # Third contact
 
         if "C3" in reference_moments:
-            # The limb-corrected moment when the correction is on and the profile
-            # is installed, the mean-limb one otherwise.  C3 here is three and a
-            # half seconds earlier than a smooth disc says — most of a bead burst
-            # — so showing the disc value while the script schedules against the
-            # real one would put the two out of step.
+            # The limb-corrected moment when there is one, the mean-limb moment
+            # otherwise.  Scripts schedule against the corrected contacts, so the
+            # display has to follow them or the two disagree.
             c3_info: ReferenceMomentInfo = reference_moments.get(
                 "C3_LIMB", reference_moments["C3"])
             self.c3_time_utc_label.setText(format_time(c3_info.time_utc, self.time_format))
@@ -1189,11 +1172,10 @@ class SolarEclipseController(Observer):
 
         self.load_settings()
 
-        # After load_settings, because that is what creates view.settings.  It
-        # also schedules the reference moments onto the event loop, which has not
-        # run yet, so the correction is in place before they are first computed.
-        # Restored before the signal is connected, so putting the box back the
-        # way the user left it does not trigger a recalculation on start-up.
+        # After load_settings: it creates view.settings, and it schedules the
+        # reference moments onto the event loop, which has not run yet — so the
+        # correction is in place before they are first computed.  Restored before
+        # the signal is connected, so start-up triggers no recalculation.
         remembered = self.view.settings.value("limb_correction", True, type=bool)
         self.view.limb_correction_checkbox.setChecked(remembered)
         set_limb_correction_enabled(remembered)
@@ -1202,10 +1184,8 @@ class SolarEclipseController(Observer):
     def on_limb_correction_toggled(self, enabled: bool):
         """Apply or drop the lunar limb correction and redo the contact times.
 
-        The times on screen are the answer to a question this checkbox changes,
-        so they are recomputed rather than left stale: a script scheduled against
-        C2 while the box said one thing and run while it said another would fire
-        its bead bursts seconds out.
+        The times on screen answer the question this checkbox asks, so they are
+        recomputed rather than left stale.
         """
         set_limb_correction_enabled(enabled)
         self.view.settings.setValue("limb_correction", enabled)
@@ -2297,19 +2277,17 @@ class SimulatorPopup(QWidget, Observable):
 class MountDock(QDockWidget):
     """Connect to the mount and watch it, without leaving the main window.
 
-    A mount is not a thing you set up and dismiss: during a run it is either
-    tracking or it is quietly not, and the difference has to be visible from
-    across a field.  So this is a dock rather than a popup — it can sit open
-    beside the schedule for the whole eclipse, be torn off onto a second screen,
-    or be closed entirely, and Qt remembers which.
+    During a run the mount is either tracking or it quietly is not, and the
+    difference has to be visible from across a field — hence a dock that can sit
+    open beside the schedule, float onto a second screen, or be closed.
 
     The connected driver is registered with the hardware registry, so the
     mount_* commands in an eclipse script find it when they fire.
     """
 
     #: Carries a finished background connect back to the UI thread.  Serial
-    #: probing walks every port and can take seconds; doing it inline freezes
-    #: the window at exactly the moment the user is trying to get set up.
+    #: probing walks every port and can take seconds, which would otherwise
+    #: freeze the window.
     connected = pyqtSignal(object, str)
 
     POLL_MS = 2000
@@ -2375,9 +2353,8 @@ class MountDock(QDockWidget):
         self.track_button.clicked.connect(self.toggle_tracking)
         action_grid.addWidget(self.track_button, 0, 1)
 
-        # Stop is the one control that matters when something is going wrong, so
-        # it is the one control that is always the same size and in the same
-        # place, and never disabled while there is a mount to stop.
+        # The one control that matters when something is going wrong: fixed size,
+        # fixed place, live whenever there is a mount to stop.
         self.stop_button = QPushButton("STOP")
         self.stop_button.setMinimumHeight(44)
         self.stop_button.clicked.connect(self.stop)
@@ -2400,8 +2377,8 @@ class MountDock(QDockWidget):
         for direction, row, column in (("north", 0, 1), ("west", 1, 0),
                                        ("east", 1, 2), ("south", 2, 1)):
             button = QPushButton(direction[0].upper())
-            # Held, not clicked: the mount moves while the button is down, which
-            # is the only way to frame by eye.
+            # Held, not clicked: the mount moves while the button is down, which is
+            # what framing by eye needs.
             button.pressed.connect(lambda d=direction: self.move(d))
             button.released.connect(lambda d=direction: self.stop_move(d))
             move_grid.addWidget(button, row, column)
@@ -2480,15 +2457,13 @@ class MountDock(QDockWidget):
             return
 
         self.mount = mount
-        # Scheduled mount_* commands look the device up here, so a mount that is
-        # connected by hand is the same mount the script will drive.
+        # Scheduled mount_* commands look the device up here.
         register_hardware('mount', mount)
         self.connect_button.setText("Disconnect")
         self._apply_capabilities()
         self._set_controls_enabled(True)
         logging.info('Mount connected: %s', mount.describe())
-        # Said here rather than left to the poll: a dock that is connected while
-        # hidden does not poll, and must not still be reading "connecting...".
+        # Set here rather than left to the poll: a hidden dock does not poll.
         self.status_label.setText(mount.describe())
         self.refresh()
         if self.isVisible():
@@ -2513,8 +2488,8 @@ class MountDock(QDockWidget):
     def refresh(self) -> None:
         """Poll the mount, unless nobody is looking at the answer.
 
-        Every poll is a round trip down the same serial line the eclipse script
-        uses, so it is not free: a hidden dock stops asking.
+        Every poll is a round trip down the serial line the eclipse script also
+        uses, so a hidden dock stops asking.
         """
         if self.mount is None or not self.isVisible():
             return

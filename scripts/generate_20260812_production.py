@@ -67,9 +67,8 @@ ECLIPSE_DATE = "2026-08-12"
 # --- Gear, identical on both bodies ---------------------------------------
 FOCAL_RATIO = 6.0          # 80/480 refractor, used for the exposure arithmetic
 # A telescope has no electronic aperture, so the column says "-" and the setting
-# is skipped.  Writing the f-number here instead made every single frame try to
-# set an aperture the body cannot change, and answer 0x1006 "camera is busy" —
-# an error on every line of the run, loud enough to bury the real ones.
+# is skipped.  An f-number here makes every frame try to set an aperture the body
+# cannot change, and answer 0x1006 "camera is busy".
 APERTURE_FIELD = "-"
 ND = 4.0                   # Baader AstroSolar PHOTOGRAPHIC film (ND 3.8), not the
                            # ND 5.0 visual film.  Partial phases only.
@@ -286,11 +285,9 @@ RELAY_C3_N = int(RELAY_C3_S * XT4_RELAY_FPS)
 # 3.25 s at C2 and 4.05 s at C3, against a hold of 1.9 s.
 #
 # The diamond ring is the last bead before totality at C2 and the first one after
-# it at C3, so at both contacts it sits against the contact itself rather than in
-# the middle of the window.  Centring the burst - which is what scheduling it
-# against BEADS_C2 did - spent frames on the far edge and clipped the ring.  The
-# burst is therefore pinned to the contact-side edge: it ends at BEADS_C2_END and
-# starts at BEADS_C3_START.
+# it at C3, so at both contacts it sits against the contact rather than in the
+# middle of the window.  The burst is therefore pinned to the contact-side edge:
+# it ends at BEADS_C2_END and starts at BEADS_C3_START.
 #
 # The margin pushes it a little further towards totality than the solved edge.
 # The error is asymmetric: overshooting costs a handful of black frames at beads

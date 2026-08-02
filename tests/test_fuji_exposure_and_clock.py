@@ -1,13 +1,8 @@
-"""Three ways the X-T4 run of 2 August 2026 lost frames without saying so.
+"""Exposure and clock handling on the X-T4, where a failure is silent.
 
-Every case here was measured against the card and the run log, not imagined:
-
-*   the two outer-corona brackets fired at 1/25 s because the schedule spells
-    half a second ``0.5`` and the speed table spells it ``1/2"``;
-*   a bracket came back one frame long and nothing in the log said what ladder
-    had been asked for;
-*   ``sync_cameras`` reported success three times while the camera clock stayed
-    8 minutes fast, because the Fuji path writes the time into a throwaway stub.
+Each case guards something that produces normal-looking frames at the wrong
+settings, or a sync that reports success without moving the camera clock — the
+kind of fault that only shows up once the card is read.
 """
 
 from unittest.mock import MagicMock
@@ -70,8 +65,8 @@ def test_an_off_grid_value_snaps_but_says_so(caplog):
 
 def test_bracket_collapsing_to_one_frame_is_reported():
     cam, sdk = _camera()
-    # The body answering with a speed absent from its own supported list is what
-    # turns a thirteen-frame ladder into a single frame.
+    # A speed the body does not list among its supported ones collapses the
+    # ladder to a single frame.
     sdk.get_shutter_speed.return_value = (12_345, None)
     sdk.get_supported_shutter_speeds.return_value = [1000, 2000, 4000]
 
@@ -122,6 +117,6 @@ def test_set_time_delegates_to_a_camera_that_owns_its_clock():
     camera_mod.set_time(cam)
 
     cam.sync_clock.assert_called_once()
-    # The gphoto2 widget path must not also run: it is what quietly reported
-    # success on a body whose clock had not moved.
+    # The gphoto2 widget path must not also run: it reports success without
+    # moving the clock.
     cam.get_config.assert_not_called()

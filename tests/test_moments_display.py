@@ -1,14 +1,11 @@
 """The limb correction has to be visible in the times, not just in the model.
 
-The checkbox flipped `limb_correction.set_enabled`, the moments were recomputed,
-and the C2/C3 rows did not move — because the correction *adds* C2_LIMB and
-C3_LIMB rather than changing C2 and C3, and the rows read the latter. From the
-outside the control looked broken.
+The C2 and C3 rows show the limb-corrected contacts when the correction is on,
+because that is what an eclipse script schedules against.  The bead windows are
+shown too: a contact burst is aimed at a window, not at a contact.
 
-At this site C3 is 3.5 s earlier than a smooth disc says, which is most of a
-bead burst, and the production script schedules against the corrected moment.
-A display showing the disc value while the script uses the real one is worse
-than no display at all.
+The site constants below are the production site, chosen because the correction
+is worth whole seconds there and the assertions have something to bite on.
 """
 
 import os

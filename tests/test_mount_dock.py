@@ -1,8 +1,7 @@
 """The mount dock has to be safe before anything is plugged in.
 
-Every path here is one a user hits at a dark site with cold hands: scanning with
-nothing attached, connecting to something that does not answer, and pressing a
-button the mount cannot honour.  None of them may raise, and none of them may
+Scanning with nothing attached, connecting to something that does not answer,
+and pressing a button the mount cannot honour: none may raise, and none may
 leave the dock claiming a state it is not in.
 """
 

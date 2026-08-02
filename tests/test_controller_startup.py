@@ -1,13 +1,8 @@
 """Building the controller must not raise.
 
-Every other GUI test builds a view, or a single widget, and a view alone will
-happily construct while the controller that drives it is broken.  The limb
-correction checkbox was restored from ``view.settings`` in the controller's
-__init__ before ``load_settings`` had created it, and nothing caught it until
-the application was started by hand.
-
-So this does what main() does, in the same order, and asserts only that it
-survives — the cheapest possible guard against a start-up crash.
+A view, or a single widget, constructs perfectly well while the controller that
+drives it is broken — so this does what main() does, in the same order, and
+asserts only that it survives.
 """
 
 import os
@@ -43,7 +38,7 @@ def test_the_controller_builds(controller):
 
 
 def test_the_limb_correction_box_is_on_by_default(controller):
-    # Nothing was remembered in the scratch settings file, so this is the
+    # Nothing remembered in the scratch settings file, so this is the
     # out-of-the-box answer: corrected contacts are the real ones.
     assert controller.view.limb_correction_checkbox.isChecked()
 
