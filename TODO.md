@@ -326,3 +326,31 @@ second, and the whole 1 s disagreement was SOLAR_RADIUS and nothing else.
       probably does not model this in contact times either -- meaning no
       reference we have can validate a refraction correction.  Estimate first,
       then decide.
+
+### Refraction, quantified
+
+Done properly for 2026-08-12 at 41.7639, -2.9294, 1180 m, projecting the centre
+separation onto the vertical via the parallactic angle rather than assuming it:
+
+| | altitude | separation | vertical fraction | dR/dh | shift |
+|---|---|---|---|---|---|
+| C2 | 7.51 deg | 31.3" | 0.42 | -0.0138 | 0.18" = **0.30 s** |
+| C3 | 7.20 deg | 31.2" | 0.29 | -0.0148 | 0.14" = **0.22 s** |
+
+Both contacts move outward -- refraction compresses the sky vertically, so the
+centres appear closer, the Moon covers more, totality starts earlier and ends
+later.  Net **+0.5 s on duration**, one-signed.
+
+Smaller than the +/-0.7 s hand estimate, because the contacts happen 60 to 70
+degrees off the vertical here so only a third to a half of the separation is
+subject to the gradient.
+
+Assessment: real, one-signed, and second-order.  It is below our limb-correction
+scatter of about 1 s, and well below the 2 to 8 s bead window, so it does not
+affect burst centring.  It would matter to a sub-second contact-time claim.
+
+- [ ] Only implement this if sub-second contacts become the goal.  Note the
+      treatment above is first order: it takes the linear refraction gradient
+      across the centre separation and ignores that refraction also flattens
+      both discs, which enters at about the same order.  A correct
+      implementation refracts the limbs rather than scaling a separation.
