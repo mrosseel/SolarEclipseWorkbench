@@ -309,3 +309,20 @@ Two things this settles:
       matches Quaglia's 959.95 +/- 0.05 from 2017 flash spectra, so it is arguably the
       better constant -- but every reference we check against uses 959.63", so we will
       always look 1 s short.  Either keep it and document why, or make it a setting.
+
+### Same solar radius, same answer
+
+Re-run at 959.63" against the same site and location: C2 -0.02 s, C3 -0.06 s,
+duration -0.04 s.  Our mean-limb geometry is right to better than a tenth of a
+second, and the whole 1 s disagreement was SOLAR_RADIUS and nothing else.
+
+- [ ] Refraction.  At 7.6 deg altitude refraction is about 416 arcsec, but both
+      limbs are lifted almost equally, so what matters is the differential across
+      the roughly 20 arcsec between the centres at internal contact: about
+      0.27 arcsec, which at 0.4 arcsec/s is **0.7 s of timing**.  Same order as
+      our limb-correction scatter, so it is worth having for a low-sun eclipse
+      like 2026-08-12.  Note we match the reference to 0.02 s *without* it, and
+      its own footnote says refraction is applied to the altitude column, so it
+      probably does not model this in contact times either -- meaning no
+      reference we have can validate a refraction correction.  Estimate first,
+      then decide.
