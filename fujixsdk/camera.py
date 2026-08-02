@@ -23,6 +23,15 @@ from ._structures import (
     LensInformation,
 )
 
+# A drain re-reads the buffer because frames still being written are not counted
+# yet (see `drain_buffer`), but it runs between shots and so is kept on a short
+# leash: three passes and a fifth of a second between them, and never more than
+# DRAIN_BUDGET_S in total, whatever the body is still holding.
+DRAIN_PASSES = 3
+DRAIN_SETTLE_S = 0.2
+DRAIN_BUDGET_S = 2.0
+DRAIN_BUSY_BACKOFF_S = 0.1
+
 
 @dataclass
 class CameraInfo:
@@ -684,43 +693,103 @@ class Camera:
     def delete_image(self):
         self._check(self._lib_inst.XSDK_DeleteImage(self._handle))
 
-    def drain_buffer(self) -> int:
+    def drain_buffer(self, passes: int | None = None) -> int:
         """Delete all pending images from the volatile buffer.
 
-        Returns the number of images drained. Logs each attempt.
-        """
-        captured, total = self.get_buffer_capacity()
-        if captured <= 0:
-            return 0
+        GetBufferCapacity counts only the frames the body has finished writing,
+        so a burst that is still being flushed to the card reports short and a
+        single pass leaves the stragglers behind — they then turn up in the next
+        drain, credited to the wrong burst.  Passes are therefore repeated,
+        settling in between, until one finds the buffer genuinely empty.
 
+        Pass ``passes=1`` where the point is to free slots rather than to empty
+        the buffer — mid-burst, the settle between passes is time that would be
+        better spent shooting.
+
+        Returns the number of images drained.
+        """
+        deadline = time.monotonic() + DRAIN_BUDGET_S
+        drained = 0
+        captured = total = 0
+        per_pass: list[int] = []
+        for _ in range(max(1, DRAIN_PASSES if passes is None else passes)):
+            captured, total = self.get_buffer_capacity()
+            if captured <= 0:
+                break
+            this_pass = self._drain_pass(captured, deadline)
+            per_pass.append(this_pass)
+            drained += this_pass
+            if this_pass < captured:
+                # The pass stopped early on an error or an empty queue; another
+                # will not do better.
+                break
+            if time.monotonic() + DRAIN_SETTLE_S >= deadline:
+                log.warning("Drain budget spent after %d image(s); "
+                            "the rest go with the next drain", drained)
+                break
+            time.sleep(DRAIN_SETTLE_S)
+
+        if drained:
+            # The per-pass split says how much the body was still holding back
+            # when the first pass read the buffer — the only measure there is of
+            # how many frames a single tap really queues.
+            log.info("Drained %d pending image(s) from buffer (%s)",
+                     drained, " + ".join(str(n) for n in per_pass))
+        else:
+            log.debug("No images to drain (buffer: %d/%d)", captured, total)
+        return drained
+
+    def _drain_pass(self, captured: int, deadline: float) -> int:
+        """Delete up to ``captured`` images, returning how many actually went.
+
+        A busy body is waited out rather than deleted through: an image is only
+        ever counted as drained once ReadImageInfo has confirmed one is there and
+        DeleteImage has taken it.  Deleting blind on a busy read — which is what
+        this did until 2 August — inflates the count with images that may never
+        have existed, and the count is the only evidence of how many frames a tap
+        really queues.
+        """
         drained = 0
         for i in range(captured):
             try:
-                info = self.read_image_info()
-                fmt = info.format & 0xFF
-                log.debug("Buffer entry %d: format=0x%04X size=%d", i, info.format, info.data_size)
-                if fmt == C.IMAGEFORMAT_NONE:
-                    log.debug("No more images in queue (IMAGEFORMAT_NONE)")
-                    break
-                self.delete_image()
-                drained += 1
+                info = self._through_busy(self.read_image_info,
+                                          f"read image info at entry {i}", deadline)
             except BusyError:
-                log.warning("Camera busy during drain at entry %d, waiting...", i)
-                time.sleep(0.5)
-                try:
-                    self.delete_image()
-                    drained += 1
-                except Exception:
-                    break
+                log.warning("Drain stopped at entry %d: body still busy", i)
+                break
             except XSDKError as e:
                 log.warning("Drain stopped at entry %d: %s", i, e)
                 break
 
-        if drained:
-            log.info("Drained %d/%d pending images from buffer", drained, captured)
-        else:
-            log.debug("No images to drain (buffer: %d/%d)", captured, total)
+            fmt = info.format & 0xFF
+            log.debug("Buffer entry %d: format=0x%04X size=%d", i, info.format, info.data_size)
+            if fmt == C.IMAGEFORMAT_NONE:
+                log.debug("No more images in queue (IMAGEFORMAT_NONE)")
+                break
+
+            # An image is confirmed present, so waiting out a busy delete is
+            # sound: the slot has to come back or the body stops when it fills.
+            try:
+                self._through_busy(self.delete_image,
+                                   f"delete image at entry {i}", deadline)
+            except XSDKError as e:
+                log.warning("Drain stopped at entry %d: %s", i, e)
+                break
+            drained += 1
         return drained
+
+    @staticmethod
+    def _through_busy(action, what: str, deadline: float):
+        """Run a drain call, waiting out 0x1006 while there is budget left."""
+        while True:
+            try:
+                return action()
+            except BusyError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                log.debug("Camera busy: %s, %.1fs of drain budget left", what, remaining)
+                time.sleep(min(DRAIN_BUSY_BACKOFF_S, remaining))
 
     def download_image(self, output_path: str | Path) -> str:
         """Convenience: read image info, download full image, save to disk.

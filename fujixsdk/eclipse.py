@@ -477,7 +477,9 @@ class EclipseShooter:
         """
         captured, total = self.camera.get_buffer_capacity()
         if total > 0 and captured >= total * self.DRAIN_AT:
-            drained = self.camera.drain_buffer()
+            # One pass: this is here to free slots before the next frame, not to
+            # leave the buffer spotless, and totality does not wait for a settle.
+            drained = self.camera.drain_buffer(passes=1)
             log.info("Drained %d image(s) at %d/%d to keep shooting",
                      drained, captured, total)
 
