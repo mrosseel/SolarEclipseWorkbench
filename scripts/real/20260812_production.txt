@@ -3,7 +3,7 @@
 #
 # Body   : Fuji Fujifilm X-T4   (Fuji SDK + relay trigger on the remote jack)
 #          The Canon EOS 800D is parked; its half of this schedule is in
-#          scripts/20260812_production_EOS800D.txt, still interleaved with the
+#          scripts/test/20260812_production_EOS800D.txt, still interleaved with the
 #          frames below in case the pair runs again on a second machine.
 # Optics : 80/480 mm refractor, fixed f/6.  The body cannot drive a telescope's
 #          aperture, so the aperture column is informational.

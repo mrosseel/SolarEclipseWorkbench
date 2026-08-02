@@ -5,7 +5,7 @@
 # body is parked.  It is the 800D's commands only: the voice prompts, the comments
 # and the sun-altitude reasoning live in the X-T4 script it was cut from, and the
 # frames here are timed to interleave with that script rather than to stand alone.
-# For the 800D on its own, use scripts/20260812_EOS800D.txt instead.
+# For the 800D on its own, use scripts/test/20260812_EOS800D.txt instead.
 #
 # Site   : Palencia, N Spain  42.0095 N, -4.5289 E, 740 m
 # Frames : 243

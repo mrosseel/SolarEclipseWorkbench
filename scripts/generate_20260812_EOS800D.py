@@ -38,8 +38,8 @@ from solareclipseworkbench.exposure_calculator import calculate_exposure, format
 # coffee break.  Only emission times move; every exposure is still computed from
 # the sun altitude at the frame's real moment.
 TEST = "--test" in sys.argv
-OUTPUT = REPO / "scripts" / ("20260812_EOS800D_test.txt" if TEST
-                             else "20260812_EOS800D.txt")
+OUTPUT = REPO / "scripts" / "test" / ("20260812_EOS800D_test.txt" if TEST
+                                      else "20260812_EOS800D.txt")
 
 # Compressed spacing, seconds between partial-phase frames in test mode.
 TEST_PRE_STEP = 10.0       # C1->C2 partials, replayed before C2

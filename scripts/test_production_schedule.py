@@ -23,7 +23,7 @@ from solareclipseworkbench.hardware_registry import register_hardware
 from solareclipseworkbench.relay_trigger import relay_arm, relay_release
 from solareclipseworkbench.utils import schedule_commands, start_scheduler
 
-SCRIPT = Path(__file__).resolve().parent / "20260812_production.txt"
+SCRIPT = Path(__file__).resolve().parent / "real" / "20260812_production.txt"
 
 fc.SETTLE_BEFORE_DRAIN_S = 0.0
 fc.TAP_GAP_S = 0.0

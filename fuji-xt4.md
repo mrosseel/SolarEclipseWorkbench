@@ -1,6 +1,6 @@
 # Fujifilm X-T4 — setup for the 12 August 2026 eclipse
 
-Everything the body needs before `scripts/20260812_production.txt` is loaded. The
+Everything the body needs before `scripts/real/20260812_production.txt` is loaded. The
 script drives shutter speed and ISO over the SDK and fires the contact bursts
 through the relay; everything below is state the script *cannot* set for you.
 
@@ -79,7 +79,7 @@ expects the dial at **B**. Nothing in the production script uses it, and nothing
 needs to — at T the X-T4 reaches multi-second exposures through the command dial,
 so the SDK sets the 1 s and 1.6 s deep-corona frames itself. Bulb only buys holds
 longer than the dial offers, which a 101 s totality never wants. It lives in
-`scripts/testFujiXT4Bulb.txt` as a standalone pass so it never contradicts a
+`scripts/test/testFujiXT4Bulb.txt` as a standalone pass so it never contradicts a
 script that also sets exposures over USB.
 
 ---
@@ -151,7 +151,7 @@ Run through this once the rig is polar-aligned and before you load the script.
 5. Card formatted, slot setting **Sequential**.
 6. PC Connection Mode = USB tethering, then confirm the workbench lists the body as
    `Fuji Fujifilm X-T4` — the script matches on that exact string.
-7. Relay connected and registered; run `scripts/testFujiXT4Relay.txt`, which fires a
+7. Relay connected and registered; run `scripts/test/testFujiXT4Relay.txt`, which fires a
    `relay_shoot` smoke test before anything else.
 8. Fresh NP-W235 plus a spare. Tethered live view for two hours is not kind to a
    battery, and a swap mid-totality is not an option.
