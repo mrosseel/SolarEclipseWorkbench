@@ -81,9 +81,13 @@ TAP_GAP_S = 0.35
 # The session survives a drain only once the camera has genuinely stopped.
 SETTLE_BEFORE_DRAIN_S = 1.0
 
-# Fraction of the 32-slot transfer queue that may fill before a bracket stops to
-# clear it.  Two thirds leaves room for a rung that fires twice — which on CH is
-# every fast rung — to land without overrunning.
+# Fraction of the 32-slot transfer queue that may fill before shooting stops to
+# clear it.  The queue is only checked between frames, so the headroom has to
+# cover whatever one frame can add: on CH a fast rung fires twice, and the check
+# that fired at 23/32 on 3 August had been under the 21-slot line one tap
+# earlier.  Two thirds leaves 11 slots for that jump.  It is a margin, not a
+# measurement — nothing here has yet been driven close enough to the edge to say
+# what the worst case really is.
 DRAIN_AT = 0.66
 
 # For about a second after a frame the body refuses exposure changes with

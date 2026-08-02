@@ -23,10 +23,12 @@ from ._structures import (
     LensInformation,
 )
 
-# A drain re-reads the buffer because frames still being written are not counted
-# yet (see `drain_buffer`), but it runs between shots and so is kept on a short
-# leash: three passes and a fifth of a second between them, and never more than
-# DRAIN_BUDGET_S in total, whatever the body is still holding.
+# A drain re-reads the buffer in case frames still being written were not counted
+# the first time.  No run since 2 August has needed the second pass — every drain
+# has emptied the queue in one, and every re-read has come back zero — so this is
+# insurance against a lag that has not actually been observed, kept because a
+# spare capacity read is cheap and a full buffer stops the body dead.  Bounded on
+# a short leash: three passes, a fifth of a second between, DRAIN_BUDGET_S total.
 DRAIN_PASSES = 3
 DRAIN_SETTLE_S = 0.2
 DRAIN_BUDGET_S = 2.0
@@ -696,11 +698,16 @@ class Camera:
     def drain_buffer(self, passes: int | None = None) -> int:
         """Delete all pending images from the volatile buffer.
 
-        GetBufferCapacity counts only the frames the body has finished writing,
-        so a burst that is still being flushed to the card reports short and a
-        single pass leaves the stragglers behind — they then turn up in the next
-        drain, credited to the wrong burst.  Passes are therefore repeated,
-        settling in between, until one finds the buffer genuinely empty.
+        GetBufferCapacity may count only the frames the body has finished
+        writing, in which case a burst still being flushed reports short and one
+        pass would leave the rest behind.  Passes therefore repeat, settling in
+        between, until one finds the buffer empty.
+
+        Whether that lag is real is unproven: the counts that first suggested it
+        — 21 drained after 13 taps — turned out to be the body firing twice per
+        tap on CH, not frames arriving late, and no re-read since has found
+        anything.  The repeat costs one capacity call when the queue is already
+        empty, which is worth paying against a buffer that stops the body dead.
 
         Pass ``passes=1`` where the point is to free slots rather than to empty
         the buffer — mid-burst, the settle between passes is time that would be
