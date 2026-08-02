@@ -1552,11 +1552,28 @@ class SolarEclipseController(Observer):
 
             try:
                 from solareclipseworkbench.utils import observe_solar_eclipse
-                self.scheduler: BackgroundScheduler \
+                self.scheduler: BackgroundScheduler
+                self.scheduler, unknown_moments \
                     = observe_solar_eclipse(self.model.reference_moments, filename,
                                             self.model.camera_overview.camera_overview_dict, self,
                                             self.sim_reference_moment, self.sim_offset_minutes,
                                             gps_time_offset=self.model.gps_time_offset)
+
+                # Loading is the last moment this can be fixed: afterwards the
+                # names are resolved and the missing lines are simply gone.
+                if unknown_moments:
+                    lost = "\n".join(f"    {name} — {count} line(s) not scheduled"
+                                     for name, count in unknown_moments.items())
+                    QMessageBox.warning(
+                        self.view,
+                        "Unknown reference moments",
+                        f"The script schedules against reference moments that do not exist:\n\n"
+                        f"{lost}\n\n"
+                        f"Those lines were skipped; the rest of the script is loaded.\n\n"
+                        f"Available: {', '.join(sorted(self.model.reference_moments))}\n\n"
+                        f"Limb-corrected moments (C2_LIMB, C3_LIMB, BEADS_*) exist only when the "
+                        f"limb correction is on and the lunar limb profile is installed."
+                    )
 
                 self.jobs_model = JobsTableModel(self.scheduler, self)
                 self.view.jobs_table.setModel(self.jobs_model)
@@ -2247,14 +2264,14 @@ class RelayPopup(QWidget, Observable):
         wiring_layout = QGridLayout()
 
         wiring_layout.addWidget(QLabel("Shutter (S2) channel"), 0, 0)
-        self.s2_channel = QLineEdit(settings.value("relay/s2_channel", "1", type=str))
+        self.s2_channel = QLineEdit(settings.value("relay/s2_channel", "2", type=str))
         self.s2_channel.setValidator(QIntValidator(1, 64))
         wiring_layout.addWidget(self.s2_channel, 0, 1)
 
         self.s1_checkbox = QCheckBox("Half-press (S1) on its own channel")
-        self.s1_checkbox.setChecked(settings.value("relay/s1_enabled", False, type=bool))
+        self.s1_checkbox.setChecked(settings.value("relay/s1_enabled", True, type=bool))
         wiring_layout.addWidget(self.s1_checkbox, 1, 0)
-        self.s1_channel = QLineEdit(settings.value("relay/s1_channel", "2", type=str))
+        self.s1_channel = QLineEdit(settings.value("relay/s1_channel", "1", type=str))
         self.s1_channel.setValidator(QIntValidator(1, 64))
         wiring_layout.addWidget(self.s1_channel, 1, 1)
 
@@ -2318,8 +2335,8 @@ class RelayPopup(QWidget, Observable):
 
         kind = self.backend_combobox.currentText()
         port = self.port_combobox.currentText().strip() or None
-        s2 = int(self.s2_channel.text() or "1")
-        s1 = int(self.s1_channel.text() or "2") if self.s1_checkbox.isChecked() else None
+        s2 = int(self.s2_channel.text() or "2")
+        s1 = int(self.s1_channel.text() or "1") if self.s1_checkbox.isChecked() else None
 
         try:
             backend = make_backend(kind, port)
@@ -2336,7 +2353,7 @@ class RelayPopup(QWidget, Observable):
         settings.setValue("relay/port", port or "")
         settings.setValue("relay/s2_channel", str(s2))
         settings.setValue("relay/s1_enabled", self.s1_checkbox.isChecked())
-        settings.setValue("relay/s1_channel", self.s1_channel.text() or "2")
+        settings.setValue("relay/s1_channel", self.s1_channel.text() or "1")
 
         self.show_state()
         self.notify_observers(self)

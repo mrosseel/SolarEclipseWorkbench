@@ -8,6 +8,7 @@ import pytz
 from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_bracket, take_hdr, \
     sync_cameras, scripts, execute_command
 from solareclipseworkbench import relay_shoot, relay_burst, relay_bulb
+from solareclipseworkbench.relay_trigger import relay_arm, relay_release
 from solareclipseworkbench import mount_track_sun, mount_goto_sun, mount_tracking, mount_park, mount_unpark, mount_stop
 from solareclipseworkbench import hardware_problems
 from solareclipseworkbench.camera import CameraSettings
@@ -29,6 +30,8 @@ COMMANDS = {
     'relay_shoot': relay_shoot,
     'relay_burst': relay_burst,
     'relay_bulb': relay_bulb,
+    'relay_arm': relay_arm,
+    'relay_release': relay_release,
     'mount_track_sun': mount_track_sun,
     'mount_goto_sun': mount_goto_sun,
     'mount_tracking': mount_tracking,
@@ -79,7 +82,8 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
                            late; subtracting this offset from every scheduled time compensates for the drift.
                            Defaults to timedelta(0) (use computer clock as-is).
 
-    Returns: Scheduler that is used to schedule the commands.
+    Returns: (scheduler, unknown), the scheduler used to schedule the commands and the reference moments
+             the script asked for that do not exist, as {name: number of lines lost}.
     """
 
     scheduler = start_scheduler()
@@ -100,10 +104,10 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
         controller.view.eclipse_visualization.set_offset(offset)
 
     # Schedule commands
-    schedule_commands(commands_filename, scheduler, ref_moments, cameras, controller, reference_moment, simulated_start,
-                      gps_time_offset=gps_time_offset)
+    unknown = schedule_commands(commands_filename, scheduler, ref_moments, cameras, controller, reference_moment,
+                                simulated_start, gps_time_offset=gps_time_offset)
 
-    return scheduler
+    return scheduler, unknown
 
 
 def start_scheduler():
@@ -140,16 +144,23 @@ def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_m
                             None if no simulation is to be used.
         - gps_time_offset: GPS–computer time offset (see observe_solar_eclipse).  Defaults to timedelta(0).
 
-    Returns: Scheduler that is used to schedule the commands.
+    Returns: Reference moments the script asked for that do not exist, as {name: number of lines lost}.
+             Empty when every line found its moment.
     """
     script_file = scripts.convert_script(filename, reference_moments)
     script_file.seek(0)
 
+    unknown: dict = {}
+
     # Loop over all lines in script file
     for cmd_str in script_file:
-        schedule_command(
+        missing = schedule_command(
             scheduler, reference_moments, cmd_str, cameras, controller, reference_moment, simulated_start,
             gps_time_offset=gps_time_offset)
+        if missing is not None:
+            unknown[missing] = unknown.get(missing, 0) + 1
+
+    return unknown
 
 
 def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cmd_str: str, cameras: dict,
@@ -304,7 +315,27 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
         trigger = DateTrigger(run_date=execution_time, timezone=pytz.utc)
 
         scheduler.add_job(func, trigger=trigger, args=args, name=description)
-    except KeyError:
+    except KeyError as missing:
+        # A line naming a moment the calculation did not produce.  Usually a
+        # limb-corrected moment — BEADS_C2 and friends only exist when the
+        # correction is on and the limb profile is installed — or a typo.  The
+        # line cannot be scheduled, but it must not disappear without a word:
+        # silently dropping the contact bursts is exactly the failure nobody
+        # notices until the eclipse is over.  The name goes back to the caller,
+        # which is holding the user at the moment the script is loaded.
+        name = missing.args[0] if missing.args else str(missing)
+        logging.warning(
+            'schedule_command: no reference moment %s, so "%s" (%s) is not scheduled — '
+            'the rest of the script is unaffected', name, func_name, description)
+        return name
+    except Exception:
+        # One bad line must never take the application down: PyQt6 turns an
+        # unhandled exception in the load handler into a hard abort, which on
+        # eclipse morning would kill every OTHER scheduled moment too.  Log it,
+        # skip the line, keep the rest of the eclipse.
+        logging.exception(
+            'schedule_command: could not schedule "%s" (%s) — line skipped, '
+            'the rest of the script is unaffected', func_name, description)
         return
 
 # Main
