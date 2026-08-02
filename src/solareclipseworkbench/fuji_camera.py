@@ -13,6 +13,7 @@ device; :func:`find_fuji_sdk_path` locates the redistributable SDK libraries.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import ctypes
 import platform
@@ -177,6 +178,7 @@ def _build_speed_reverse_map() -> dict[str, int]:
 
 
 _SPEED_REVERSE: dict[str, int] = {}
+_SPEED_BY_SECONDS: list[tuple[float, int]] = []
 
 
 def _get_speed_reverse() -> dict[str, int]:
@@ -186,16 +188,72 @@ def _get_speed_reverse() -> dict[str, int]:
     return _SPEED_REVERSE
 
 
+def _speed_name_seconds(name: str) -> Optional[float]:
+    """Seconds for one SHUTTER_SPEED_NAMES entry, or None if it is not a duration.
+
+    Covers the three forms the table uses: '1/2000"', '1.6"' and '4min'.
+    """
+    clean = name.rstrip('"').strip()
+    try:
+        if clean.endswith("min"):
+            return float(clean[:-3]) * 60.0
+        if "/" in clean:
+            num, _, den = clean.partition("/")
+            return float(num) / float(den)
+        return float(clean)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _get_speeds_by_seconds() -> list[tuple[float, int]]:
+    global _SPEED_BY_SECONDS
+    if not _SPEED_BY_SECONDS and FUJIXSDK_AVAILABLE:
+        _SPEED_BY_SECONDS = sorted(
+            (secs, val)
+            for val, name in SHUTTER_SPEED_NAMES.items()
+            if val > 0 and (secs := _speed_name_seconds(name)) is not None
+        )
+    return _SPEED_BY_SECONDS
+
+
+# The camera's speeds are 1/3 EV apart, so anything closer than 1/6 EV to a rung
+# is that rung written a different way.  Beyond that it is a value the schedule
+# asked for and the body does not have, which the caller has to hear about.
+_SPEED_MATCH_TOLERANCE = 2.0 ** (1.0 / 6.0)
+
+
 def _parse_shutter_speed(speed_str: str) -> Optional[int]:
-    """Map workbench shutter speed string to fujixsdk constant."""
+    """Map workbench shutter speed string to fujixsdk constant.
+
+    A script writes what reads naturally at the eyepiece, and the same exposure
+    has several spellings: the table calls half a second '1/2"' while a schedule
+    of decimal-second corona frames calls it '0.5'.  Matching on the string alone
+    rejected the decimal form, and the frame was then taken at whatever speed the
+    previous line had left on the body.
+    """
     rmap = _get_speed_reverse()
     clean = speed_str.strip().rstrip('"')
     val = rmap.get(clean)
     if val is not None:
         return val
-    # Try with/without leading "1/" variations
-    if clean.startswith("1/"):
-        val = rmap.get(clean)
+
+    wanted = _speed_name_seconds(clean)
+    if wanted is None or wanted <= 0:
+        return None
+
+    grid = _get_speeds_by_seconds()
+    if not grid:
+        return None
+
+    secs, val = min(grid, key=lambda pair: abs(math.log(pair[0] / wanted)))
+    ratio = max(secs, wanted) / min(secs, wanted)
+    if ratio > _SPEED_MATCH_TOLERANCE:
+        return None
+    if ratio > 1.0001:
+        logging.warning(
+            'Shutter speed %s is not on this camera\'s scale; using %s instead',
+            speed_str, SHUTTER_SPEED_NAMES.get(val, val),
+        )
     return val
 
 
@@ -500,6 +558,29 @@ class FujiCamera(BaseCamera):
             logging.error('Fuji reconnect failed: %s', e)
             return False
 
+    def sync_clock(self) -> None:
+        """Say plainly that this body's clock cannot be written from here.
+
+        The Shooting SDK's model headers list a SetDateTime API code, but the
+        public headers declare no entry point for it and XAPI exports none, so
+        there is nothing to call.  The generic gphoto2 path is not an
+        alternative: ``set_config`` below is a no-op, so it would write the time
+        into a throwaway stub and report success.
+
+        Every frame therefore carries whatever the body's own clock says.  That
+        is only a problem if nobody knows about it, so it is reported rather
+        than skipped: set the clock on the camera by hand before the run, and
+        note the residual offset so the frames can be matched to contact times
+        afterwards.
+        """
+        hardware_problems.report(
+            self.name,
+            'Camera clock cannot be set from the computer — set it on the body by hand',
+            detail='the Fuji Shooting SDK exposes no date/time call, so frame '
+                   'timestamps follow the camera clock, not this computer',
+            severity='warning',
+        )
+
     # gphoto-compatible stubs
     def get_config(self) -> _FujiConfigStub:
         return _FujiConfigStub(self)
@@ -571,6 +652,15 @@ class FujiCamera(BaseCamera):
             ) from exc
 
         if current_speed not in supported:
+            # One frame at the speed already on the body is the safest thing to
+            # do, but it is not the bracket that was asked for, and on the card
+            # it is indistinguishable from a bracket that failed halfway.
+            logging.warning(
+                '%s: the camera reports it is at %s, which is not in the %d speeds it '
+                'says it supports — bracketing %s collapses to a single frame',
+                self.name, SHUTTER_SPEED_NAMES.get(current_speed, current_speed),
+                len(supported), steps_str,
+            )
             return [current_speed]
 
         idx = supported.index(current_speed)
@@ -598,7 +688,23 @@ class FujiCamera(BaseCamera):
             i = idx + offset
             if 0 <= i < len(supported):
                 speeds.append(supported[i])
+
+        wanted = 2 * positions + 1
+        if len(speeds) < wanted:
+            # Running off either end of the scale is worth hearing about: the
+            # bracket is then lopsided around the base exposure rather than
+            # symmetric, which is not what the schedule was computed for.
+            logging.warning(
+                '%s: bracketing %s around %s wanted %d frames but the scale only '
+                'reaches %d of them',
+                self.name, steps_str, SHUTTER_SPEED_NAMES.get(current_speed, current_speed),
+                wanted, len(speeds),
+            )
         return speeds
+
+    def describe_speeds(self, speeds: list[int]) -> str:
+        """The human-readable ladder behind a list of SDK shutter constants."""
+        return ', '.join(str(SHUTTER_SPEED_NAMES.get(s, s)) for s in speeds)
 
 
 # ======================================================================

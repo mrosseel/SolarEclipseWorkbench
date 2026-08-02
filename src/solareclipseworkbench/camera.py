@@ -1713,7 +1713,23 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
                 and hasattr(camera, 'shooter')
                 and hasattr(camera, 'parse_bracket_speeds')):
             speeds = camera.parse_bracket_speeds(steps)
-            camera.shooter.bracket_no_download(speeds)
+            # A bracket that quietly comes back one frame long looks identical in
+            # the images to one that was never asked for.  Say what ladder was
+            # built and how much of it the body actually took, so the two can be
+            # told apart afterwards without reading EXIF off the card.
+            logging.info(
+                '%s: take_bracket %s -> %d frame(s): %s',
+                camera_name, steps, len(speeds), camera.describe_speeds(speeds),
+            )
+            taken = camera.shooter.bracket_no_download(speeds)
+            if taken != len(speeds):
+                hardware_problems.report(
+                    camera_name or 'Fuji camera',
+                    'Bracket was cut short; the exposure ladder is incomplete',
+                    detail=f'asked for {len(speeds)} frame(s) at {steps}, took {taken}',
+                )
+            else:
+                logging.info('%s: take_bracket took all %d frame(s)', camera_name, taken)
             return
         try:
             for _ in range(3):
@@ -2556,6 +2572,17 @@ def get_time(camera: Camera) -> str:
 
 def set_time(camera: Camera) -> None:
     """ Set the computer time on the selected camera """
+    # A body that is not driven through gphoto2 handles its own clock, and says
+    # so when it cannot.  Walking an SDK camera through the widget path below
+    # writes the time into a stub config that is then thrown away: the sync
+    # reports success and the camera clock never moves, which is the one outcome
+    # worse than failing, because the frames look correctly timed until they are
+    # compared against the contact times.
+    own_sync = getattr(camera, 'sync_clock', None)
+    if callable(own_sync):
+        own_sync()
+        return
+
     # For physical gphoto cameras we set the camera clock; for virtual or
     # non-gphoto cameras this is a no-op.
     try:

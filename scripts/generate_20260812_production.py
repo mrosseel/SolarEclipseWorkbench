@@ -65,8 +65,12 @@ LAT, LON, OBS_ALT = 42.0095, -4.5289, 740.0
 ECLIPSE_DATE = "2026-08-12"
 
 # --- Gear, identical on both bodies ---------------------------------------
-FOCAL_RATIO = 6.0          # 80/480 refractor
-APERTURE_FIELD = "6.0"     # read-only on a telescope; the column is informational
+FOCAL_RATIO = 6.0          # 80/480 refractor, used for the exposure arithmetic
+# A telescope has no electronic aperture, so the column says "-" and the setting
+# is skipped.  Writing the f-number here instead made every single frame try to
+# set an aperture the body cannot change, and answer 0x1006 "camera is busy" —
+# an error on every line of the run, loud enough to bury the real ones.
+APERTURE_FIELD = "-"
 ND = 4.0                   # Baader AstroSolar PHOTOGRAPHIC film (ND 3.8), not the
                            # ND 5.0 visual film.  Partial phases only.
 K_EXT = 0.25               # mag / airmass; 0.15 is clear, 0.40 is hazy
@@ -289,7 +293,8 @@ emit("#          The %s is parked; its half of this schedule is in" % EOS)
 emit("#          scripts/test/20260812_production_EOS800D.txt, still interleaved with the")
 emit("#          frames below in case the pair runs again on a second machine.")
 emit("# Optics : 80/480 mm refractor, fixed f/6.  The body cannot drive a telescope's")
-emit("#          aperture, so the aperture column is informational.")
+emit("#          aperture, so the aperture column says '-' and the setting is skipped.")
+emit("#          The f/6 still sets every exposure below; it just is not sent to the body.")
 emit("# Filter : Baader AstroSolar PHOTOGRAPHIC film (ND %.1f) on the scope, for every" % ND)
 emit("#          partial-phase frame.  NOT the ND 5.0 visual film - never look through this.")
 emit("#")
