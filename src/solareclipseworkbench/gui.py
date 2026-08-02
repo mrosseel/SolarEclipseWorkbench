@@ -428,7 +428,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.file_action = QAction("File", self)
         self.shutdown_scheduler_action = QAction("Stop", self)
         self.relay_action = QAction("Relay", self)
-        self.beads_action = QAction("Limb correction", self)
+        self.beads_action = QAction("Baily's beads", self)
         self.datetime_format_action = QAction("Datetime format", self)
         self.save_action = QAction("Save", self)
         self.live_view_action = QAction("Live View", self)
@@ -440,6 +440,18 @@ class SolarEclipseView(QMainWindow, Observable):
         self.eclipse_date = QLabel("")
 
         self.reference_moments_widget = QWidget()
+
+        self.limb_correction_checkbox = QCheckBox(
+            "Apply the lunar limb correction to the contact times")
+        # On unless the user has said otherwise: the corrected contacts are the
+        # real ones, and a smooth Moon is the approximation.  The controller may
+        # replace this with what was remembered from the last run.
+        self.limb_correction_checkbox.setChecked(True)
+        self.limb_correction_checkbox.setToolTip(
+            "The Moon's limb is mountainous, so second and third contact do not "
+            "happen when a smooth disc says they do. With the lunar limb profile "
+            "installed, this shifts C2 and C3 to the moment the last or first bead "
+            "goes, and makes the bead windows available to a script.")
 
         self.c1_time_local_label = QLabel()
         self.c1_time_local_label.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -666,6 +678,13 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(QLabel("Fourth contact (C4)"), 5, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunrise"), 6, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunset"), 7, 0)
+
+        # The correction belongs with the numbers it changes.  C2 and C3 move by
+        # seconds when it is applied — more than a bead burst is long — so the
+        # state has to be visible next to the times, not inferred from a toolbar
+        # button somewhere else.  Default on: the corrected contacts are the real
+        # ones, and a smooth Moon is the approximation.
+        reference_moments_grid_layout.addWidget(self.limb_correction_checkbox, 8, 0, 1, 6)
         reference_moments_group_box.setLayout(reference_moments_grid_layout)
         # A minimum rather than a fixed width, so the box cannot be squeezed until
         # the reference-moment columns collide but can still give space back when
@@ -846,15 +865,17 @@ class SolarEclipseView(QMainWindow, Observable):
             self.refresh_plot_action.triggered.connect(self.on_toolbar_button_click)
             self.toolbar.addAction(self.refresh_plot_action)
 
-        # Lunar limb correction.  This one sets an option rather than performing
-        # an action, so it is pushed to the far end, away from the buttons that
-        # do something when pressed.
+        # Show or hide the beads graphic.  This one sets an option rather than
+        # performing an action, so it is pushed to the far end, away from the
+        # buttons that do something when pressed.  Whether the limb correction is
+        # applied to the moments is a separate question, asked in the reference
+        # moments box: hiding a picture must not silently move the contact times.
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.toolbar.addWidget(spacer)
 
         self.beads_action.setStatusTip(
-            "Apply the lunar limb correction to the contact times")
+            "Show the Baily's beads graphic")
         self.beads_action.setIcon(beads_icon())
         self.beads_action.setCheckable(True)
         self.beads_action.setChecked(True)
@@ -1119,7 +1140,30 @@ class SolarEclipseController(Observer):
 
         self._live_view_window: Union[LiveViewWindow, None] = None
 
+        # Restore before connecting, so putting the box back the way the user
+        # left it does not trigger a recalculation on every start-up.
+        remembered = self.view.settings.value("limb_correction", True, type=bool)
+        self.view.limb_correction_checkbox.setChecked(remembered)
+        set_limb_correction_enabled(remembered)
+        self.view.limb_correction_checkbox.toggled.connect(self.on_limb_correction_toggled)
+
         self.load_settings()
+
+    def on_limb_correction_toggled(self, enabled: bool):
+        """Apply or drop the lunar limb correction and redo the contact times.
+
+        The times on screen are the answer to a question this checkbox changes,
+        so they are recomputed rather than left stale: a script scheduled against
+        C2 while the box said one thing and run while it said another would fire
+        its bead bursts seconds out.
+        """
+        set_limb_correction_enabled(enabled)
+        self.view.settings.setValue("limb_correction", enabled)
+        logging.info('Lunar limb correction %s', 'on' if enabled else 'off')
+
+        if self.model.is_location_set and self.model.is_eclipse_date_set:
+            self.set_reference_moments()
+        self._refresh_beads_panel()
 
     def _refresh_beads_panel(self):
         """Point the beads panel at the current location and eclipse, if both are set.
@@ -1489,9 +1533,8 @@ class SolarEclipseController(Observer):
             self.simulator_popup = SimulatorPopup(self)
             self.simulator_popup.show()
 
-        elif text == "Limb correction":
-            set_limb_correction_enabled(self.view.beads_action.isChecked())
-            self.view.beads_panel.refresh()
+        elif text == "Baily's beads":
+            self.view.beads_panel.setVisible(self.view.beads_action.isChecked())
 
         elif text == "Relay":
             self.relay_popup = RelayPopup(self)
