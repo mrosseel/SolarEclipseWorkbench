@@ -27,7 +27,7 @@ from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QS
 from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
 QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
-QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter
+QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter, QDockWidget
 from PyQt6 import QtWidgets
 from apscheduler.job import Job
 from apscheduler.schedulers import SchedulerNotRunningError
@@ -52,6 +52,9 @@ from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wirin
                                                  list_backends, make_backend)
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.limb_correction import set_enabled as set_limb_correction_enabled
+from solareclipseworkbench.mounts import (MountDriver, MountError, MountNotSupported,
+                                          connect as connect_mount, discover_mounts,
+                                          format_dec, format_ra, list_drivers)
 from solareclipseworkbench.limb_ui import BeadsPanel, beads_icon
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
@@ -588,6 +591,14 @@ class SolarEclipseView(QMainWindow, Observable):
         app_frame = QFrame()
         app_frame.setObjectName("AppFrame")
 
+        # The mount lives in a dock rather than the central layout: it has to be
+        # watchable for the whole run, and closing it must not disturb anything
+        # else on screen.  Built before the toolbar, which borrows its own
+        # show/hide action from it.
+        self.mount_dock = MountDock(self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.mount_dock)
+        self.mount_dock.hide()
+
         self.add_toolbar()
 
         vbox_left = QVBoxLayout()
@@ -755,11 +766,18 @@ class SolarEclipseView(QMainWindow, Observable):
             # its size hint would otherwise claim.
             self.output_splitter.setSizes([300, 900])
 
+        # Docks are remembered by name, so a layout saved before a dock existed
+        # simply leaves that dock where it was put — no migration needed.
+        dock_state = settings.value("layout/docks")
+        if dock_state is not None:
+            self.restoreState(dock_state)
+
     def save_splitter_state(self):
-        """Remember where the output splitter was dragged to."""
+        """Remember where the output splitter and the docks were left."""
         settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
                              QSettings.Format.IniFormat)
         settings.setValue("layout/output_splitter", self.output_splitter.saveState())
+        settings.setValue("layout/docks", self.saveState())
 
     def add_toolbar(self):
         """ Create the toolbar of the UI.
@@ -881,6 +899,13 @@ class SolarEclipseView(QMainWindow, Observable):
         self.beads_action.setChecked(True)
         self.beads_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.beads_action)
+
+        # Qt's own toggle: it tracks the dock being closed by its X or torn off,
+        # which a hand-rolled show/hide action does not.
+        self.mount_dock_action = self.mount_dock.toggleViewAction()
+        self.mount_dock_action.setText("Mount")
+        self.mount_dock_action.setStatusTip("Show the mount controls")
+        self.toolbar.addAction(self.mount_dock_action)
 
     def on_toolbar_button_click(self):
         """ Action triggered when a toolbar button is clicked."""
@@ -2245,6 +2270,332 @@ class SimulatorPopup(QWidget, Observable):
         """ Close the pop-up window. """
 
         self.close()
+
+
+class MountDock(QDockWidget):
+    """Connect to the mount and watch it, without leaving the main window.
+
+    A mount is not a thing you set up and dismiss: during a run it is either
+    tracking or it is quietly not, and the difference has to be visible from
+    across a field.  So this is a dock rather than a popup — it can sit open
+    beside the schedule for the whole eclipse, be torn off onto a second screen,
+    or be closed entirely, and Qt remembers which.
+
+    The connected driver is registered with the hardware registry, so the
+    mount_* commands in an eclipse script find it when they fire.
+    """
+
+    #: Carries a finished background connect back to the UI thread.  Serial
+    #: probing walks every port and can take seconds; doing it inline freezes
+    #: the window at exactly the moment the user is trying to get set up.
+    connected = pyqtSignal(object, str)
+
+    POLL_MS = 2000
+
+    def __init__(self, parent=None):
+        super().__init__("Mount", parent)
+        self.setObjectName("mount_dock")
+        self.mount: Optional[MountDriver] = None
+        self._busy = False
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
+
+        # ---------------------------------------------------------- connection
+        connect_box = QGroupBox("Connection")
+        connect_grid = QGridLayout(connect_box)
+
+        self.driver_combo = QComboBox()
+        self.driver_combo.addItem("Find automatically", None)
+        for driver_class in list_drivers():
+            self.driver_combo.addItem(
+                getattr(driver_class, "display_name", driver_class.name), driver_class.name)
+        connect_grid.addWidget(QLabel("Driver"), 0, 0)
+        connect_grid.addWidget(self.driver_combo, 0, 1)
+
+        self.candidate_combo = QComboBox()
+        self.candidate_combo.setToolTip(
+            "Where a driver thinks a mount might be. Being listed is a hint, not "
+            "a promise — a USB serial adapter is a reason to probe, not evidence.")
+        connect_grid.addWidget(QLabel("Address"), 1, 0)
+        connect_grid.addWidget(self.candidate_combo, 1, 1)
+
+        self.scan_button = QPushButton("Scan")
+        self.scan_button.clicked.connect(self.scan)
+        connect_grid.addWidget(self.scan_button, 1, 2)
+
+        self.connect_button = QPushButton("Connect")
+        self.connect_button.clicked.connect(self.toggle_connection)
+        connect_grid.addWidget(self.connect_button, 0, 2)
+
+        layout.addWidget(connect_box)
+
+        # -------------------------------------------------------------- status
+        self.status_label = QLabel("not connected")
+        font = self.status_label.font()
+        font.setBold(True)
+        self.status_label.setFont(font)
+        layout.addWidget(self.status_label)
+
+        self.where_label = QLabel("")
+        self.where_label.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(self.where_label)
+
+        # -------------------------------------------------------------- actions
+        self.action_box = QGroupBox("Sun")
+        action_grid = QGridLayout(self.action_box)
+        self.goto_sun_button = QPushButton("Goto Sun")
+        self.goto_sun_button.clicked.connect(self.goto_sun)
+        action_grid.addWidget(self.goto_sun_button, 0, 0)
+
+        self.track_button = QPushButton("Track")
+        self.track_button.setCheckable(True)
+        self.track_button.clicked.connect(self.toggle_tracking)
+        action_grid.addWidget(self.track_button, 0, 1)
+
+        # Stop is the one control that matters when something is going wrong, so
+        # it is the one control that is always the same size and in the same
+        # place, and never disabled while there is a mount to stop.
+        self.stop_button = QPushButton("STOP")
+        self.stop_button.setMinimumHeight(44)
+        self.stop_button.clicked.connect(self.stop)
+        action_grid.addWidget(self.stop_button, 1, 0, 1, 2)
+
+        self.park_button = QPushButton("Park")
+        self.park_button.clicked.connect(self.park)
+        action_grid.addWidget(self.park_button, 2, 0)
+
+        self.unpark_button = QPushButton("Unpark")
+        self.unpark_button.clicked.connect(self.unpark)
+        action_grid.addWidget(self.unpark_button, 2, 1)
+
+        layout.addWidget(self.action_box)
+
+        # ---------------------------------------------------------- manual move
+        self.move_box = QGroupBox("Nudge")
+        move_grid = QGridLayout(self.move_box)
+        self.move_buttons = {}
+        for direction, row, column in (("north", 0, 1), ("west", 1, 0),
+                                       ("east", 1, 2), ("south", 2, 1)):
+            button = QPushButton(direction[0].upper())
+            # Held, not clicked: the mount moves while the button is down, which
+            # is the only way to frame by eye.
+            button.pressed.connect(lambda d=direction: self.move(d))
+            button.released.connect(lambda d=direction: self.stop_move(d))
+            move_grid.addWidget(button, row, column)
+            self.move_buttons[direction] = button
+
+        self.rate_combo = QComboBox()
+        self.rate_combo.currentTextChanged.connect(self.set_rate)
+        move_grid.addWidget(self.rate_combo, 1, 1)
+
+        layout.addWidget(self.move_box)
+        layout.addStretch(1)
+
+        self.setWidget(body)
+        self.connected.connect(self._on_connected)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self.refresh)
+        self._timer.setInterval(self.POLL_MS)
+
+        self._apply_capabilities()
+        self._set_controls_enabled(False)
+
+    # -------------------------------------------------------------- connection
+
+    def scan(self) -> None:
+        """Ask the drivers where mounts might be, without connecting to any."""
+        self.candidate_combo.clear()
+        wanted = self.driver_combo.currentData()
+        try:
+            candidates = discover_mounts(wanted)
+        except MountError as exc:
+            self.status_label.setText(f"scan failed: {exc}")
+            return
+        for candidate in candidates:
+            self.candidate_combo.addItem(str(candidate), candidate)
+        if not candidates:
+            self.candidate_combo.addItem("nothing found", None)
+        self.status_label.setText(f"{len(candidates)} candidate(s)")
+
+    def toggle_connection(self) -> None:
+        if self.mount is not None:
+            self.disconnect_mount()
+        else:
+            self.connect_mount()
+
+    def connect_mount(self) -> None:
+        if self._busy:
+            return
+        self._busy = True
+        self.connect_button.setEnabled(False)
+        self.status_label.setText("connecting...")
+
+        driver = self.driver_combo.currentData()
+        candidate = self.candidate_combo.currentData()
+        config = dict(candidate.config) if candidate is not None else {}
+        if candidate is not None:
+            driver = candidate.driver
+
+        def worker():
+            try:
+                mount = connect_mount(driver, **config)
+            except Exception as exc:
+                self.connected.emit(None, str(exc))
+                return
+            self.connected.emit(mount, "")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_connected(self, mount, error: str) -> None:
+        self._busy = False
+        self.connect_button.setEnabled(True)
+        if mount is None:
+            self.status_label.setText("not connected")
+            logging.warning('Mount connection failed: %s', error)
+            QMessageBox.warning(self, "Mount", f"Could not connect:\n\n{error}")
+            return
+
+        self.mount = mount
+        # Scheduled mount_* commands look the device up here, so a mount that is
+        # connected by hand is the same mount the script will drive.
+        register_hardware('mount', mount)
+        self.connect_button.setText("Disconnect")
+        self._apply_capabilities()
+        self._set_controls_enabled(True)
+        logging.info('Mount connected: %s', mount.describe())
+        # Said here rather than left to the poll: a dock that is connected while
+        # hidden does not poll, and must not still be reading "connecting...".
+        self.status_label.setText(mount.describe())
+        self.refresh()
+        if self.isVisible():
+            self._timer.start()
+
+    def disconnect_mount(self) -> None:
+        self._timer.stop()
+        mount, self.mount = self.mount, None
+        register_hardware('mount', None)
+        if mount is not None:
+            try:
+                mount.close()
+            except Exception:
+                logging.exception('Closing the mount failed')
+        self.connect_button.setText("Connect")
+        self.status_label.setText("not connected")
+        self.where_label.setText("")
+        self._set_controls_enabled(False)
+
+    # ------------------------------------------------------------------ status
+
+    def refresh(self) -> None:
+        """Poll the mount, unless nobody is looking at the answer.
+
+        Every poll is a round trip down the same serial line the eclipse script
+        uses, so it is not free: a hidden dock stops asking.
+        """
+        if self.mount is None or not self.isVisible():
+            return
+        try:
+            status = self.mount.status()
+        except MountError as exc:
+            self.status_label.setText(f"unreadable: {exc}")
+            return
+
+        self.status_label.setText(status.summary())
+        self.track_button.setChecked(status.tracking)
+
+        where = []
+        try:
+            ra_hours, dec_degrees = self.mount.get_radec()
+            where.append(f"RA {format_ra(ra_hours)}  Dec {format_dec(dec_degrees)}")
+        except MountError:
+            pass
+        if self.mount.capabilities.altaz_readout:
+            try:
+                altitude, azimuth = self.mount.get_altaz()
+                where.append(f"Alt {altitude:.2f}°  Az {azimuth:.2f}°")
+            except MountError:
+                pass
+        self.where_label.setText("\n".join(where))
+
+    # ----------------------------------------------------------------- actions
+
+    def _guard(self, what: str, action) -> None:
+        """Run a mount command, turning a refusal into a message not a crash."""
+        if self.mount is None:
+            return
+        try:
+            action()
+        except MountNotSupported as exc:
+            self.status_label.setText(str(exc))
+        except MountError as exc:
+            logging.warning('Mount %s failed: %s', what, exc)
+            QMessageBox.warning(self, "Mount", f"{what} failed:\n\n{exc}")
+        self.refresh()
+
+    def goto_sun(self) -> None:
+        self._guard("Goto Sun", lambda: self.mount.goto_sun(wait=False))
+
+    def toggle_tracking(self) -> None:
+        wanted = self.track_button.isChecked()
+        self._guard("Tracking",
+                    self.mount.tracking_on if wanted else self.mount.tracking_off)
+
+    def stop(self) -> None:
+        self._guard("Stop", self.mount.abort)
+
+    def park(self) -> None:
+        self._guard("Park", self.mount.park)
+
+    def unpark(self) -> None:
+        self._guard("Unpark", self.mount.unpark)
+
+    def move(self, direction: str) -> None:
+        self._guard("Move", lambda: self.mount.move(direction))
+
+    def stop_move(self, direction: str) -> None:
+        self._guard("Stop move", lambda: self.mount.stop_move(direction))
+
+    def set_rate(self, rate: str) -> None:
+        if rate:
+            self._guard("Rate", lambda: self.mount.set_rate(rate))
+
+    # ------------------------------------------------------------ capabilities
+
+    def _apply_capabilities(self) -> None:
+        """Hide what this mount cannot do rather than offering and refusing it."""
+        capabilities = self.mount.capabilities if self.mount else None
+        self.action_box.setVisible(True)
+        self.goto_sun_button.setVisible(capabilities is None or capabilities.goto)
+        self.track_button.setVisible(capabilities is None or capabilities.tracking_toggle)
+        self.park_button.setVisible(capabilities is None or capabilities.park)
+        self.unpark_button.setVisible(capabilities is None or capabilities.park)
+        self.move_box.setVisible(capabilities is None or capabilities.manual_move)
+
+        self.rate_combo.blockSignals(True)
+        self.rate_combo.clear()
+        if capabilities is not None:
+            self.rate_combo.addItems(list(capabilities.rate_presets))
+        self.rate_combo.blockSignals(False)
+
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        for widget in (self.goto_sun_button, self.track_button, self.stop_button,
+                       self.park_button, self.unpark_button, self.rate_combo,
+                       *self.move_buttons.values()):
+            widget.setEnabled(enabled)
+
+    # -------------------------------------------------------------- visibility
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.mount is not None:
+            self.refresh()
+            self._timer.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._timer.stop()
 
 
 class RelayPopup(QWidget, Observable):
