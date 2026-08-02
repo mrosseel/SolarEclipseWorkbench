@@ -25,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from solareclipseworkbench.camera import CameraSettings, take_bracket
 from solareclipseworkbench.fuji_camera import (detect_fuji_cameras, find_fuji_sdk_path,
                                                maybe_reexec_for_fuji_sdk)
+from solareclipseworkbench.hardware_registry import register_hardware
+from solareclipseworkbench.relay_trigger import open_trigger
 
 maybe_reexec_for_fuji_sdk()
 
@@ -93,6 +95,8 @@ def main() -> None:
     parser.add_argument("--iso", type=int, default=400)
     parser.add_argument("--speeds", nargs="*", default=DEFAULT_SPEEDS,
                         help="base shutter speeds to bracket around")
+    parser.add_argument("--no-relay", action="store_true",
+                        help="force the SDK shooter even if a relay is attached")
     args = parser.parse_args()
 
     # The ladder and the frame count are logged by take_bracket itself; without
@@ -103,9 +107,22 @@ def main() -> None:
     print(f"{DIM}drive dial anywhere, focus and shutter on manual, RAW only.{RESET}")
     print(f"{DIM}Each bracket is drained afterwards, so the queue starts empty every time.{RESET}\n")
 
+    # Which shooter runs decides what is being measured: with a relay attached
+    # the frames come from taps on the release jack, without one from the SDK.
+    # The GUI and sew.py both register the relay, so a probe that skips it tests
+    # a path the eclipse never takes.
+    if not args.no_relay:
+        try:
+            register_hardware('relay', open_trigger('auto', s1_channel=1, s2_channel=2))
+        except Exception as exc:
+            print(f"{YELLOW}No relay ({exc}) — falling back to the SDK shooter, "
+                  f"which is not the path the eclipse script uses.{RESET}")
+
     camera = connect()
     if camera is None:
         return
+
+    print(f"{DIM}shooter: {type(camera.shooter).__name__}{RESET}")
 
     captured, total = queue(camera)
     print(f"{DIM}queue at rest: {captured}/{total}{RESET}")

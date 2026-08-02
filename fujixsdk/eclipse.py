@@ -531,19 +531,39 @@ class EclipseShooter:
         ISO and aperture are left alone unless given: the caller has usually
         just dialled them in, and defaulting to a value here would silently
         photograph the bracket at an ISO nobody asked for.
+
+        Nothing here is allowed to abandon the bracket.  The body answers 0x1006
+        while it is finishing a frame, so every setting is retried, and one that
+        will not take still gets its frame — at the previous exposure, which is
+        worth more than a gap at a contact that happens once.
         """
-        self.camera.set_ae_mode(C.AE_OFF)
+        self._settle(self.camera.set_ae_mode, C.AE_OFF, "AE mode")
         if iso is not None:
-            self.camera.set_iso(iso)
+            self._settle(self.camera.set_iso, iso, "ISO")
         if aperture is not None:
-            self.camera.set_aperture(aperture)
+            self._settle(self.camera.set_aperture, aperture, "aperture")
         taken = 0
         for speed in speeds:
-            self.camera.set_shutter_speed(speed)
+            self._settle(self.camera.set_shutter_speed, speed, "shutter speed")
             if not self.shoot_fast():
                 break
             taken += 1
         return taken
+
+    def _settle(self, setter, value, what: str, retries: int = 5) -> bool:
+        """Apply one setting, waiting out the busy window.  False if it never took."""
+        for attempt in range(retries):
+            try:
+                setter(value)
+                return True
+            except BusyError:
+                log.debug("Camera busy setting %s, attempt %d/%d", what, attempt + 1, retries)
+                time.sleep(0.3)
+            except XSDKError as exc:
+                log.warning("Could not set %s to %s: %s", what, value, exc)
+                return False
+        log.warning("Camera still busy after %d attempts to set %s", retries, what)
+        return False
 
     # ------------------------------------------------------------------
     # Legacy methods (with download)
