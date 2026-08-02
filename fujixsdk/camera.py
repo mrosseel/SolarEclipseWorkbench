@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Optional
 
 from . import _constants as C
-from ._errors import BusyError, LDPathError, check_result, raise_for_error_code
+from ._errors import (BusyError, LDPathError, XSDKError, check_result,
+                      raise_for_error_code)
 
 log = logging.getLogger(__name__)
 from ._library import XAPILibrary, ensure_ld_library_path
@@ -23,14 +24,9 @@ from ._structures import (
     LensInformation,
 )
 
-# A drain re-reads the buffer in case frames still being written were not counted
-# the first time.  No run since 2 August has needed the second pass — every drain
-# has emptied the queue in one, and every re-read has come back zero — so this is
-# insurance against a lag that has not actually been observed, kept because a
-# spare capacity read is cheap and a full buffer stops the body dead.  Bounded on
-# a short leash: three passes, a fifth of a second between, DRAIN_BUDGET_S total.
-DRAIN_PASSES = 3
-DRAIN_SETTLE_S = 0.2
+# A drain runs between shots, so waiting out a busy body is bounded: what cannot
+# be deleted inside DRAIN_BUDGET_S goes with the next drain rather than holding
+# up the next frame.
 DRAIN_BUDGET_S = 2.0
 DRAIN_BUSY_BACKOFF_S = 0.1
 
@@ -695,55 +691,30 @@ class Camera:
     def delete_image(self):
         self._check(self._lib_inst.XSDK_DeleteImage(self._handle))
 
-    def drain_buffer(self, passes: int | None = None) -> int:
+    def drain_buffer(self) -> int:
         """Delete all pending images from the volatile buffer.
 
-        GetBufferCapacity may count only the frames the body has finished
-        writing, in which case a burst still being flushed reports short and one
-        pass would leave the rest behind.  Passes therefore repeat, settling in
-        between, until one finds the buffer empty.
-
-        Whether that lag is real is unproven: the counts that first suggested it
-        — 21 drained after 13 taps — turned out to be the body firing twice per
-        tap on CH, not frames arriving late, and no re-read since has found
-        anything.  The repeat costs one capacity call when the queue is already
-        empty, which is worth paying against a buffer that stops the body dead.
-
-        Pass ``passes=1`` where the point is to free slots rather than to empty
-        the buffer — mid-burst, the settle between passes is time that would be
-        better spent shooting.
+        One pass is enough, and this is measured rather than assumed: filling the
+        queue to 30/32 five times over and draining it, the number deleted
+        matched the number GetBufferCapacity reported every single time (31/31,
+        31/31, 30/30, 31/31, 30/30).  A tap's frames do take 0.35-0.75s to appear
+        in the count, so a drain issued immediately after shooting can miss them
+        — which is why the caller settles first — but nothing arrives late once
+        they are there, and re-reading the buffer only ever returned zero.
 
         Returns the number of images drained.
         """
-        deadline = time.monotonic() + DRAIN_BUDGET_S
-        drained = 0
-        captured = total = 0
-        per_pass: list[int] = []
-        for _ in range(max(1, DRAIN_PASSES if passes is None else passes)):
-            captured, total = self.get_buffer_capacity()
-            if captured <= 0:
-                break
-            this_pass = self._drain_pass(captured, deadline)
-            per_pass.append(this_pass)
-            drained += this_pass
-            if this_pass < captured:
-                # The pass stopped early on an error or an empty queue; another
-                # will not do better.
-                break
-            if time.monotonic() + DRAIN_SETTLE_S >= deadline:
-                log.warning("Drain budget spent after %d image(s); "
-                            "the rest go with the next drain", drained)
-                break
-            time.sleep(DRAIN_SETTLE_S)
-
-        if drained:
-            # The per-pass split says how much the body was still holding back
-            # when the first pass read the buffer — the only measure there is of
-            # how many frames a single tap really queues.
-            log.info("Drained %d pending image(s) from buffer (%s)",
-                     drained, " + ".join(str(n) for n in per_pass))
-        else:
+        captured, total = self.get_buffer_capacity()
+        if captured <= 0:
             log.debug("No images to drain (buffer: %d/%d)", captured, total)
+            return 0
+
+        drained = self._drain_pass(captured, time.monotonic() + DRAIN_BUDGET_S)
+        if drained:
+            log.info("Drained %d pending image(s) from buffer", drained)
+        if drained != captured:
+            log.warning("Drained %d of the %d images the buffer reported; "
+                        "the rest go with the next drain", drained, captured)
         return drained
 
     def _drain_pass(self, captured: int, deadline: float) -> int:
