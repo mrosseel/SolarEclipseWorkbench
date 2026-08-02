@@ -280,6 +280,22 @@ RELAY_C2_S, RELAY_C3_S = 1.9, 1.9
 RELAY_LATENCY_S = 0.045
 RELAY_C2_N = int(RELAY_C2_S * XT4_RELAY_FPS)
 RELAY_C3_N = int(RELAY_C3_S * XT4_RELAY_FPS)
+
+# The burst is shorter than the window it has to cover, so where it sits inside
+# that window decides what is on the card.  Measured for this site: the beads run
+# 3.25 s at C2 and 4.05 s at C3, against a hold of 1.9 s.
+#
+# The diamond ring is the last bead before totality at C2 and the first one after
+# it at C3, so at both contacts it sits against the contact itself rather than in
+# the middle of the window.  Centring the burst - which is what scheduling it
+# against BEADS_C2 did - spent frames on the far edge and clipped the ring.  The
+# burst is therefore pinned to the contact-side edge: it ends at BEADS_C2_END and
+# starts at BEADS_C3_START.
+#
+# The margin pushes it a little further towards totality than the solved edge.
+# The error is asymmetric: overshooting costs a handful of black frames at beads
+# exposure, undershooting loses the diamond ring, and there is no second one.
+RELAY_EDGE_MARGIN_S = 0.3
 EOS_C2_BURST_S, EOS_C3_BURST_S = 3, 5
 
 # --------------------------------------------------------------------------
@@ -423,20 +439,36 @@ emit("# is scheduled against the limb-corrected moments, because that is when to
 emit("# actually begins and ends.  The cues further out stay on the mean contacts, where")
 emit("# a few seconds is nothing and not depending on the limb profile is worth more.")
 emit("#")
-emit("# The bead bursts are scheduled against BEADS_C2 and BEADS_C3, the middle of the")
-emit("# limb-corrected bead window, not against the contacts.  A smooth-Moon C3 is %.1f s"
+emit("# The bead bursts are scheduled against the edges of the limb-corrected bead")
+emit("# window, not against the contacts.  A smooth-Moon C3 is %.1f s later than the real"
      % abs((MOMENTS["C3"].time_utc - MOMENTS["C3_LIMB"].time_utc).total_seconds()))
-emit("# later than the real one here, which is most of a burst.  These lines need the lunar")
-emit("# limb profile installed and the correction switched on; without it they are skipped,")
-emit("# and Solar Eclipse Workbench says so when the script is loaded.")
+emit("# one here, which is most of a burst.  These lines need the lunar limb profile")
+emit("# installed and the correction switched on; without it they are skipped, and")
+emit("# Solar Eclipse Workbench says so when the script is loaded.")
+emit("#")
+emit("# The beads run %.2f s at C2 and %.2f s at C3, against a hold of %.1f s, so the burst"
+     % ((MOMENTS["BEADS_C2_END"].time_utc - MOMENTS["BEADS_C2_START"].time_utc).total_seconds(),
+        (MOMENTS["BEADS_C3_END"].time_utc - MOMENTS["BEADS_C3_START"].time_utc).total_seconds(),
+        RELAY_C2_S))
+emit("# cannot cover the whole window.  It is pinned to the contact-side edge, where the")
+emit("# diamond ring is: the C2 burst ends at BEADS_C2_END, the C3 burst starts at")
+emit("# BEADS_C3_START, both with %.1f s of margin towards totality." % RELAY_EDGE_MARGIN_S)
+emit("#")
+emit("# The hold is %.1f s because %d frames at %.0f fps is all the 32-slot transfer queue"
+     % (RELAY_C2_S, RELAY_C2_N, XT4_RELAY_FPS))
+emit("# takes; a full queue stops the body dead.  Covering the whole window needs a pulsed")
+emit("# burst at ~%.1f fps instead of a held one, which is not yet measured on this body."
+     % (RELAY_C2_N / (MOMENTS["BEADS_C2_END"].time_utc
+                      - MOMENTS["BEADS_C2_START"].time_utc).total_seconds()))
 
 picture(XT4, "BEADS_C2", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
 relay_arm("BEADS_C2", "-", 4.0, "Pre-arm S1 for the C2 burst")
 burst(EOS, "BEADS_C2", "-", EOS_C2_BURST_S / 2, beads_e, ISO_BEADS, EOS_C2_BURST_S,
       int(EOS_C2_BURST_S * EOS_BURST_FPS), "Diamond ring and Baily's beads at C2")
-relay_burst("BEADS_C2", "-", RELAY_C2_S / 2 + RELAY_LATENCY_S, RELAY_C2_S, RELAY_C2_N,
+relay_burst("BEADS_C2_END", "-", RELAY_C2_S + RELAY_LATENCY_S - RELAY_EDGE_MARGIN_S,
+            RELAY_C2_S, RELAY_C2_N,
             "Diamond ring and Baily's beads at C2, relay at %.0f fps" % XT4_RELAY_FPS)
-relay_release("BEADS_C2", "+", 2.0, "Open every contact after the C2 burst")
+relay_release("BEADS_C2_END", "+", 1.5, "Open every contact after the C2 burst")
 announce("C2_LIMB", "-", 0, "C2", "Second contact - filters off, totality has begun")
 picture(EOS, "C2", "+", 4.0, chromo, ISO_BEADS, "Chromosphere")
 picture(EOS, "C2", "+", 5.5, prom, ISO_BEADS, "Prominences")
@@ -480,9 +512,11 @@ announce("C3_LIMB", "-", 8, "C3_IN_8_SECONDS", "Eight seconds - look away from t
 relay_arm("BEADS_C3", "-", 4.0, "Pre-arm S1 for the C3 burst")
 burst(EOS, "BEADS_C3", "-", EOS_C3_BURST_S / 2, beads_e, ISO_BEADS, EOS_C3_BURST_S,
       int(EOS_C3_BURST_S * EOS_BURST_FPS), "Baily's beads and diamond ring at C3")
-relay_burst("BEADS_C3", "-", RELAY_C3_S / 2 + RELAY_LATENCY_S, RELAY_C3_S, RELAY_C3_N,
+relay_burst("BEADS_C3_START", "-", RELAY_LATENCY_S + RELAY_EDGE_MARGIN_S,
+            RELAY_C3_S, RELAY_C3_N,
             "Baily's beads and diamond ring at C3, relay at %.0f fps" % XT4_RELAY_FPS)
-relay_release("BEADS_C3", "+", 3.0, "Open every contact after the C3 burst")
+relay_release("BEADS_C3_START", "+", RELAY_C3_S + 1.5,
+              "Open every contact after the C3 burst")
 for n, name in ((5, "C3_IN_5_SECONDS"), (4, "C3_IN_4_SECONDS"), (3, "C3_IN_3_SECONDS"),
                 (2, "C3_IN_2_SECONDS"), (1, "C3_IN_1_SECOND")):
     announce("C3_LIMB", "-", n, name, "%d to third contact" % n)

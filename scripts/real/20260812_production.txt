@@ -133,15 +133,24 @@ voice_prompt, C2_LIMB, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # actually begins and ends.  The cues further out stay on the mean contacts, where
 # a few seconds is nothing and not depending on the limb profile is worth more.
 #
-# The bead bursts are scheduled against BEADS_C2 and BEADS_C3, the middle of the
-# limb-corrected bead window, not against the contacts.  A smooth-Moon C3 is 3.5 s
-# later than the real one here, which is most of a burst.  These lines need the lunar
-# limb profile installed and the correction switched on; without it they are skipped,
-# and Solar Eclipse Workbench says so when the script is loaded.
+# The bead bursts are scheduled against the edges of the limb-corrected bead
+# window, not against the contacts.  A smooth-Moon C3 is 3.5 s later than the real
+# one here, which is most of a burst.  These lines need the lunar limb profile
+# installed and the correction switched on; without it they are skipped, and
+# Solar Eclipse Workbench says so when the script is loaded.
+#
+# The beads run 3.25 s at C2 and 4.05 s at C3, against a hold of 1.9 s, so the burst
+# cannot cover the whole window.  It is pinned to the contact-side edge, where the
+# diamond ring is: the C2 burst ends at BEADS_C2_END, the C3 burst starts at
+# BEADS_C3_START, both with 0.3 s of margin towards totality.
+#
+# The hold is 1.9 s because 28 frames at 15 fps is all the 32-slot transfer queue
+# takes; a full queue stops the body dead.  Covering the whole window needs a pulsed
+# burst at ~8.6 fps instead of a held one, which is not yet measured on this body.
 take_picture, BEADS_C2, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/3200, -, 100, "Load the beads exposure before the relay burst @ 18:29:02, sun 8.8 deg"
 relay_arm, BEADS_C2, -, 0:00:04.0, "Pre-arm S1 for the C2 burst @ 18:29:04, sun 8.8 deg"
-relay_burst, BEADS_C2, -, 0:00:01.0, 1.9, "Diamond ring and Baily's beads at C2, relay at 15 fps @ 18:29:07, sun 8.7 deg"
-relay_release, BEADS_C2, +, 0:00:02.0, "Open every contact after the C2 burst @ 18:29:10, sun 8.7 deg"
+relay_burst, BEADS_C2_END, -, 0:00:01.6, 1.9, "Diamond ring and Baily's beads at C2, relay at 15 fps @ 18:29:08, sun 8.7 deg"
+relay_release, BEADS_C2_END, +, 0:00:01.5, "Open every contact after the C2 burst @ 18:29:12, sun 8.7 deg"
 voice_prompt, C2_LIMB, -, 0:00:00.0, C2, "Second contact - filters off, totality has begun"
 take_bracket, C2, +, 0:00:06.0, Fuji Fujifilm X-T4, 1/200, -, 400, +/- 2, "Corona bracket A1, inner corona @ 18:29:16, sun 8.7 deg"
 take_bracket, C2, +, 0:00:16.0, Fuji Fujifilm X-T4, 1/25, -, 400, +/- 2, "Corona bracket A2, middle corona @ 18:29:26, sun 8.7 deg"
@@ -165,8 +174,8 @@ voice_prompt, C3_LIMB, -, 0:00:20.0, C3_IN_20_SECONDS, "Twenty seconds to third 
 take_picture, BEADS_C3, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/3200, -, 100, "Load the beads exposure before the relay burst @ 18:30:43, sun 8.5 deg"
 voice_prompt, C3_LIMB, -, 0:00:08.0, C3_IN_8_SECONDS, "Eight seconds - look away from the eyepiece"
 relay_arm, BEADS_C3, -, 0:00:04.0, "Pre-arm S1 for the C3 burst @ 18:30:45, sun 8.4 deg"
-relay_burst, BEADS_C3, -, 0:00:01.0, 1.9, "Baily's beads and diamond ring at C3, relay at 15 fps @ 18:30:48, sun 8.4 deg"
-relay_release, BEADS_C3, +, 0:00:03.0, "Open every contact after the C3 burst @ 18:30:52, sun 8.4 deg"
+relay_burst, BEADS_C3_START, -, 0:00:00.3, 1.9, "Baily's beads and diamond ring at C3, relay at 15 fps @ 18:30:47, sun 8.4 deg"
+relay_release, BEADS_C3_START, +, 0:00:03.4, "Open every contact after the C3 burst @ 18:30:51, sun 8.4 deg"
 voice_prompt, C3_LIMB, -, 0:00:05.0, C3_IN_5_SECONDS, "5 to third contact"
 voice_prompt, C3_LIMB, -, 0:00:04.0, C3_IN_4_SECONDS, "4 to third contact"
 voice_prompt, C3_LIMB, -, 0:00:03.0, C3_IN_3_SECONDS, "3 to third contact"
