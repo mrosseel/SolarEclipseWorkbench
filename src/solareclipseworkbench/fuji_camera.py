@@ -67,10 +67,28 @@ except ImportError as _exc:
 # good at: exposure and draining.  Measured on the bench, 1 August 2026.
 # ======================================================================
 
-# 15 fps for longer than this reaches the 32-slot buffer before the drain that
-# follows can run, and a full buffer stops the camera dead.
+# Measured 3 August: a burst asked to hold 1.9s holds 2.05s and queues 30 of the
+# 32 slots.  The cap stays where it is - it is two slots inside the buffer and
+# the beads are worth those frames - but only because the queue is guaranteed
+# empty before the contact closes (see `ensure_room_for`).
 MAX_BURST_S = 1.9
+
+# The effective rate climbs with the length of the hold as the body's release lag
+# is amortised: 11.4 fps over 0.35s, 13.0 over 0.85s, 14.3 over 1.54s, 14.7 over
+# 2.05s.  15 is the steady-state figure those approach, so it stays as the number
+# a frame count is converted with, and is deliberately the ceiling used when
+# working out whether a burst will fit.
 CH_FPS = 15
+
+# The transfer queue holds this many frames, taken from what the body reports at
+# rest.  It is not read from the SDK per call because the figure beside the count
+# is not the buffer size while frames are in flight — see `ensure_room_for`.
+BUFFER_SLOTS = 32
+
+# Closing and opening the relay costs this much on top of whatever hold is asked
+# for - +0.15s at every duration from 0.2s to 1.9s, measured 3 August.  A burst
+# that ignores it under-counts the frames it is about to queue by two.
+RELAY_HOLD_OVERHEAD_S = 0.15
 
 # Contact closure per frame.  40 ms missed roughly 8% of taps; 80 ms never did.
 TAP_S = 0.08
@@ -80,6 +98,15 @@ TAP_GAP_S = 0.35
 
 # The session survives a drain only once the camera has genuinely stopped.
 SETTLE_BEFORE_DRAIN_S = 1.0
+
+# Frames appear in the buffer count as they are written, not as they are shot,
+# and a burst takes far longer to finish than a tap: measured 3 August, a 2.05s
+# burst was still arriving 2.5s after the contact opened (13 counted at 0.0s, 20
+# at 1.0s, 29 at 2.5s), while a single tap is complete inside 0.75s.  One drain a
+# second after a burst therefore leaves eight or nine frames behind.  Draining
+# repeats until a round comes back empty, with a shorter settle after the first.
+DRAIN_ROUNDS = 4
+SETTLE_BETWEEN_DRAINS_S = 0.6
 
 # Fraction of the 32-slot transfer queue that may fill before shooting stops to
 # clear it.  Measured on 3 August, 67 taps at 1/1000" and 1/4000", filling to
@@ -154,6 +181,14 @@ class _RelayShooter:
     def burst_no_download(self, count: int, min_interval_ms: int = 0) -> int:
         """Hold the release long enough for ``count`` frames at the CH rate."""
         seconds = min(count / CH_FPS, MAX_BURST_S)
+
+        # Singles no longer drain after every frame, so the queue reaching here
+        # can be most of the way full — and a burst at the cap adds 30 of 32
+        # slots.  Nothing checks the buffer once the contact is closed, so the
+        # room has to be made first or the beads fill it and the body stops.
+        self.camera.ensure_room_for(
+            math.ceil(CH_FPS * (seconds + RELAY_HOLD_OVERHEAD_S)))
+
         with self.camera.relay.pressed():
             time.sleep(seconds)
         # `pressed()` leaves S1 closed when the caller pre-armed, and draining
@@ -640,13 +675,27 @@ class FujiCamera(BaseCamera):
         already on the card; only the transfer nobody asked for is discarded.
         Callers must have released the relay first: draining while the camera
         is still shooting drops the USB session for good.
+
+        Repeats until a round finds nothing, because the body reports frames as
+        it writes them: after a burst the count is still climbing two seconds
+        later, and a single drain leaves the tail of the burst queued.  A bracket
+        or a single settles inside the first round, so this costs them one extra
+        capacity read and one short settle.
         """
-        time.sleep(SETTLE_BEFORE_DRAIN_S)
-        try:
-            return self._sdk_cam.drain_buffer()
-        except Exception:
-            logging.exception('%s: drain failed; shooting is unaffected', self.name)
-            return 0
+        drained = 0
+        settle = SETTLE_BEFORE_DRAIN_S
+        for _ in range(max(1, DRAIN_ROUNDS)):
+            time.sleep(settle)
+            try:
+                this_round = self._sdk_cam.drain_buffer()
+            except Exception:
+                logging.exception('%s: drain failed; shooting is unaffected', self.name)
+                break
+            drained += this_round
+            if this_round == 0:
+                break
+            settle = SETTLE_BETWEEN_DRAINS_S
+        return drained
 
     def buffer_is_filling(self) -> bool:
         """True when the transfer queue is close enough to full to want clearing.
@@ -654,13 +703,47 @@ class FujiCamera(BaseCamera):
         A queue that cannot be read counts as fine: a buffer reading is not worth
         losing a frame over, and every path here drains unconditionally somewhere
         further on.
+
+        Measured against BUFFER_SLOTS rather than the total the SDK returns: that
+        total sits three above the count while frames are being written, so
+        ``captured >= total * DRAIN_AT`` would have fired at 13 frames as readily
+        as at 25.
         """
         try:
-            captured, total = self._sdk_cam.get_buffer_capacity()
+            captured, _ = self._sdk_cam.get_buffer_capacity()
         except Exception:
             logging.debug('%s: buffer unreadable', self.name, exc_info=True)
             return False
-        return total > 0 and captured >= total * DRAIN_AT
+        return captured >= BUFFER_SLOTS * DRAIN_AT
+
+    def ensure_room_for(self, frames: int) -> int:
+        """Clear the queue unless it can already hold ``frames`` more.
+
+        Used before shooting that cannot stop to check — a relay burst holds the
+        contact closed and the body free-runs, so the only chance to make room is
+        before it starts.  A queue that cannot be read is drained rather than
+        trusted: a wasted second beats a buffer that fills mid-burst, which stops
+        the body until the battery is pulled.
+
+        The free slots are worked out from the count alone, never from the total
+        the SDK reports beside it.  That total is not the buffer size: while
+        frames are being written it tracks three above the count — 13/16, 18/21,
+        20/23, 23/26, 27/30 through one burst on 3 August — and only settles at
+        32 once the body is idle.  Subtracting one from the other would read as
+        three free slots however empty the buffer really was.
+        """
+        try:
+            captured, _ = self._sdk_cam.get_buffer_capacity()
+        except Exception:
+            logging.warning('%s: buffer unreadable before a burst; draining to be '
+                            'sure there is room', self.name, exc_info=True)
+            return self.drain()
+
+        if BUFFER_SLOTS - captured >= frames:
+            return 0
+        logging.info('%s: draining before a burst — %d slot(s) free, %d needed',
+                     self.name, BUFFER_SLOTS - captured, frames)
+        return self.drain()
 
     def drain_if_filling(self) -> int:
         """Drain, but only when the queue has actually filled up.

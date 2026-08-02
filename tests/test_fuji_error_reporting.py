@@ -24,6 +24,9 @@ def _clean():
 
 def _camera(**sdk):
     sdk_cam = MagicMock(**sdk)
+    # An empty queue unless a test says otherwise, so `drain` stops after one
+    # round instead of looping for the burst tail it is there to catch.
+    sdk_cam.drain_buffer.return_value = 0
     camera = FujiCamera.__new__(FujiCamera)      # bypass SDK-dependent __init__
     camera._sdk_cam = sdk_cam
     camera.name = "X-T4"
@@ -301,3 +304,102 @@ def test_a_refused_iso_is_retried_on_the_next_frame():
             camera.configure(iso=400)
 
     assert sdk.set_iso.call_count == 3
+
+
+def test_a_burst_makes_room_before_it_closes_the_contact(monkeypatch):
+    # A burst at the cap queues 30 of 32 slots, measured, and nothing checks the
+    # buffer once the contact is closed.  Singles no longer drain after every
+    # frame, so the queue arriving here can be most of the way full: a run of
+    # singles before the C3 burst would otherwise fill it and stop the body.
+    monkeypatch.setattr(fuji_camera, "SETTLE_BEFORE_DRAIN_S", 0.0)
+
+    camera, sdk = _camera()
+    sdk.get_buffer_capacity.return_value = (24, 32)     # what singles can leave
+    register_hardware("relay", MagicMock())
+    try:
+        fuji_camera._RelayShooter(camera).burst_no_download(28)
+    finally:
+        register_hardware("relay", None)
+
+    # Once to make room, once after the burst.
+    assert sdk.drain_buffer.call_count == 2
+
+
+def test_a_burst_against_an_empty_queue_does_not_stop_first(monkeypatch):
+    # The room-making drain costs a settle; an empty queue has not earned one,
+    # and this runs at C2 where the seconds are the whole point.
+    monkeypatch.setattr(fuji_camera, "SETTLE_BEFORE_DRAIN_S", 0.0)
+
+    camera, sdk = _camera()
+    sdk.get_buffer_capacity.return_value = (0, 32)
+    register_hardware("relay", MagicMock())
+    try:
+        fuji_camera._RelayShooter(camera).burst_no_download(28)
+    finally:
+        register_hardware("relay", None)
+
+    assert sdk.drain_buffer.call_count == 1      # only the one after the burst
+
+
+def test_a_burst_drains_when_the_queue_cannot_be_read(monkeypatch):
+    # A wasted second beats a buffer that fills mid-burst.
+    monkeypatch.setattr(fuji_camera, "SETTLE_BEFORE_DRAIN_S", 0.0)
+
+    camera, sdk = _camera()
+    sdk.get_buffer_capacity.side_effect = RuntimeError("unreadable")
+    register_hardware("relay", MagicMock())
+    try:
+        fuji_camera._RelayShooter(camera).burst_no_download(28)
+    finally:
+        register_hardware("relay", None)
+
+    assert sdk.drain_buffer.call_count == 2
+
+
+def test_a_drain_keeps_going_until_a_round_comes_back_empty(monkeypatch):
+    # The body reports frames as it writes them, and a burst is still arriving
+    # 2.5s after the contact opens: one drain a second later left 8 of 29 queued,
+    # measured 3 August.  They then sit there until something else clears them.
+    monkeypatch.setattr(fuji_camera, "SETTLE_BEFORE_DRAIN_S", 0.0)
+    monkeypatch.setattr(fuji_camera, "SETTLE_BETWEEN_DRAINS_S", 0.0)
+
+    camera, sdk = _camera()
+    sdk.drain_buffer.side_effect = [20, 7, 2, 0]
+
+    assert camera.drain() == 29
+
+
+def test_a_drain_stops_at_its_round_limit(monkeypatch):
+    # A body that hands back frames indefinitely must not hold the schedule.
+    monkeypatch.setattr(fuji_camera, "SETTLE_BEFORE_DRAIN_S", 0.0)
+    monkeypatch.setattr(fuji_camera, "SETTLE_BETWEEN_DRAINS_S", 0.0)
+    monkeypatch.setattr(fuji_camera, "DRAIN_ROUNDS", 3)
+
+    camera, sdk = _camera()
+    sdk.drain_buffer.return_value = 5
+
+    assert camera.drain() == 15
+    assert sdk.drain_buffer.call_count == 3
+
+
+def test_an_empty_queue_costs_one_round(monkeypatch):
+    # A bracket or a single settles inside the first round; it must not pay for
+    # the burst tail this is here to catch.
+    monkeypatch.setattr(fuji_camera, "SETTLE_BEFORE_DRAIN_S", 0.0)
+    monkeypatch.setattr(fuji_camera, "SETTLE_BETWEEN_DRAINS_S", 0.0)
+
+    camera, sdk = _camera()
+
+    assert camera.drain() == 0
+    assert sdk.drain_buffer.call_count == 1
+
+
+def test_free_slots_ignore_the_total_the_sdk_reports_beside_the_count():
+    # While frames are written the SDK returns total = captured + 3, so a burst
+    # against an empty-but-still-writing queue would see three free slots and
+    # drain for nothing — or worse, a filling one would look fine.
+    camera, sdk = _camera()
+    sdk.get_buffer_capacity.return_value = (2, 5)      # mid-write shape
+
+    assert not camera.buffer_is_filling()
+    assert camera.ensure_room_for(28) == 0

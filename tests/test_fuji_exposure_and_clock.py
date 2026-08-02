@@ -27,6 +27,9 @@ def _clean():
 
 def _camera(**sdk):
     sdk_cam = MagicMock(**sdk)
+    # An empty queue unless a test says otherwise, so `drain` stops after one
+    # round instead of looping for the burst tail it is there to catch.
+    sdk_cam.drain_buffer.return_value = 0
     cam = FujiCamera.__new__(FujiCamera)      # bypass SDK-dependent __init__
     cam._sdk_cam = sdk_cam
     cam.name = "X-T4"
