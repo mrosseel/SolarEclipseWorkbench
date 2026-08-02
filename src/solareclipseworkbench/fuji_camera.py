@@ -46,11 +46,15 @@ try:
         SHUTTER_SPEED_NAMES,
         SDK_FOCUS_MANUAL,
     )
+    from fujixsdk._errors import BusyError
     FUJIXSDK_AVAILABLE = True
     FUJIXSDK_IMPORT_ERROR = None
 except ImportError as _exc:
     FUJIXSDK_AVAILABLE = False
     FUJIXSDK_IMPORT_ERROR = str(_exc)
+
+    class BusyError(Exception):
+        """Stand-in so the retry helpers below still import without the SDK."""
 
 
 # ======================================================================
@@ -77,24 +81,53 @@ TAP_GAP_S = 0.35
 # The session survives a drain only once the camera has genuinely stopped.
 SETTLE_BEFORE_DRAIN_S = 1.0
 
+# Fraction of the 32-slot transfer queue that may fill before a bracket stops to
+# clear it.  Two thirds leaves room for a rung that fires twice — which on CH is
+# every fast rung — to land without overrunning.
+DRAIN_AT = 0.66
+
 # For about a second after a frame the body refuses exposure changes with
 # 0x1006 while it writes to the card.  The busy clears by itself.
-BUSY_RETRIES = 6
 BUSY_BACKOFF_S = 0.3
 
+# Waiting out a busy body is worth it only while there is still time to use the
+# result, so every retry loop is bounded by a deadline rather than by a count of
+# attempts: a frame at the previous exposure still records the corona, a frame
+# taken after the moment has passed records nothing.  Totality is not repeatable
+# and no setting is worth a missed contact.
+EXPOSURE_BUDGET_S = 1.5      # the whole of `configure`, every setting together
+BRACKET_STEP_BUDGET_S = 0.3  # one speed change between two taps of a bracket
 
-def _retry_busy(action, what: str) -> bool:
-    """Run a camera call that may be refused while the body is busy."""
-    for attempt in range(BUSY_RETRIES):
+
+def _through_busy(action, what: str, deadline: float):
+    """Run a camera call, waiting out the 0x1006 raised while the body writes.
+
+    ``deadline`` is a :func:`time.monotonic` instant past which the call is
+    abandoned, so the wait can never eat into the next scheduled frame.  Only
+    busy is retried: sitting out the backoffs cannot make an unsupported ISO
+    supported, and the seconds spent are seconds of totality.
+    """
+    while True:
         try:
-            action()
-            return True
-        except Exception:
-            if attempt + 1 == BUSY_RETRIES:
-                logging.exception('%s failed after %d attempts', what, BUSY_RETRIES)
-                return False
-            time.sleep(BUSY_BACKOFF_S)
-    return False
+            return action()
+        except BusyError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logging.warning('%s: body still busy at its deadline; moving on '
+                                'rather than delaying the next frame', what)
+                raise
+            logging.debug('%s: body busy, %.1fs of budget left', what, remaining)
+            time.sleep(min(BUSY_BACKOFF_S, remaining))
+
+
+def _retry_busy(action, what: str, deadline: float) -> bool:
+    """As :func:`_through_busy`, but reports the failure instead of raising."""
+    try:
+        _through_busy(action, what, deadline)
+        return True
+    except Exception:
+        logging.exception('%s failed', what)
+        return False
 
 
 class _RelayShooter:
@@ -130,8 +163,17 @@ class _RelayShooter:
         relay.half_press()
         try:
             for speed in speeds:
+                # Budgeted against the tap gap below: a speed that will not go on
+                # in time must not push the whole bracket off its schedule.
+                # Written straight to the SDK rather than through `configure`, so
+                # the speed `configure` thinks is on the body has to be corrected
+                # here — otherwise the next single at the bracket's last rung
+                # would be skipped as already applied and shot at the wrong speed.
+                self.camera._applied_speed = speed
                 if not _retry_busy(lambda s=speed: self.camera._sdk_cam.set_shutter_speed(s),
-                                   f'{self.camera.name}: set shutter speed {speed}'):
+                                   f'{self.camera.name}: set shutter speed {speed}',
+                                   time.monotonic() + BRACKET_STEP_BUDGET_S):
+                    self.camera._applied_speed = None
                     # Fire anyway: a frame at the previous speed beats no frame at
                     # all, and there is no second chance at a contact.  But the
                     # frame will look perfectly normal until it is reviewed, so the
@@ -147,10 +189,37 @@ class _RelayShooter:
                 taken += 1
                 # A slow frame must finish before the next speed is sent.
                 time.sleep(max(TAP_GAP_S, speed / 1_000_000 + 0.3))
+                relay = self._keep_buffer_clear(relay)
         finally:
             relay.release_all()
         self.camera.drain()
         return taken
+
+    def _keep_buffer_clear(self, relay):
+        """Empty the transfer queue mid-bracket if it is filling.
+
+        With the drive dial on CH — which the beads bursts require — one tap
+        fires as many frames as fit inside the contact, so a fast rung costs two
+        slots rather than one.  A 13-rung bracket measured 28 frames against 32
+        slots on 2 August, and a wider bracket would have filled the buffer and
+        stopped the body dead mid-sequence, recoverable only by pulling the
+        battery.  The dial cannot be moved over USB (the body refuses
+        SetDriveMode for as long as it is asked), so the frames cannot be
+        prevented — only cleared before they accumulate.
+
+        Draining needs the contacts open: doing it with S1 still held drops the
+        USB session for good (0x2001).  The half-press is therefore dropped and
+        retaken around the drain, which costs one settle, and only when the queue
+        is actually filling.
+        """
+        if not self.camera.buffer_is_filling():
+            return relay
+
+        logging.info('%s: draining mid-bracket', self.camera.name)
+        relay.release_all()
+        self.camera.drain()
+        relay.half_press()
+        return relay
 
 
 # ======================================================================
@@ -400,6 +469,7 @@ class FujiCamera(BaseCamera):
         self._connected = True
         # The ISO this session last wrote successfully; see configure().
         self._applied_iso: Optional[int] = None
+        self._applied_speed: Optional[int] = None
 
     def connect(self) -> None:
         self._connected = True
@@ -440,20 +510,25 @@ class FujiCamera(BaseCamera):
         perfectly normal until the images are reviewed.  Every failure is
         collected here — one bad value must not stop the others being tried —
         and reported together.
+
+        The settings share one ``EXPOSURE_BUDGET_S`` deadline between them, so a
+        body that stays busy costs the schedule that much once, not once per
+        setting.  Whatever has not gone on by then is reported as a failure and
+        the frame is taken regardless.
         """
         failures: list = []
 
-        def _apply(name: str, parse, setter, raw) -> None:
+        def _apply(name: str, parse, setter, raw, deadline: float) -> None:
             value = parse(raw)
             if value is None:
                 failures.append(f"{name}={raw!r} is not a value this camera understands")
                 return
             try:
-                setter(value)
+                _through_busy(lambda: setter(value), f'{self.name}: set {name}', deadline)
             except Exception as exc:
                 failures.append(f"{name}={raw!r} rejected by the camera ({exc})")
 
-        def _apply_iso(raw) -> None:
+        def _apply_iso(raw, deadline: float) -> None:
             """Write the ISO only when it is not the one already on the body.
 
             ``set_iso`` is refused with 0x1006 unless the transfer queue is
@@ -471,24 +546,69 @@ class FujiCamera(BaseCamera):
                 logging.debug('%s: ISO already %s, not writing it again', self.name, raw)
                 return
             try:
-                self._sdk_cam.set_iso(value)
+                _through_busy(lambda: self._sdk_cam.set_iso(value),
+                              f'{self.name}: set ISO {raw}', deadline)
                 self._applied_iso = value
             except Exception as exc:
                 self._applied_iso = None
                 failures.append(f"ISO={raw!r} rejected by the camera ({exc})")
 
+        def _apply_speed(raw, deadline: float) -> None:
+            """Write the shutter speed only when it is not the one already set.
+
+            The body refuses the write with 0x1006 for the second or so it spends
+            flushing the previous frame to the card, so a run of singles at one
+            exposure spent about 1.7s per frame waiting to write a value the body
+            already had — measured at 2.0s a frame against 0.3s when the write is
+            skipped.  Between brackets that is the difference between filling a
+            gap with seven frames and filling it with forty.
+
+            Kept honest the same way the ISO is: the remembered value is dropped
+            whenever a write fails, whenever the bracket path writes a speed of
+            its own, and whenever the session is rebuilt.
+            """
+            value = _parse_shutter_speed(str(raw))
+            if value is None:
+                failures.append(f"shutter speed={raw!r} is not a value this camera understands")
+                return
+            if value == self._applied_speed:
+                logging.debug('%s: shutter speed already %s, not writing it again',
+                              self.name, raw)
+                return
+            try:
+                _through_busy(lambda: self._sdk_cam.set_shutter_speed(value),
+                              f'{self.name}: set shutter speed {raw}', deadline)
+                self._applied_speed = value
+            except Exception as exc:
+                self._applied_speed = None
+                failures.append(f"shutter speed={raw!r} rejected by the camera ({exc})")
+
         with self._lock:
+            # Started after the lock, so a queued caller inherits a full budget
+            # rather than one already spent waiting its turn.
+            started = time.monotonic()
+            deadline = started + EXPOSURE_BUDGET_S
+
             if kwargs.get('iso') is not None:
-                _apply_iso(kwargs['iso'])
+                _apply_iso(kwargs['iso'], deadline)
 
             # A telescope has no electronic aperture, so a script says "-" and
             # the setting is skipped rather than failing every single frame.
             if kwargs.get('aperture') not in (None, '', '-'):
-                _apply('aperture', _parse_aperture, self._sdk_cam.set_aperture, kwargs['aperture'])
+                _apply('aperture', _parse_aperture, self._sdk_cam.set_aperture,
+                       kwargs['aperture'], deadline)
 
             if kwargs.get('shutter_speed') is not None:
-                _apply('shutter speed', lambda v: _parse_shutter_speed(str(v)),
-                       self._sdk_cam.set_shutter_speed, kwargs['shutter_speed'])
+                _apply_speed(kwargs['shutter_speed'], deadline)
+
+            elapsed = time.monotonic() - started
+
+        # The budget bounds the waiting, not the USB round-trips themselves, so
+        # say so when a configure runs long: at eclipse cadence it is the
+        # difference between a frame on time and a frame missed.
+        if elapsed > EXPOSURE_BUDGET_S:
+            logging.warning('%s: applying settings took %.1fs (budget %.1fs)',
+                            self.name, elapsed, EXPOSURE_BUDGET_S)
 
         if failures:
             raise CameraError(
@@ -517,6 +637,32 @@ class FujiCamera(BaseCamera):
             logging.exception('%s: drain failed; shooting is unaffected', self.name)
             return 0
 
+    def buffer_is_filling(self) -> bool:
+        """True when the transfer queue is close enough to full to want clearing.
+
+        A queue that cannot be read counts as fine: a buffer reading is not worth
+        losing a frame over, and every path here drains unconditionally somewhere
+        further on.
+        """
+        try:
+            captured, total = self._sdk_cam.get_buffer_capacity()
+        except Exception:
+            logging.debug('%s: buffer unreadable', self.name, exc_info=True)
+            return False
+        return total > 0 and captured >= total * DRAIN_AT
+
+    def drain_if_filling(self) -> int:
+        """Drain, but only when the queue has actually filled up.
+
+        A drain costs a settle plus the deletes — well over a second — and a
+        frame occupies one of 32 slots.  Paying that after every single frame
+        spends the entire gap between two scripted frames to reclaim a slot that
+        was not needed, which during totality is frames not taken.
+        """
+        if not self.buffer_is_filling():
+            return 0
+        return self.drain()
+
     def capture(self):
         """Fire the shutter, through the relay when one is connected.
 
@@ -525,7 +671,9 @@ class FujiCamera(BaseCamera):
         with self._lock:
             if self.relay is not None:
                 self.relay.shoot(pulse=TAP_S)
-                self.drain()
+                # `shoot` leaves both contacts open, so the queue can be cleared
+                # here — but only when it has actually filled.
+                self.drain_if_filling()
                 return
             try:
                 self._sdk_cam.shoot_no_af()
@@ -550,6 +698,7 @@ class FujiCamera(BaseCamera):
             self._shooter = None
             # A new session knows nothing about what the old one wrote.
             self._applied_iso = None
+            self._applied_speed = None
             logging.info('Fuji camera reconnected successfully')
             return True
         except Exception as e:
