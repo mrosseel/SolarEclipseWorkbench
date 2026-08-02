@@ -633,34 +633,18 @@ class FujiCamera(BaseCamera):
                 )
             return speeds
 
-        # Both of these have to succeed for a bracket to mean anything.  The
-        # previous version returned an empty list when the read failed, which
-        # made the bracket take no frames at all without saying so.
+        # The base of the ladder is whatever is on the body: the caller has just
+        # dialled in the exposure this bracket is meant to straddle.
         try:
             current_speed, _ = self._sdk_cam.get_shutter_speed()
-            supported = self._sdk_cam.get_supported_shutter_speeds()
         except Exception as exc:
             raise CameraError(
                 f"{self.name}: cannot build a bracket — the camera would not report its "
                 f"shutter speed ({exc})"
             ) from exc
 
-        if current_speed not in supported:
-            # One frame at the speed already on the body: safe, but not the
-            # bracket that was asked for, so it has to be said out loud.
-            logging.warning(
-                '%s: the camera reports it is at %s, which is not in the %d speeds it '
-                'says it supports — bracketing %s collapses to a single frame',
-                self.name, SHUTTER_SPEED_NAMES.get(current_speed, current_speed),
-                len(supported), steps_str,
-            )
-            return [current_speed]
-
-        idx = supported.index(current_speed)
-
-        # Parse the step size from the steps string.  Positions are 1/3 EV
-        # apart, so "+/- 1" spans 3 positions either side of the current speed
-        # and yields 7 frames.
+        # Parse the step size.  Positions are 1/3 EV apart, so "+/- 1" spans 3
+        # positions either side of the base and yields 7 frames.
         try:
             clean = steps_str.replace("+/-", "").strip()
             if " " in clean:
@@ -671,28 +655,67 @@ class FujiCamera(BaseCamera):
                 ev_steps = whole + frac
             else:
                 ev_steps = float(clean)
-            # Convert EV to 1/3 stop positions
             positions = int(round(ev_steps * 3))
         except (ValueError, IndexError):
             positions = 3  # default: +/- 1 EV
 
-        speeds = []
-        for offset in range(-positions, positions + 1):
-            i = idx + offset
-            if 0 <= i < len(supported):
-                speeds.append(supported[i])
+        # A body that reports its own scale knows best: its list is already the
+        # 1/3 EV grid this bracket wants, so step along it.
+        try:
+            supported = self._sdk_cam.get_supported_shutter_speeds()
+        except Exception:
+            supported = []
 
+        if current_speed in supported:
+            idx = supported.index(current_speed)
+            speeds = [supported[i] for i in range(idx - positions, idx + positions + 1)
+                      if 0 <= i < len(supported)]
+            self._warn_if_short(speeds, positions, current_speed, steps_str)
+            return speeds
+
+        return self._ladder_around(current_speed, positions, steps_str)
+
+    def _ladder_around(self, current_speed: int, positions: int, steps_str: str) -> list[int]:
+        """Shutter constants 1/3 EV apart, centred on ``current_speed``.
+
+        Used when the body will not say what speeds it has: the X-T4's SDK module
+        does not implement CapShutterSpeed and answers with an empty list, which
+        is not a reason to give up on bracketing.
+
+        The rungs are computed as exposure times — base x 2**(k/3) — and snapped
+        to the nearest constant the SDK defines, rather than counted off in list
+        positions.  The constant table is not uniformly 1/3 EV apart across its
+        whole range, so stepping by index would drift.
+        """
+        grid = _get_speeds_by_seconds()
+        if not grid:
+            return [current_speed]
+
+        base = next((secs for secs, value in grid if value == current_speed), None)
+        if base is None:
+            base = current_speed / 1_000_000.0   # the constants are microseconds
+
+        speeds = []
+        for step in range(-positions, positions + 1):
+            target = base * (2.0 ** (step / 3.0))
+            _, value = min(grid, key=lambda pair: abs(math.log(pair[0] / target)))
+            if value not in speeds:
+                speeds.append(value)
+
+        self._warn_if_short(speeds, positions, current_speed, steps_str)
+        return speeds
+
+    def _warn_if_short(self, speeds: list, positions: int, current_speed: int,
+                       steps_str: str) -> None:
+        """Fewer rungs than asked for means the ladder ran off the end of the
+        scale, leaving it lopsided around the base exposure."""
         wanted = 2 * positions + 1
         if len(speeds) < wanted:
-            # Running off either end leaves the bracket lopsided around the base
-            # exposure rather than symmetric, which the schedule did not assume.
             logging.warning(
-                '%s: bracketing %s around %s wanted %d frames but the scale only '
-                'reaches %d of them',
+                '%s: bracketing %s around %s wanted %d frames, the scale reaches %d',
                 self.name, steps_str, SHUTTER_SPEED_NAMES.get(current_speed, current_speed),
                 wanted, len(speeds),
             )
-        return speeds
 
     def describe_speeds(self, speeds: list[int]) -> str:
         """The human-readable ladder behind a list of SDK shutter constants."""

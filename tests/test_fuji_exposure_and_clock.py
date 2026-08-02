@@ -9,6 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from fujixsdk._constants import SHUTTER_SPEED_NAMES
+
 from solareclipseworkbench import camera as camera_mod
 from solareclipseworkbench import fuji_camera, hardware_problems
 from solareclipseworkbench.fuji_camera import FujiCamera
@@ -63,16 +65,31 @@ def test_an_off_grid_value_snaps_but_says_so(caplog):
 
 # ---------------------------------------------------------------- bracket size
 
-def test_bracket_collapsing_to_one_frame_is_reported():
+def test_a_body_that_lists_no_speeds_still_gets_a_full_ladder():
     cam, sdk = _camera()
-    # A speed the body does not list among its supported ones collapses the
-    # ladder to a single frame.
-    sdk.get_shutter_speed.return_value = (12_345, None)
-    sdk.get_supported_shutter_speeds.return_value = [1000, 2000, 4000]
+    # The X-T4's SDK module does not implement CapShutterSpeed and answers with
+    # an empty list.  The ladder is then computed in exposure time instead.
+    sdk.get_shutter_speed.return_value = (fuji_camera._parse_shutter_speed("1/200"), None)
+    sdk.get_supported_shutter_speeds.return_value = []
 
     speeds = cam.parse_bracket_speeds("+/- 2")
 
-    assert speeds == [12_345]
+    assert len(speeds) == 13
+    assert len(set(speeds)) == 13
+
+
+def test_the_computed_ladder_is_a_third_of_a_stop_per_rung():
+    cam, sdk = _camera()
+    sdk.get_shutter_speed.return_value = (fuji_camera._parse_shutter_speed("1/200"), None)
+    sdk.get_supported_shutter_speeds.return_value = []
+
+    speeds = cam.parse_bracket_speeds("+/- 2")
+
+    # Ends two stops either side of the base, so the slowest is 16x the fastest.
+    seconds = [fuji_camera._speed_name_seconds(SHUTTER_SPEED_NAMES[s]) for s in speeds]
+    assert seconds == sorted(seconds)
+    assert 15.0 < seconds[-1] / seconds[0] < 17.0
+    assert fuji_camera._parse_shutter_speed("1/200") in speeds
 
 
 def test_bracket_ladder_is_symmetric_and_named():
@@ -96,7 +113,7 @@ def test_short_bracket_at_the_end_of_the_scale_warns(caplog):
         speeds = cam.parse_bracket_speeds("+/- 1")
 
     assert len(speeds) < 7
-    assert "only" in caplog.text
+    assert "the scale reaches" in caplog.text
 
 
 # ------------------------------------------------------------------ clock sync
