@@ -175,3 +175,13 @@ uv.lock
 
 # Lunar limb band blob: 72 MB, built by tools/build_limb_blob.py, shipped as a release asset
 data/lunar_limb_band_v1.bin
+
+# Vendor SDK redistributables: 1.6 GB, downloaded from Fujifilm and Canon
+SDK/
+
+# Sample RAWs pulled off the card while testing
+*.raf
+*.RAF
+
+# Playwright MCP scratch output
+.playwright-mcp/
