@@ -25,6 +25,12 @@ forced by the hardware or the code:
 Partial-phase frames alternate between the bodies so the pair samples the disc
 twice as often as either alone.
 
+The 800D is parked, so the two halves are written to separate files: the X-T4 gets
+``20260812_production.txt`` with the comments and the voice prompts, and the 800D's
+commands go to ``20260812_production_EOS800D.txt``.  Solar Eclipse Workbench loads
+one script at a time, so leaving the 800D lines in the production script would only
+have produced a wall of "camera not found" at load.
+
     python scripts/generate_20260812_production.py
 """
 
@@ -50,6 +56,7 @@ from solareclipseworkbench.reference_moments import calculate_reference_moments
 from solareclipseworkbench.exposure_calculator import calculate_exposure, format_shutter_speed
 
 OUTPUT = REPO / "scripts" / "20260812_production.txt"
+PARKED = REPO / "scripts" / "20260812_production_EOS800D.txt"
 
 # --- Site -----------------------------------------------------------------
 SITE = "Palencia, N Spain"
@@ -126,12 +133,17 @@ def fmt_delta(seconds: float) -> str:
                                seconds - int(seconds // 3600) * 3600 - int((seconds % 3600) // 60) * 60)
 
 
+# Every line is tagged with the body it drives, so the schedule can be written out
+# per camera.  The 800D is parked at the moment, and Solar Eclipse Workbench loads
+# one script at a time, so its half goes to a file of its own instead of sitting in
+# the production script referring to a camera that will not be detected.
 LINES = []
 FRAMES = {XT4: 0, EOS: 0}
 
 
-def emit(text=""):
-    LINES.append(text)
+def emit(text="", owner=None):
+    """Add a line.  ``owner`` is the camera it drives, or None for shared lines."""
+    LINES.append((owner, text))
 
 
 def moment_time(ref, sign, offset):
@@ -156,40 +168,51 @@ def picture(cam, ref, sign, offset, exposure, iso, what, extra=""):
     FRAMES[cam] += 1
     emit("take_picture, %s, %s, %s, %s, %s, %s, %d, \"%s\"" %
          (ref, sign, fmt_delta(offset), cam, exposure, APERTURE_FIELD, iso,
-          note(ref, sign, offset, what, extra)))
+          note(ref, sign, offset, what, extra)), cam)
 
 
 def burst(cam, ref, sign, offset, exposure, iso, arg, frames, what):
     FRAMES[cam] += frames
     emit("take_burst, %s, %s, %s, %s, %s, %s, %d, %s, \"%s\"" %
          (ref, sign, fmt_delta(offset), cam, exposure, APERTURE_FIELD, iso, arg,
-          note(ref, sign, offset, what)))
+          note(ref, sign, offset, what)), cam)
 
 
 def hdr(cam, ref, sign, offset, exposure, iso, stops, what, extra=""):
     FRAMES[cam] += 2 * stops + 1
     emit("take_hdr, %s, %s, %s, %s, %s, %s, %d, %d, \"%s\"" %
          (ref, sign, fmt_delta(offset), cam, exposure, APERTURE_FIELD, iso, stops,
-          note(ref, sign, offset, what, extra)))
+          note(ref, sign, offset, what, extra)), cam)
 
 
 def bracket(cam, ref, sign, offset, exposure, iso, steps, frames, what, extra=""):
     FRAMES[cam] += frames
     emit("take_bracket, %s, %s, %s, %s, %s, %s, %d, %s, \"%s\"" %
          (ref, sign, fmt_delta(offset), cam, exposure, APERTURE_FIELD, iso, steps,
-          note(ref, sign, offset, what, extra)))
+          note(ref, sign, offset, what, extra)), cam)
 
 
 def relay_burst(ref, sign, offset, seconds, frames, what):
     FRAMES[XT4] += frames
     emit("relay_burst, %s, %s, %s, %s, \"%s\"" %
-         (ref, sign, fmt_delta(offset), seconds, note(ref, sign, offset, what)))
+         (ref, sign, fmt_delta(offset), seconds, note(ref, sign, offset, what)), XT4)
 
 
 def relay_shoot(ref, sign, offset, what):
     FRAMES[XT4] += 1
     emit("relay_shoot, %s, %s, %s, \"%s\"" %
-         (ref, sign, fmt_delta(offset), note(ref, sign, offset, what)))
+         (ref, sign, fmt_delta(offset), note(ref, sign, offset, what)), XT4)
+
+
+def relay_arm(ref, sign, offset, what):
+    """Close S1 and leave it closed, so the burst that follows takes the fast path."""
+    emit("relay_arm, %s, %s, %s, \"%s\"" %
+         (ref, sign, fmt_delta(offset), note(ref, sign, offset, what)), XT4)
+
+
+def relay_release(ref, sign, offset, what):
+    emit("relay_release, %s, %s, %s, \"%s\"" %
+         (ref, sign, fmt_delta(offset), note(ref, sign, offset, what)), XT4)
 
 
 def announce(ref, sign, offset, name, comment):
@@ -238,10 +261,18 @@ bracket_centres = [
     (shutter(totality_exposure("corona_upper", alt_max, ISO_CORONA) * 2), "outer corona"),
 ]
 
-# 2.5 s is the X-T4's buffer depth at 15 fps (~38 lossless-compressed RAW), so the
-# whole burst runs at full rate: any longer and the tail throttles to card-write
-# speed, around 6-8 fps.
-RELAY_C2_S, RELAY_C3_S = 2.5, 2.5
+# The hold is bounded by the transfer queue, not by the card: every frame taken
+# with the SDK session open holds one of 32 slots until the drain that follows
+# can run, and a full queue stops the body dead.  At 15 fps that is a little over
+# two seconds, so the burst is held to MAX_BURST_S (fuji_camera) with a margin.
+RELAY_C2_S, RELAY_C3_S = 1.9, 1.9
+
+# Trigger latency, measured on the bench 1 August 2026, and it depends entirely on
+# the path: S1 pre-armed and held gives 43-48 ms, S2 alone with S1 never asserted
+# ~130 ms, and a bare shoot() 170 ms - of which 120 ms is our own settle before S2
+# closes.  So the bursts below pre-arm with relay_arm and take the fast path, which
+# both shrinks the lead and stops it depending on how the release cable is wired.
+RELAY_LATENCY_S = 0.045
 RELAY_C2_N = int(RELAY_C2_S * XT4_RELAY_FPS)
 RELAY_C3_N = int(RELAY_C3_S * XT4_RELAY_FPS)
 EOS_C2_BURST_S, EOS_C3_BURST_S = 3, 5
@@ -252,17 +283,17 @@ EOS_C2_BURST_S, EOS_C3_BURST_S = 3, 5
 emit("# Solar Eclipse Workbench PRODUCTION script - total solar eclipse of 12 August 2026")
 emit("# Generated by scripts/generate_20260812_production.py - edit that, not this file.")
 emit("#")
-emit("# Bodies : %s   (Fuji SDK + relay trigger on the remote jack)" % XT4)
-emit("#          %s   (gphoto2)" % EOS)
-emit("# Optics : two 80/480 mm refractors, fixed f/6.  Neither body can drive a")
-emit("#          telescope's aperture, so the aperture column is informational.")
-emit("# Filter : Baader AstroSolar PHOTOGRAPHIC film (ND %.1f) on both scopes, for every" % ND)
+emit("# Body   : %s   (Fuji SDK + relay trigger on the remote jack)" % XT4)
+emit("#          The %s is parked; its half of this schedule is in" % EOS)
+emit("#          scripts/20260812_production_EOS800D.txt, still interleaved with the")
+emit("#          frames below in case the pair runs again on a second machine.")
+emit("# Optics : 80/480 mm refractor, fixed f/6.  The body cannot drive a telescope's")
+emit("#          aperture, so the aperture column is informational.")
+emit("# Filter : Baader AstroSolar PHOTOGRAPHIC film (ND %.1f) on the scope, for every" % ND)
 emit("#          partial-phase frame.  NOT the ND 5.0 visual film - never look through this.")
 emit("#")
-emit("# At f/6 with photographic film the sun wants 1/7139 just after C1 at ISO 100.  The")
-emit("# X-T4 reaches that; the 800D tops out at 1/4000 and runs up to 0.85 stop over for")
-emit("# the first half hour, easing to nothing by the time the sun is under 10 degrees.")
-emit("# RAW absorbs it, but a 1-stop ND on the 800D would remove it entirely.")
+emit("# At f/6 with photographic film the sun wants 1/7139 just after C1 at ISO 100, which")
+emit("# the X-T4 reaches at its 1/8000 ceiling.")
 emit("#")
 emit("# Site   : %s  %.4f N, %.4f E, %d m" % (SITE, LAT, LON, OBS_ALT))
 emit("# Type   : %s, magnitude %.4f, totality %.0f s" %
@@ -280,18 +311,13 @@ emit("# Sunset eclipse: totality is only %.1f deg up and the sun sets %d s after
 emit("# last partials are shot into horizon haze.  A clear, low western horizon matters more")
 emit("# here than anything else.")
 emit("#")
-emit("# Why the two bodies do not always use the same command")
-emit("# -----------------------------------------------------")
-emit("# The rigs are identical, so the exposures are identical and both use take_picture")
-emit("# everywhere the behaviour is the same.  Three forced differences:")
+emit("# Which command does what on this body")
+emit("# ------------------------------------")
 emit("#   corona ladders  take_hdr ramps the shutter between frames on gphoto2, but on the")
 emit("#                   Fuji SDK path it fires 2*stops+1 frames at ONE speed.  The X-T4")
 emit("#                   uses take_bracket (wired to the SDK bracket_no_download) instead.")
-emit("#   contact bursts  only the X-T4 has the relay, so it free-runs CH at ~%.0f fps." % XT4_RELAY_FPS)
-emit("#                   The 800D holds its shutter through take_burst at ~%.0f fps." % EOS_BURST_FPS)
-emit("#   fastest speed   1/8000 on the X-T4, 1/4000 on the 800D.  Only the beads frames")
-emit("#                   are quick enough to notice; the 800D's are capped and run ~2/3")
-emit("#                   stop over, which RAW absorbs.")
+emit("#   contact bursts  the relay on the remote jack free-runs CH at ~%.0f fps, which the" % XT4_RELAY_FPS)
+emit("#                   SDK cannot do at all: it returns 0x1008 with the dial on CH.")
 emit("#")
 emit("# Atmospheric dimming")
 emit("# -------------------")
@@ -316,7 +342,7 @@ emit()
 # --------------------------------------------------------------------------
 # Set-up
 # --------------------------------------------------------------------------
-emit("# --- Set-up and focus, before C1 (solar filter ON both scopes) ---")
+emit("# --- Set-up and focus, before C1 (solar filter ON) ---")
 sync("C1", "-", 20 * 60, "Sync both cameras")
 for mins, cam, label in ((18, XT4, "Focus check"), (17, EOS, "Focus check"),
                          (12, XT4, "Focus check"), (11, EOS, "Focus check"),
@@ -366,14 +392,14 @@ for offset, name in [(50 * 60, "C2_IN_50_MINUTES"), (40 * 60, "C2_IN_40_MINUTES"
     announce("C2", "-", offset, name, "%d minutes to totality" % (offset // 60))
 announce("C2", "-", 90, "C2_IN_90_SECONDS", "Ninety seconds to totality")
 announce("C2", "-", 60, "C2_IN_60_SECONDS", "One minute to totality - get ready")
-announce("C2", "-", 40, "C2_IN_40_SECONDS", "Forty seconds to totality")
-announce("C2", "-", 30, "C2_IN_30_SECONDS", "FILTERS OFF BOTH SCOPES")
+announce("C2_LIMB", "-", 40, "C2_IN_40_SECONDS", "Forty seconds to totality")
+announce("C2_LIMB", "-", 30, "C2_IN_30_SECONDS", "FILTERS OFF BOTH SCOPES")
 sync("C2", "-", 26, "Last sync before totality")
-announce("C2", "-", 20, "C2_IN_20_SECONDS", "Twenty seconds - filters off, glasses off at C2")
-announce("C2", "-", 10, "C2_IN_10_SECONDS", "Ten seconds to totality")
+announce("C2_LIMB", "-", 20, "C2_IN_20_SECONDS", "Twenty seconds - filters off, glasses off at C2")
+announce("C2_LIMB", "-", 10, "C2_IN_10_SECONDS", "Ten seconds to totality")
 for n, name in ((5, "C2_IN_5_SECONDS"), (4, "C2_IN_4_SECONDS"), (3, "C2_IN_3_SECONDS"),
                 (2, "C2_IN_2_SECONDS"), (1, "C2_IN_1_SECOND")):
-    announce("C2", "-", n, name, "%d to totality" % n)
+    announce("C2_LIMB", "-", n, name, "%d to totality" % n)
 emit()
 
 # --------------------------------------------------------------------------
@@ -381,17 +407,31 @@ emit()
 # --------------------------------------------------------------------------
 emit("# --- TOTALITY (%.0f s, sun %.1f deg - FILTERS OFF) ---" % (totality, alt_max))
 emit("# X-T4: relay bursts at both contacts, SDK brackets in between (%.1f fps over USB)." % XT4_SDK_FPS)
-emit("# 800D: held-shutter bursts at the contacts, take_hdr ladders in between.")
-emit("# The two bodies are staggered so one is always exposing while the other reads out.")
-emit("# The X-T4 take_picture at C2-8 exists to load the beads exposure before the relay")
-emit("# takes over - the relay fires whatever is already dialled in.")
+emit("# The frames were laid out for two bodies, staggered so one is always exposing while")
+emit("# the other reads out; with the 800D parked the gaps it filled are simply empty.")
+emit("# The X-T4 take_picture before each burst exists to load the beads exposure before")
+emit("# the relay takes over - the relay fires whatever is already dialled in.")
+emit("#")
+emit("# Everything inside a minute of a contact - the bursts and the spoken countdown -")
+emit("# is scheduled against the limb-corrected moments, because that is when totality")
+emit("# actually begins and ends.  The cues further out stay on the mean contacts, where")
+emit("# a few seconds is nothing and not depending on the limb profile is worth more.")
+emit("#")
+emit("# The bead bursts are scheduled against BEADS_C2 and BEADS_C3, the middle of the")
+emit("# limb-corrected bead window, not against the contacts.  A smooth-Moon C3 is %.1f s"
+     % abs((MOMENTS["C3"].time_utc - MOMENTS["C3_LIMB"].time_utc).total_seconds()))
+emit("# later than the real one here, which is most of a burst.  These lines need the lunar")
+emit("# limb profile installed and the correction switched on; without it they are skipped,")
+emit("# and Solar Eclipse Workbench says so when the script is loaded.")
 
-picture(XT4, "C2", "-", 8.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
-burst(EOS, "C2", "-", 3.0, beads_e, ISO_BEADS, EOS_C2_BURST_S, int(EOS_C2_BURST_S * EOS_BURST_FPS),
-      "Diamond ring and Baily's beads at C2")
-relay_burst("C2", "-", 1.5, RELAY_C2_S, RELAY_C2_N,
+picture(XT4, "BEADS_C2", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
+relay_arm("BEADS_C2", "-", 4.0, "Pre-arm S1 for the C2 burst")
+burst(EOS, "BEADS_C2", "-", EOS_C2_BURST_S / 2, beads_e, ISO_BEADS, EOS_C2_BURST_S,
+      int(EOS_C2_BURST_S * EOS_BURST_FPS), "Diamond ring and Baily's beads at C2")
+relay_burst("BEADS_C2", "-", RELAY_C2_S / 2 + RELAY_LATENCY_S, RELAY_C2_S, RELAY_C2_N,
             "Diamond ring and Baily's beads at C2, relay at %.0f fps" % XT4_RELAY_FPS)
-announce("C2", "-", 0, "C2", "Second contact - filters off, totality has begun")
+relay_release("BEADS_C2", "+", 2.0, "Open every contact after the C2 burst")
+announce("C2_LIMB", "-", 0, "C2", "Second contact - filters off, totality has begun")
 picture(EOS, "C2", "+", 4.0, chromo, ISO_BEADS, "Chromosphere")
 picture(EOS, "C2", "+", 5.5, prom, ISO_BEADS, "Prominences")
 bracket(XT4, "C2", "+", 6.0, bracket_centres[0][0], ISO_CORONA, BRACKET_STEPS, BRACKET_FRAMES,
@@ -402,7 +442,7 @@ bracket(XT4, "C2", "+", 16.0, bracket_centres[1][0], ISO_CORONA, BRACKET_STEPS, 
 bracket(XT4, "C2", "+", 27.0, bracket_centres[2][0], ISO_CORONA, BRACKET_STEPS, BRACKET_FRAMES,
         "Corona bracket A3, %s" % bracket_centres[2][1])
 hdr(EOS, "C2", "+", 26.0, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder B")
-announce("C2", "+", 30, "C2_PLUS_30_SECONDS", "Thirty seconds into totality")
+announce("C2_LIMB", "+", 30, "C2_PLUS_30_SECONDS", "Thirty seconds into totality")
 picture(EOS, "C2", "+", 45.0, deep, ISO_DEEP, "Deep outer corona")
 picture(XT4, "C2", "+", 46.0, deep, ISO_DEEP, "Deep outer corona")
 picture(EOS, "C2", "+", 47.5, deeper, ISO_DEEP, "Deepest outer corona / earthshine")
@@ -416,7 +456,7 @@ announce("MAX", "-", 0, "MAX", "Maximum eclipse")
 picture(XT4, "C2", "+", 52.0, inner, ISO_CORONA, "Inner corona at maximum eclipse")
 picture(EOS, "C2", "+", 53.0, deeper, ISO_DEEP, "Deepest outer corona / earthshine")
 picture(EOS, "C2", "+", 55.5, deep, ISO_DEEP, "Deep outer corona")
-announce("C3", "-", 45, "C3_IN_45_SECONDS", "Forty-five seconds of totality left")
+announce("C3_LIMB", "-", 45, "C3_IN_45_SECONDS", "Forty-five seconds of totality left")
 bracket(XT4, "C2", "+", 56.0, bracket_centres[0][0], ISO_CORONA, BRACKET_STEPS, BRACKET_FRAMES,
         "Corona bracket B1, %s" % bracket_centres[0][1])
 hdr(EOS, "C2", "+", 58.5, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder C")
@@ -426,25 +466,27 @@ bracket(XT4, "C2", "+", 75.0, bracket_centres[2][0], ISO_CORONA, BRACKET_STEPS, 
         "Corona bracket B3, %s" % bracket_centres[2][1])
 picture(EOS, "C3", "-", 23.0, deep, ISO_DEEP, "Deep outer corona")
 picture(EOS, "C3", "-", 20.5, inner, ISO_CORONA, "Inner corona")
-announce("C3", "-", 20, "C3_IN_20_SECONDS", "Twenty seconds to third contact")
+announce("C3_LIMB", "-", 20, "C3_IN_20_SECONDS", "Twenty seconds to third contact")
 picture(EOS, "C3", "-", 16.0, prom, ISO_BEADS, "Prominences before C3")
 picture(EOS, "C3", "-", 14.0, chromo, ISO_BEADS, "Chromosphere before C3")
-picture(XT4, "C3", "-", 9.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
-announce("C3", "-", 8, "C3_IN_8_SECONDS", "Eight seconds - look away from the eyepiece")
-burst(EOS, "C3", "-", 3.0, beads_e, ISO_BEADS, EOS_C3_BURST_S, int(EOS_C3_BURST_S * EOS_BURST_FPS),
-      "Baily's beads and diamond ring at C3")
-relay_burst("C3", "-", 1.0, RELAY_C3_S, RELAY_C3_N,
+picture(XT4, "BEADS_C3", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
+announce("C3_LIMB", "-", 8, "C3_IN_8_SECONDS", "Eight seconds - look away from the eyepiece")
+relay_arm("BEADS_C3", "-", 4.0, "Pre-arm S1 for the C3 burst")
+burst(EOS, "BEADS_C3", "-", EOS_C3_BURST_S / 2, beads_e, ISO_BEADS, EOS_C3_BURST_S,
+      int(EOS_C3_BURST_S * EOS_BURST_FPS), "Baily's beads and diamond ring at C3")
+relay_burst("BEADS_C3", "-", RELAY_C3_S / 2 + RELAY_LATENCY_S, RELAY_C3_S, RELAY_C3_N,
             "Baily's beads and diamond ring at C3, relay at %.0f fps" % XT4_RELAY_FPS)
+relay_release("BEADS_C3", "+", 3.0, "Open every contact after the C3 burst")
 for n, name in ((5, "C3_IN_5_SECONDS"), (4, "C3_IN_4_SECONDS"), (3, "C3_IN_3_SECONDS"),
                 (2, "C3_IN_2_SECONDS"), (1, "C3_IN_1_SECOND")):
-    announce("C3", "-", n, name, "%d to third contact" % n)
-announce("C3", "+", 2, "C3_PLUS_2_SECONDS", "Third contact - totality is over")
-announce("C3", "+", 5, "FILTERS_ON", "FILTERS ON BOTH SCOPES")
+    announce("C3_LIMB", "-", n, name, "%d to third contact" % n)
+announce("C3_LIMB", "+", 2, "C3_PLUS_2_SECONDS", "Third contact - totality is over")
+announce("C3_LIMB", "+", 5, "FILTERS_ON", "FILTERS ON BOTH SCOPES")
 # Recovery ladder: under adrenaline the minute after C3 is when filters get
 # forgotten and settings get left where totality put them.
-announce("C3", "+", 10, "C3_PLUS_10_SECONDS", "Ten seconds past third contact")
-announce("C3", "+", 15, "C3_PLUS_15_SECONDS", "Fifteen seconds past third contact")
-announce("C3", "+", 25, "C3_PLUS_25_SECONDS", "Twenty-five seconds past third contact")
+announce("C3_LIMB", "+", 10, "C3_PLUS_10_SECONDS", "Ten seconds past third contact")
+announce("C3_LIMB", "+", 15, "C3_PLUS_15_SECONDS", "Fifteen seconds past third contact")
+announce("C3_LIMB", "+", 25, "C3_PLUS_25_SECONDS", "Twenty-five seconds past third contact")
 announce("C3", "+", 45, "C3_PLUS_45_SECONDS", "Forty-five seconds past third contact")
 announce("C3", "+", 60, "C3_PLUS_1_MINUTE", "One minute past third contact")
 announce("C3", "+", 120, "C3_PLUS_2_MINUTES", "Two minutes past third contact")
@@ -488,7 +530,34 @@ announce("C4", "-", 60, "C4_IN_60_SECONDS", "One minute to fourth contact (the s
 announce("C4", "-", 20, "C4_IN_20_SECONDS", "Twenty seconds to fourth contact")
 announce("C4", "-", 0, "C4", "Fourth contact - eclipse over")
 
-OUTPUT.write_text("\n".join(LINES) + "\n")
-print("written %s (%d lines)" % (OUTPUT, len(LINES)))
-print("expected frames: %s %d, %s %d, total %d"
-      % (XT4, FRAMES[XT4], EOS, FRAMES[EOS], FRAMES[XT4] + FRAMES[EOS]))
+
+# --------------------------------------------------------------------------
+# Output, one file per body
+# --------------------------------------------------------------------------
+# The X-T4 file keeps every shared line - the comments, the voice prompts and the
+# camera sync - because it is the one that runs.  The 800D file carries only its own
+# commands: Solar Eclipse Workbench loads a single script at a time, so if the pair
+# is ever run again it is on a second machine, and doubling the voice prompts across
+# two laptops standing next to each other would be worse than having none.
+
+production = [text for owner, text in LINES if owner in (None, XT4)]
+OUTPUT.write_text("\n".join(production) + "\n")
+print("written %s (%d lines, %s %d frames)" % (OUTPUT, len(production), XT4, FRAMES[XT4]))
+
+parked = [text for owner, text in LINES if owner == EOS]
+PARKED_HEADER = [
+    "# Solar Eclipse Workbench script - total solar eclipse of 12 August 2026",
+    "# Generated by scripts/generate_20260812_production.py - edit that, not this file.",
+    "#",
+    "# The %s half of the two-body production schedule, split out because the" % EOS,
+    "# body is parked.  It is the 800D's commands only: the voice prompts, the comments",
+    "# and the sun-altitude reasoning live in the X-T4 script it was cut from, and the",
+    "# frames here are timed to interleave with that script rather than to stand alone.",
+    "# For the 800D on its own, use scripts/20260812_EOS800D.txt instead.",
+    "#",
+    "# Site   : %s  %.4f N, %.4f E, %d m" % (SITE, LAT, LON, OBS_ALT),
+    "# Frames : %d" % FRAMES[EOS],
+    "#",
+]
+PARKED.write_text("\n".join(PARKED_HEADER + parked) + "\n")
+print("written %s (%d lines, %s %d frames)" % (PARKED, len(parked), EOS, FRAMES[EOS]))
