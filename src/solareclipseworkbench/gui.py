@@ -51,7 +51,8 @@ from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wiring, discover_relays,
                                                  list_backends, make_backend)
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
-from solareclipseworkbench.limb_correction import set_enabled as set_limb_correction_enabled
+from solareclipseworkbench.limb_correction import (is_enabled as limb_correction_is_enabled,
+                                                    set_enabled as set_limb_correction_enabled)
 from solareclipseworkbench.mounts import (MountDriver, MountError, MountNotSupported,
                                           connect as connect_mount, discover_mounts,
                                           format_dec, format_ra, list_drivers)
@@ -431,7 +432,6 @@ class SolarEclipseView(QMainWindow, Observable):
         self.file_action = QAction("File", self)
         self.shutdown_scheduler_action = QAction("Stop", self)
         self.relay_action = QAction("Relay", self)
-        self.beads_action = QAction("Baily's beads", self)
         self.datetime_format_action = QAction("Datetime format", self)
         self.save_action = QAction("Save", self)
         self.live_view_action = QAction("Live View", self)
@@ -443,6 +443,13 @@ class SolarEclipseView(QMainWindow, Observable):
         self.eclipse_date = QLabel("")
 
         self.reference_moments_widget = QWidget()
+
+        # The bead windows are the other thing the correction buys, and until now
+        # there was nowhere to see them: a burst is aimed at these, not at C2.
+        self.beads_c2_label = QLabel()
+        self.beads_c2_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.beads_c3_label = QLabel()
+        self.beads_c3_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.limb_correction_checkbox = QCheckBox(
             "Apply the lunar limb correction to the contact times")
@@ -591,13 +598,31 @@ class SolarEclipseView(QMainWindow, Observable):
         app_frame = QFrame()
         app_frame.setObjectName("AppFrame")
 
-        # The mount lives in a dock rather than the central layout: it has to be
-        # watchable for the whole run, and closing it must not disturb anything
-        # else on screen.  Built before the toolbar, which borrows its own
-        # show/hide action from it.
+        # Geometry and beads are two pictures of the same moment, so they are
+        # docks tabbed onto each other rather than two halves of a splitter that
+        # made both permanently half-height.  Each can be closed, floated onto a
+        # second screen for totality, or dragged to another edge, and Qt tracks
+        # all of it through toggleViewAction and saveState.
+        self.geometry_dock = QDockWidget("Eclipse geometry", self)
+        self.geometry_dock.setObjectName("geometry_dock")
+        self.geometry_dock.setWidget(self.eclipse_visualization)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.geometry_dock)
+
+        self.beads_dock = QDockWidget("Baily's beads", self)
+        self.beads_dock.setObjectName("beads_dock")
+        self.beads_dock.setWidget(self.beads_panel)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.beads_dock)
+        self.tabifyDockWidget(self.geometry_dock, self.beads_dock)
+        self.geometry_dock.raise_()
+
+        # The mount lives in a dock too: it has to be watchable for the whole run,
+        # and closing it must not disturb anything else on screen.  All three are
+        # built before the toolbar, which borrows their show/hide actions.
         self.mount_dock = MountDock(self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.mount_dock)
-        self.mount_dock.hide()
+        # Visible by default.  A dock that starts hidden behind a toolbar button
+        # is indistinguishable from one that was never built.
+        self.mount_dock.show()
 
         self.add_toolbar()
 
@@ -689,13 +714,17 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(QLabel("Fourth contact (C4)"), 5, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunrise"), 6, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunset"), 7, 0)
+        reference_moments_grid_layout.addWidget(QLabel("Baily's beads (C2)"), 8, 0)
+        reference_moments_grid_layout.addWidget(self.beads_c2_label, 8, 1, 1, 2)
+        reference_moments_grid_layout.addWidget(QLabel("Baily's beads (C3)"), 9, 0)
+        reference_moments_grid_layout.addWidget(self.beads_c3_label, 9, 1, 1, 2)
 
         # The correction belongs with the numbers it changes.  C2 and C3 move by
         # seconds when it is applied — more than a bead burst is long — so the
         # state has to be visible next to the times, not inferred from a toolbar
         # button somewhere else.  Default on: the corrected contacts are the real
         # ones, and a smooth Moon is the approximation.
-        reference_moments_grid_layout.addWidget(self.limb_correction_checkbox, 8, 0, 1, 6)
+        reference_moments_grid_layout.addWidget(self.limb_correction_checkbox, 10, 0, 1, 6)
         reference_moments_group_box.setLayout(reference_moments_grid_layout)
         # A minimum rather than a fixed width, so the box cannot be squeezed until
         # the reference-moment columns collide but can still give space back when
@@ -710,43 +739,15 @@ class SolarEclipseView(QMainWindow, Observable):
         self.camera_overview.setMinimumHeight(180)
         input_hbox.addWidget(self.camera_overview)
 
-        # The eclipse geometry draws two discs on an equal-aspect axis, so any
-        # width beyond its height is empty margin.  Its matplotlib canvas asks for
-        # figsize * dpi = 600x620 px and expands in both directions, which in a
-        # plain QHBoxLayout takes about half the row whatever the jobs table needs.
-        # A splitter hands that choice to the user: the canvas reports a 10x10
-        # minimum size hint, so it can be dragged right down when the schedule
-        # matters more than the picture.
-        # Below about this width the two discs stop being readable, so an ordinary
-        # drag stops there.  Dragging further still snaps the pane shut, and the
-        # handle stays at the edge to pull it back out - a collapse gesture that
-        # costs no button anywhere.
+        # Below about this width the two discs stop being readable.
         self.eclipse_visualization.setMinimumWidth(240)
-
-        # Geometry above, beads below: both are pictures of the same moment, and
-        # a splitter lets whichever matters take the room.
-        self.geometry_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.geometry_splitter.addWidget(self.eclipse_visualization)
-        self.geometry_splitter.addWidget(self.beads_panel)
-        self.geometry_splitter.setStretchFactor(0, 3)
-        self.geometry_splitter.setStretchFactor(1, 2)
-
-        self.output_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.output_splitter.addWidget(self.geometry_splitter)
-        self.output_splitter.addWidget(self.jobs_table)
-        self.output_splitter.setStretchFactor(0, 1)
-        self.output_splitter.setStretchFactor(1, 3)
-        self.output_splitter.setCollapsible(0, True)
-        # Losing the schedule to a stray drag is not a thing to allow.
-        self.output_splitter.setCollapsible(1, False)
-        self.output_splitter.setHandleWidth(8)
 
         global_layout = QVBoxLayout()
         # show reminder banner at top
         global_layout.addWidget(self.sony_banner_label)
         global_layout.addLayout(input_hbox)
 
-        global_layout.addWidget(self.output_splitter)
+        global_layout.addWidget(self.jobs_table)
 
         app_frame.setLayout(global_layout)
 
@@ -755,28 +756,19 @@ class SolarEclipseView(QMainWindow, Observable):
         self.restore_splitter_state()
 
     def restore_splitter_state(self):
-        """Put the output splitter back where the user last dragged it."""
+        """Put the docks back where the user left them."""
         settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
                              QSettings.Format.IniFormat)
-        state = settings.value("layout/output_splitter")
-        if state is not None:
-            self.output_splitter.restoreState(state)
-        else:
-            # First run: give the plot a quarter of the row rather than the half
-            # its size hint would otherwise claim.
-            self.output_splitter.setSizes([300, 900])
-
-        # Docks are remembered by name, so a layout saved before a dock existed
-        # simply leaves that dock where it was put — no migration needed.
+        # Docks are remembered by object name, so a layout saved before one of
+        # them existed simply leaves that dock where the code put it.
         dock_state = settings.value("layout/docks")
         if dock_state is not None:
             self.restoreState(dock_state)
 
     def save_splitter_state(self):
-        """Remember where the output splitter and the docks were left."""
+        """Remember where the docks were left."""
         settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
                              QSettings.Format.IniFormat)
-        settings.setValue("layout/output_splitter", self.output_splitter.saveState())
         settings.setValue("layout/docks", self.saveState())
 
     def add_toolbar(self):
@@ -825,6 +817,14 @@ class SolarEclipseView(QMainWindow, Observable):
         self.camera_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.camera_action)
 
+        # Relay trigger, next to the cameras: it is the shutter release for one of
+        # them, not a piece of general configuration.
+
+        self.relay_action.setStatusTip("Relay shutter trigger")
+        self.relay_action.setIcon(QIcon(str(ICON_PATH / "relay.png")))
+        self.relay_action.triggered.connect(self.on_toolbar_button_click)
+        self.toolbar.addAction(self.relay_action)
+
         if self.is_simulator:
             self.simulator_action.setStatusTip("Configure simulator")
             self.simulator_action.setIcon(QIcon(str(ICON_PATH / "simulator.png")))
@@ -844,15 +844,6 @@ class SolarEclipseView(QMainWindow, Observable):
         self.shutdown_scheduler_action.setIcon(QIcon(str(ICON_PATH / "stop.png")))
         self.shutdown_scheduler_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.shutdown_scheduler_action)
-
-        # Relay trigger
-
-        # Relay trigger
-
-        self.relay_action.setStatusTip("Relay shutter trigger")
-        self.relay_action.setIcon(QIcon(str(ICON_PATH / "relay.png")))
-        self.relay_action.triggered.connect(self.on_toolbar_button_click)
-        self.toolbar.addAction(self.relay_action)
 
         # Date & time format
 
@@ -892,16 +883,19 @@ class SolarEclipseView(QMainWindow, Observable):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.toolbar.addWidget(spacer)
 
-        self.beads_action.setStatusTip(
-            "Show the Baily's beads graphic")
+        # Qt's own toggles: they track a dock being closed by its X or torn off,
+        # which a hand-rolled show/hide action does not.
+        self.geometry_dock_action = self.geometry_dock.toggleViewAction()
+        self.geometry_dock_action.setText("Eclipse geometry")
+        self.geometry_dock_action.setStatusTip("Show the eclipse geometry")
+        self.toolbar.addAction(self.geometry_dock_action)
+
+        self.beads_action = self.beads_dock.toggleViewAction()
+        self.beads_action.setText("Baily's beads")
+        self.beads_action.setStatusTip("Show the Baily's beads graphic")
         self.beads_action.setIcon(beads_icon())
-        self.beads_action.setCheckable(True)
-        self.beads_action.setChecked(True)
-        self.beads_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.beads_action)
 
-        # Qt's own toggle: it tracks the dock being closed by its X or torn off,
-        # which a hand-rolled show/hide action does not.
         self.mount_dock_action = self.mount_dock.toggleViewAction()
         self.mount_dock_action.setText("Mount")
         self.mount_dock_action.setStatusTip("Show the mount controls")
@@ -1019,7 +1013,13 @@ class SolarEclipseView(QMainWindow, Observable):
         # Second contact
 
         if "C2" in reference_moments:
-            c2_info: ReferenceMomentInfo = reference_moments["C2"]
+            # The limb-corrected moment when the correction is on and the profile
+            # is installed, the mean-limb one otherwise.  C3 here is three and a
+            # half seconds earlier than a smooth disc says — most of a bead burst
+            # — so showing the disc value while the script schedules against the
+            # real one would put the two out of step.
+            c2_info: ReferenceMomentInfo = reference_moments.get(
+                "C2_LIMB", reference_moments["C2"])
             self.c2_time_utc_label.setText(format_time(c2_info.time_utc, self.time_format))
             self.c2_time_local_label.setText(format_time(c2_info.time_local, self.time_format))
             self.c2_azimuth_label.setText(str(int(c2_info.azimuth)))
@@ -1029,6 +1029,22 @@ class SolarEclipseView(QMainWindow, Observable):
             self.c2_time_local_label.setText("")
             self.c2_azimuth_label.setText("")
             self.c2_altitude_label.setText("")
+
+        # Bead windows
+
+        for contact, label in (("C2", self.beads_c2_label), ("C3", self.beads_c3_label)):
+            start = reference_moments.get(f"BEADS_{contact}_START")
+            end = reference_moments.get(f"BEADS_{contact}_END")
+            if start is None or end is None:
+                # No limb profile, or the correction is switched off.  Say which
+                # rather than leaving a blank that reads like a failed solve.
+                label.setText("correction off" if not limb_correction_is_enabled()
+                              else "no limb profile")
+                continue
+            seconds = (end.time_utc - start.time_utc).total_seconds()
+            label.setText("%s - %s  (%.2f s)" % (format_time(start.time_utc, self.time_format),
+                                                 format_time(end.time_utc, self.time_format),
+                                                 seconds))
 
         # Maximum eclipse
 
@@ -1047,7 +1063,13 @@ class SolarEclipseView(QMainWindow, Observable):
         # Third contact
 
         if "C3" in reference_moments:
-            c3_info: ReferenceMomentInfo = reference_moments["C3"]
+            # The limb-corrected moment when the correction is on and the profile
+            # is installed, the mean-limb one otherwise.  C3 here is three and a
+            # half seconds earlier than a smooth disc says — most of a bead burst
+            # — so showing the disc value while the script schedules against the
+            # real one would put the two out of step.
+            c3_info: ReferenceMomentInfo = reference_moments.get(
+                "C3_LIMB", reference_moments["C3"])
             self.c3_time_utc_label.setText(format_time(c3_info.time_utc, self.time_format))
             self.c3_time_local_label.setText(format_time(c3_info.time_local, self.time_format))
             self.c3_azimuth_label.setText(str(int(c3_info.azimuth)))
@@ -1560,9 +1582,6 @@ class SolarEclipseController(Observer):
         elif text == "Simulator":
             self.simulator_popup = SimulatorPopup(self)
             self.simulator_popup.show()
-
-        elif text == "Baily's beads":
-            self.view.beads_panel.setVisible(self.view.beads_action.isChecked())
 
         elif text == "Relay":
             self.relay_popup = RelayPopup(self)
