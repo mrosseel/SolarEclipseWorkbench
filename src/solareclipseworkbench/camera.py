@@ -708,6 +708,19 @@ def _wait_for_capture_complete(target, context, timeout_ms: int = 3000, max_even
     on slower bodies (e.g. Canon EOS 80D), causing subsequent gp_camera_set_config /
     gp_camera_trigger_capture calls to fail with -110 I/O in progress.
 
+    Measured on a Canon EOS 800D, one frame's wait breaks down as:
+
+        UNKNOWN x14      0.658 s   chatter before the write
+        FILE_ADDED       0.320 s   the RAW reaching the card
+        CAPTURE_COMPLETE 0.000 s   immediately after
+
+    Returning on FILE_ADDED instead therefore saves nothing measurable - it arrives
+    a moment before CAPTURE_COMPLETE, not before the 0.658 s of chatter.
+
+    Stopping earlier does not work at all: cutting the wait to 400 ms, or firing the
+    next trigger without waiting, raises -110 I/O in progress and poisons the USB
+    session for every command after it.  The ~1.0 s is the body, not this loop.
+
     Args:
         target:      gphoto2 Camera object.
         context:     gphoto2 context.

@@ -45,6 +45,27 @@ checked separately. Confusing the two costs a run.
 | Drive dial (collar under the ISO dial) | **CH** | The relay bursts depend on the body free-running continuous-high at ~15 fps. In `S` the relay gets you one frame per contact instead of 37. **[verify]** which collar carries the drive positions on the X-T4. |
 | Stills/movie switch | **STILL** | |
 | Focus mode switch (front of body) | **M** | There is no AF on a telescope. In S/C the SDK's S1ON returns `ShootError` and shots are dropped or delayed. |
+
+### AF+MF and PRE-AF
+
+`AF/MF SETTING` → **AF+MF: OFF** and **PRE-AF: OFF**.
+
+The focus selector on `M` is not enough on its own: AF+MF leaves autofocus
+running on the half-press even in manual focus, and every frame the SDK takes
+begins with a half-press.
+
+Turning AF+MF off roughly halved the cost of an individual release attempt on
+the bench X-T4 (0.49 s to 0.25 s). It did **not** change sustained throughput
+through `shoot_fast`, which measured 0.59 fps with it on and 0.52 fps with it
+off - so turn it off, but do not expect it to buy frames.
+
+None of this is checkable in software: `get_focus_mode()` returns
+`0x1002 Invalid parameter` on this body, so the validator cannot read focus
+state at all. The doc is the only defence.
+
+A short mechanical sound before each shutter click is not necessarily focus.
+The X-T4 has IBIS, and the sensor unit audibly engages on half-press and parks
+afterwards, which sounds much the same. Set `IS MODE: OFF` on a mount.
 | Exposure compensation dial | **0** | Applies on top of the SDK's manual exposure. |
 | Aperture | n/a | The scope is fixed f/6. The `6.0` in the script's aperture column is a comment, not a command. |
 
