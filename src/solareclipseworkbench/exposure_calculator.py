@@ -222,6 +222,63 @@ def _interpolate_1d(x: float, x0: float, x1: float, y0: float, y1: float) -> flo
     return y0 * (y1 / y0) ** fraction
 
 
+def _airmass(sun_altitude_deg: float) -> float:
+    """Kasten and Young (1989).  Unlike 1/sin it stays finite at the horizon."""
+    altitude = max(sun_altitude_deg, -1.0)
+    return 1.0 / (math.sin(math.radians(altitude))
+                  + 0.50572 * (altitude + 6.07995) ** -1.6364)
+
+
+# How far a table may stray from a single extinction law before we stop
+# trusting the law and read the table instead.
+FIT_TOLERANCE_STOPS = 0.3
+
+_extinction_fits: Dict[int, Optional[Dict[int, Tuple[float, float]]]] = {}
+
+
+def _fit_extinction(lookup_table: Dict) -> Dict[int, Tuple[float, float]]:
+    """Fit exposure = E0 * 10**(0.4 * k * airmass) per observer altitude.
+
+    These tables are extinction laws, not arbitrary numbers: fitted over their
+    5 to 60 degree rows they reproduce to better than 0.2 stops, and the
+    coefficient falls from about 0.27 magnitudes per airmass at sea level to
+    0.11 at 3000 m, which is what less atmosphere overhead has to do.
+
+    Fitting and then evaluating the law beats interpolating the table, because
+    the rows are far apart exactly where the curve is steepest.  The 0 degree
+    row is excluded: it disagrees with the fit by over a stop, and not
+    consistently between observer altitudes, so it looks eyeballed rather than
+    derived.
+    """
+    cached = _extinction_fits.get(id(lookup_table))
+    if cached is not None:
+        return cached
+
+    angles = [a for a in sorted(lookup_table) if a >= 5]
+    fit = {}
+    for observer in sorted(lookup_table[angles[0]]):
+        n = len(angles)
+        xs = [_airmass(a) for a in angles]
+        ys = [2.5 * math.log10(lookup_table[a][observer]) for a in angles]
+        mean_x, mean_y = sum(xs) / n, sum(ys) / n
+        spread = sum((x - mean_x) ** 2 for x in xs)
+        slope = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / spread
+        fit[observer] = (slope, mean_y - slope * mean_x)
+
+    # Only trust the law where the table follows one.  Most fit to under
+    # 0.2 stops; the chromosphere table does not, and forcing a fit through it
+    # would be worse than reading it.
+    worst = max(
+        abs(2.5 * math.log10(lookup_table[a][o])
+            - (fit[o][0] * _airmass(a) + fit[o][1])) / 0.7526
+        for a in angles for o in fit)
+    if worst > FIT_TOLERANCE_STOPS:
+        fit = None
+
+    _extinction_fits[id(lookup_table)] = fit
+    return fit
+
+
 def _interpolate_2d(sun_angle: float, observer_alt: float, lookup_table: Dict) -> float:
     """
     2D interpolation of exposure time from lookup table.
@@ -239,6 +296,28 @@ def _interpolate_2d(sun_angle: float, observer_alt: float, lookup_table: Dict) -
     observer_alt = max(0, min(3000, observer_alt))
     
     # Find surrounding sun angle values
+    # Evaluate the fitted extinction law, interpolating its two parameters
+    # across observer altitude rather than interpolating exposures directly.
+    fit = _fit_extinction(lookup_table)
+    if fit is None:
+        return _interpolate_2d_from_table(sun_angle, observer_alt, lookup_table)
+
+    observers = sorted(fit)
+    clamped = min(max(observer_alt, observers[0]), observers[-1])
+    lower = max(o for o in observers if o <= clamped)
+    upper = min(o for o in observers if o >= clamped)
+    if lower == upper:
+        slope, intercept = fit[lower]
+    else:
+        span = (clamped - lower) / (upper - lower)
+        slope = fit[lower][0] + span * (fit[upper][0] - fit[lower][0])
+        intercept = fit[lower][1] + span * (fit[upper][1] - fit[lower][1])
+
+    return 10.0 ** ((slope * _airmass(sun_angle) + intercept) / 2.5)
+
+
+def _interpolate_2d_from_table(sun_angle: float, observer_alt: float, lookup_table: Dict) -> float:
+    """The original table interpolation, kept so the fit can be checked against it."""
     sun_angles = sorted(lookup_table.keys())
     sun_lower = max([s for s in sun_angles if s <= sun_angle])
     sun_upper = min([s for s in sun_angles if s >= sun_angle])
