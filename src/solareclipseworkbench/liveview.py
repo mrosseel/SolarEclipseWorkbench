@@ -55,6 +55,11 @@ _ISO_FALLBACK = [160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600,
 # frame that was already in flight when the stream paused has to land first.
 _EXPOSURE_WRITE_BUDGET_S = 2.0
 
+# How long to wait for the scheduler to finish with the camera before giving up
+# on starting a stream or writing a setting.  Longer than a single frame, short
+# enough that the window answers rather than hanging.
+_STREAM_SETUP_WAIT_S = 3.0
+
 # Focus peaking: edge threshold and overlay colour
 _PEAKING_THRESHOLD = 30
 _PEAKING_COLOR = QColor(255, 0, 0, 180)  # semi-transparent red
@@ -356,9 +361,10 @@ class _FrameWorker(QObject):
     frame_ready = pyqtSignal(bytes)
     error = pyqtSignal(str)
 
-    def __init__(self, stream: LiveViewStream):
+    def __init__(self, stream: LiveViewStream, usb_lock):
         super().__init__()
         self._stream = stream
+        self._usb_lock = usb_lock
         self._running = False
         # Set while something else needs the camera.  Reading frames leaves a
         # 5 ms gap, so a setting written while this loop runs is answered 0x1006
@@ -379,11 +385,22 @@ class _FrameWorker(QObject):
             if self._paused.is_set():
                 QThread.msleep(20)
                 continue
+
+            # The SDK is not thread-safe and a scheduled frame runs in its own
+            # thread.  Reading a preview while one is shooting killed the session
+            # outright - 0x2001, repeating - so the frame is skipped rather than
+            # taken whenever the camera is spoken for.  The gphoto2 live view has
+            # always done this; this one was written without it.
+            if not self._usb_lock.acquire(timeout=0.05):
+                QThread.msleep(20)
+                continue
             try:
                 data = self._stream.read_frame()
             except Exception as e:
                 self.error.emit(str(e))
                 break
+            finally:
+                self._usb_lock.release()
             if data:
                 self.frame_ready.emit(data)
                 idle_count = 0
@@ -409,7 +426,13 @@ class LiveViewWindow(QDockWidget):
 
     _ZOOM_LEVELS = [1, 2, 4, 8]
 
-    def __init__(self, camera: Camera, parent: QWidget | None = None):
+    def __init__(self, camera, parent: QWidget | None = None):
+        """`camera` is the workbench adapter, not the bare SDK handle.
+
+        It is taken whole so the preview can serialise on the very lock the
+        scheduler holds while it shoots.  Anything less and two threads end up
+        in the SDK together, which drops the USB session for good.
+        """
         super().__init__("Live View", parent)
         self.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetClosable
@@ -422,7 +445,10 @@ class LiveViewWindow(QDockWidget):
             | Qt.DockWidgetArea.BottomDockWidgetArea
         )
 
-        self._camera = camera
+        # Both from the adapter: the handle to talk to, and the lock that says
+        # when it is safe to.
+        self._usb_lock = getattr(camera, "_usb_lock", None) or threading.RLock()
+        self._camera = getattr(camera, "_sdk_cam", camera)
         self._stream: LiveViewStream | None = None
         self._worker: _FrameWorker | None = None
         self._thread: QThread | None = None
@@ -586,6 +612,20 @@ class LiveViewWindow(QDockWidget):
         self._start_btn.setEnabled(False)
         self._status_bar.showMessage("Preparing camera...")
 
+        # Everything below talks to the SDK, so it waits for the scheduler the
+        # same way a scheduled command waits for it.
+        if not self._usb_lock.acquire(timeout=_STREAM_SETUP_WAIT_S):
+            self._status_bar.showMessage(
+                "The camera is busy with the schedule - try again in a moment", 6000)
+            self._start_btn.setEnabled(True)
+            return
+        try:
+            self._start_stream_locked()
+        finally:
+            self._usb_lock.release()
+
+    def _start_stream_locked(self):
+
         # Camera may be busy from session init -- drain and wait
         try:
             self._camera.drain_buffer()
@@ -622,7 +662,7 @@ class LiveViewWindow(QDockWidget):
                 self._start_btn.setEnabled(True)
                 return
 
-        self._worker = _FrameWorker(self._stream)
+        self._worker = _FrameWorker(self._stream, self._usb_lock)
         self._thread = QThread()
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -828,6 +868,12 @@ class LiveViewWindow(QDockWidget):
         worker = self._worker
         if worker is not None:
             worker.pause()
+        if not self._usb_lock.acquire(timeout=_STREAM_SETUP_WAIT_S):
+            self._status_bar.showMessage(
+                "The camera is busy with the schedule - try again in a moment", 6000)
+            if worker is not None:
+                worker.resume()
+            return False
         try:
             deadline = time.monotonic() + _EXPOSURE_WRITE_BUDGET_S
             while True:
@@ -844,6 +890,7 @@ class LiveViewWindow(QDockWidget):
                 f"{what.capitalize()} refused ({exc}) - {dial_hint}", 6000)
             return False
         finally:
+            self._usb_lock.release()
             if worker is not None:
                 worker.resume()
             self._refresh_exposure()

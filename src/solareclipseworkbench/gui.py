@@ -1923,7 +1923,8 @@ class SolarEclipseController(Observer):
             except Exception:
                 logging.debug("Could not close the previous live view", exc_info=True)
 
-        window = LiveViewWindow(camera._sdk_cam, self.view)
+        # The adapter, not the bare handle: the window needs its lock.
+        window = LiveViewWindow(camera, self.view)
         self.view.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, window)
         window.setFloating(True)
         window.show()
