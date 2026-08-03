@@ -96,3 +96,31 @@ def test_the_three_docks_exist_and_are_visible(view):
 def test_the_relay_button_sits_next_to_the_cameras(view):
     labels = [action.text() for action in view.toolbar.actions() if action.text()]
     assert labels.index("Relay") == labels.index("Camera(s)") + 1
+
+
+def test_live_view_does_not_claim_a_connected_fuji_is_missing(view, monkeypatch):
+    # The Fuji shoots through its own SDK, not gphoto2, so it is filtered out of
+    # the live-view camera list.  Telling the user no camera is connected - while
+    # the camera is visibly firing - sends them hunting for a fault that is not
+    # there.  Reported on the bench, 3 August.
+    from types import SimpleNamespace
+    from solareclipseworkbench import gui as gui_mod
+
+    shown = {}
+    monkeypatch.setattr(gui_mod.QMessageBox, "information",
+                        lambda *a, **k: shown.update(title=a[1], body=a[2]))
+    monkeypatch.setattr(gui_mod.QMessageBox, "warning",
+                        lambda *a, **k: shown.update(title=a[1], body=a[2]))
+
+    controller = SimpleNamespace(
+        view=view,
+        _live_view_window=None,
+        model=SimpleNamespace(camera_overview=SimpleNamespace(
+            camera_overview_dict={"Fuji Fujifilm X-T4":
+                                  SimpleNamespace(name="Fuji Fujifilm X-T4")})),
+    )
+    gui_mod.SolarEclipseController._open_live_view(controller)
+
+    assert "not available" in shown["title"].lower()
+    assert "X-T4" in shown["body"]
+    assert "no camera" not in shown["body"].lower()

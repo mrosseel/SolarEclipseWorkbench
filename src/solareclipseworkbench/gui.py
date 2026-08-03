@@ -1806,13 +1806,28 @@ class SolarEclipseController(Observer):
                 real_cameras.append((cam.name, cam))
 
         if not real_cameras:
-            QMessageBox.warning(
-                self.view,
-                "No Camera Connected",
-                "Live view requires a connected camera.\n\n"
-                "Click the Camera(s) button first to detect connected cameras.\n"
-                "In simulator mode the VirtualCamera is also supported."
-            )
+            # A body driven through its own SDK rather than gphoto2 is connected
+            # and shooting perfectly well; it simply has no preview path here.
+            # Saying "no camera connected" while the camera is visibly firing
+            # sends the user hunting for a fault that does not exist.
+            sdk_cameras = [cam.name for cam in cam_dict.values()
+                           if not isinstance(cam, (GPhotoCameraAdapter, VirtualCamera))]
+            if sdk_cameras:
+                QMessageBox.information(
+                    self.view,
+                    "Live view not available for this camera",
+                    f"{', '.join(sorted(set(sdk_cameras)))} is connected and will shoot "
+                    "normally, but live view is only wired for gphoto2 cameras.\n\n"
+                    "Focus and frame on the camera's own screen instead."
+                )
+            else:
+                QMessageBox.warning(
+                    self.view,
+                    "No Camera Connected",
+                    "Live view requires a connected camera.\n\n"
+                    "Click the Camera(s) button first to detect connected cameras.\n"
+                    "In simulator mode the VirtualCamera is also supported."
+                )
             return
 
         if len(real_cameras) == 1:
