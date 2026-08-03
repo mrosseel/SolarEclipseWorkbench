@@ -204,10 +204,22 @@ EXPOSURE_TABLES = {
 
 
 def _interpolate_1d(x: float, x0: float, x1: float, y0: float, y1: float) -> float:
-    """Linear interpolation between two points."""
+    """Interpolate an exposure time, in stops rather than in seconds.
+
+    Brightness changes by factors, not by differences, so exposures have to be
+    interpolated geometrically.  It matters because the table is coarse where it
+    changes fastest: between its 0 and 5 degree rows the exposure moves by a
+    factor of a few hundred, and interpolating that straight line in seconds
+    holds the value near the horizon figure most of the way across and then
+    drops it off a cliff -- about three stops of error in the middle, which is
+    exactly where a low-sun eclipse is photographed.
+    """
     if x1 == x0:
         return y0
-    return y0 + (x - x0) * (y1 - y0) / (x1 - x0)
+    if y0 <= 0.0 or y1 <= 0.0:
+        return y0 + (x - x0) * (y1 - y0) / (x1 - x0)
+    fraction = (x - x0) / (x1 - x0)
+    return y0 * (y1 / y0) ** fraction
 
 
 def _interpolate_2d(sun_angle: float, observer_alt: float, lookup_table: Dict) -> float:
