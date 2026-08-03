@@ -92,7 +92,11 @@ CH_FPS = 15
 # that ignores it under-counts the frames it is about to queue by two.
 RELAY_HOLD_OVERHEAD_S = 0.15
 
-# Contact closure per frame.  40 ms missed roughly 8% of taps; 80 ms never did.
+# Contact closure per frame.  Settled on the bench, 3 August: nothing below
+# 80 ms fires reliably, so the width cannot be tuned down to stop a fast rung
+# firing twice.  The doubling is inherent to CH and is handled by draining, not
+# avoided - see DRAIN_AT.  This number is measured and closed; do not sweep it
+# again looking for a value that gives one frame per tap, there isn't one.
 TAP_S = 0.08
 
 # Shortest useful gap between taps; long exposures extend it (see _tap_gap).
