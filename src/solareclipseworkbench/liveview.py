@@ -378,6 +378,15 @@ class _FrameWorker(QObject):
     def resume(self):
         self._paused.clear()
 
+    def set_stream(self, stream: LiveViewStream):
+        """Point the loop at a new stream, for when one is stopped and remade.
+
+        Writing an exposure stops live view outright, so the stream this worker
+        was built with is gone by the time it resumes.  Without this the loop
+        would read from the dead one.
+        """
+        self._stream = stream
+
     @pyqtSlot()
     def run(self):
         self._running = True
@@ -870,15 +879,18 @@ class LiveViewWindow(QDockWidget):
                 combo.blockSignals(False)
 
     def _write_exposure(self, action, what: str, dial_hint: str) -> bool:
-        """Write one exposure setting, with the stream out of the way.
+        """Write one exposure setting, with live view actually stopped.
 
-        Reading frames leaves a 5 ms gap, so a write issued while the loop runs
-        is answered "camera is busy" almost every time - the body is busy with
-        us.  The worker is held for the write and released straight after; the
-        preview freezes for a fraction of a second and nothing restarts.
+        Pausing the frame loop is not enough.  The body answers 0x1006 for as
+        long as it is in live view at all, not merely while a frame is in
+        flight - measured: with the worker paused and the lock held, every
+        retry across a two second budget was refused.  It is a mode, not a
+        transient, so waiting it out cannot work however long the budget.
 
-        Busy is still waited out afterwards, because the frame in flight when
-        the pause landed has to finish first.
+        So the stream is stopped for the write and started again after.  The
+        preview drops for about a second, which is the price of the setting
+        landing at all.  Nothing else about the session changes: the handle,
+        the PC priority and the worker thread all stay as they were.
         """
         worker = self._worker
         if worker is not None:
@@ -895,6 +907,18 @@ class LiveViewWindow(QDockWidget):
             if worker is not None:
                 worker.resume()
             return False
+
+        was_streaming = self._stream is not None
+        if was_streaming:
+            self._status_bar.showMessage(f"Setting {what}...")
+            try:
+                self._stream.stop()
+            except Exception:
+                log.debug("Error stopping live view for an exposure write",
+                          exc_info=True)
+            self._stream = None
+
+        restart_failed = False
         try:
             deadline = time.monotonic() + _EXPOSURE_WRITE_BUDGET_S
             while True:
@@ -905,19 +929,45 @@ class LiveViewWindow(QDockWidget):
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(0.05)
+        except BusyError as exc:
+            # Busy with live view stopped is a different animal from busy while
+            # it runs, and it is not a dial problem - so it does not get the
+            # dial hint, which sent the last diagnosis chasing the wrong thing.
+            log.warning("Could not set the %s: %s (live view was stopped for the "
+                        "write, so the body is busy with something else)",
+                        what, exc)
+            self._status_bar.showMessage(
+                f"{what.capitalize()} refused: the camera stayed busy", 6000)
+            return False
         except XSDKError as exc:
-            # The code matters: 0x1006 while the body writes is a different
-            # problem from 0x1003 on a dead handle, and both used to read as
-            # "refused - check the dial".
+            # The code matters: 0x1003 on a dead handle is not 0x1002 on a value
+            # the body will not take, and both used to read as "check the dial".
             log.warning("Could not set the %s: %s", what, exc, exc_info=True)
             self._status_bar.showMessage(
                 f"{what.capitalize()} refused ({exc}) - {dial_hint}", 6000)
             return False
         finally:
+            if was_streaming:
+                if self._start_live_view_stream():
+                    if worker is not None:
+                        worker.set_stream(self._stream)
+                else:
+                    # The preview cannot come back on its own from here; better
+                    # to land in the stopped state the buttons describe than to
+                    # leave a worker polling nothing.
+                    log.error("Live view did not restart after setting the %s",
+                              what)
+                    restart_failed = True
             self._usb_lock.release()
             if worker is not None:
                 worker.resume()
-            self._refresh_exposure()
+            if restart_failed:
+                self.stop_stream()
+                self._status_bar.showMessage(
+                    "Live view stopped after the setting was written - "
+                    "start it again", 8000)
+            else:
+                self._refresh_exposure()
 
     def _on_shutter_changed(self, index: int):
         value = self._shutter_combo.currentData()

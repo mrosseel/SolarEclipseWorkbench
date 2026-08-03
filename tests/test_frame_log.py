@@ -227,6 +227,7 @@ def _live_view_stub(sdk):
     # be attached here.
     import threading
     win._worker = None                      # no stream running in these tests
+    win._stream = None                      # ...so nothing to stop for a write
     win._usb_lock = threading.RLock()       # the real one is the camera's
     win._refresh_exposure = lambda: LiveViewWindow._refresh_exposure(win)
     win._write_exposure = lambda action, what, hint: LiveViewWindow._write_exposure(
@@ -343,3 +344,51 @@ def test_clipping_counts_the_shoulder_not_only_pure_white():
     hist.set_image(_grey_image(252))
 
     assert hist._clipped > 99.0
+
+
+class _FakeStream:
+    def __init__(self):
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_the_stream_is_stopped_while_an_exposure_is_written():
+    # Measured 4 August: with the frame loop paused and the lock held, every
+    # retry over a two second budget came back 0x1006.  The body is busy for as
+    # long as it is in live view at all, so the stream has to actually stop.
+    sdk = _FakeSDK(speed=8000, iso=400)
+    win, LiveViewWindow = _live_view_stub(sdk)
+    stream = _FakeStream()
+    win._stream = stream
+    started = []
+    win._start_live_view_stream = lambda: (started.append(True),
+                                           setattr(win, "_stream", _FakeStream()),
+                                           True)[-1]
+
+    target = win._shutter_combo.findData(500_000)
+    win._shutter_combo.setCurrentIndex(target)
+    LiveViewWindow._on_shutter_changed(win, target)
+
+    assert stream.stopped, "live view was left running for the write"
+    assert started, "live view was not started again afterwards"
+    assert ("shutter", 500_000) in sdk.written
+
+
+def test_a_stream_that_will_not_restart_leaves_the_window_stopped():
+    # Better the stopped state the buttons describe than a worker polling a
+    # stream that is not there.
+    sdk = _FakeSDK(speed=8000, iso=400)
+    win, LiveViewWindow = _live_view_stub(sdk)
+    win._stream = _FakeStream()
+    win._start_live_view_stream = lambda: False
+    win.stopped = False
+    win.stop_stream = lambda: setattr(win, "stopped", True)
+
+    target = win._shutter_combo.findData(500_000)
+    win._shutter_combo.setCurrentIndex(target)
+    LiveViewWindow._on_shutter_changed(win, target)
+
+    assert ("shutter", 500_000) in sdk.written, "the setting still had to land"
+    assert win.stopped, "the window was left thinking it was streaming"
