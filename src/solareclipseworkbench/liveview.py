@@ -32,6 +32,7 @@ from fujixsdk._constants import (
     LIVEVIEW_QUALITY_FINE,
     LIVEVIEW_QUALITY_NAMES,
     LIVEVIEW_SIZE_XGA,
+    PRIORITY_CAMERA,
     PRIORITY_PC,
 )
 from fujixsdk._errors import BusyError, XSDKError
@@ -706,6 +707,20 @@ class LiveViewWindow(QDockWidget):
             except Exception:
                 log.debug("Error stopping live view stream", exc_info=True)
             self._stream = None
+
+        # Give the camera back.  Live view takes PRIORITY_PC to stream and this
+        # never returned it, so the body stayed in PC priority for the rest of
+        # the run - while the relay goes on firing the shutter physically and the
+        # session's idea of who is in charge no longer matches the body's.  That
+        # is the shape of the 0x2001 that took two rehearsals down, and it
+        # outlived closing the window, which is why it looked unrelated.
+        try:
+            self._camera.set_priority(PRIORITY_CAMERA)
+            log.info("Live view stopped; camera priority returned to the body")
+        except Exception:
+            log.warning("Could not return camera priority after live view; "
+                        "the body may refuse the relay until it is reconnected",
+                        exc_info=True)
 
         self._start_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)

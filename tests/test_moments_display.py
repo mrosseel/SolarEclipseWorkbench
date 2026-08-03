@@ -329,18 +329,16 @@ def test_the_beads_toggle_reads_like_its_neighbours(view):
     assert view.beads_action.icon().isNull()
 
 
-def test_the_number_columns_use_a_fixed_width_face(view):
-    # A proportional font gives every digit a different width, so a countdown
-    # jitters sideways as it ticks and the times do not line up under each
-    # other.  Reported 4 August: "columns with numbers are kinda sloppy".
+def test_the_contact_times_panel_is_one_typeface(view):
+    # Digits want a fixed width - a countdown jitters sideways on every tick
+    # otherwise, and times do not line up under each other.  But setting it on
+    # the values alone and leaving the labels proportional made one small table
+    # look like two pasted together, so the panel takes the face as a whole.
     from PyQt6.QtGui import QFontDatabase
     fixed = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
 
-    for label in (view.c2_time_local_label, view.c2_countdown_label,
-                  view.c2_azimuth_label, view.c2_altitude_label,
-                  view.beads_c2_label, view.time_label_local):
-        assert label.font().family() == fixed, label.objectName()
-
+    panel = view.moments_dock.widget().widget()
+    assert panel.font().family() == fixed
 
 def test_the_bead_rows_say_they_are_a_window(view):
     # They hold a start and an end.  In a column of single times that read as
