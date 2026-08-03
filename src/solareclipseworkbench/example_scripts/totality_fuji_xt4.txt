@@ -1,16 +1,47 @@
+# Totality for the X-T4 on the relay, written before the site is known.
+#
+# The corona spans some twelve stops from the inner edge to the outer
+# streamers, so every ladder here covers the whole of it in 2 EV steps rather
+# than sampling a quarter of it finely: seven rungs, 10.4s, against 15.1s for a
+# +/- 2 that reaches neither end.  Repeating the same full ladder is what buys
+# the insurance a fine ladder was pretending to buy - each pass is a complete
+# set, so losing one to a cloud or a mistimed contact costs a pass, not a range.
+#
+# The C2 block grows forward from C2 and the C3 block backward from C3, so the
+# slack between them is what the duration changes.  Validated with
+# scripts/validate_totality.py at every second from 95s to 110s.
+#
+# Bursts are scheduled two seconds before their contact because their cost is
+# mostly the drain that follows: the contact sits on the moment, the drain is
+# free to run past it.
+
 voice_prompt, C2, -, 0:00:20.0, C2_IN_20_SECONDS
 voice_prompt, C2, -, 0:00:08.0, FILTERS_OFF
-take_burst, C2, -, 0:00:02.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 28, "C2 beads - contact sits on C2, the drain runs after it"
-take_bracket, C2, +, 0:00:11.0, Fuji Fujifilm X-T4, 1/1000, -, 400, "+/- 3", "Inner corona and prominences, shortest rung first"
-take_bracket, C2, +, 0:00:31.0, Fuji Fujifilm X-T4, 1/125, -, 400, "+/- 2", "Mid corona"
-take_picture, C2, +, 0:00:47.0, Fuji Fujifilm X-T4, 1, -, 400, "Outer corona 1s"
-take_picture, C2, +, 0:00:51.0, Fuji Fujifilm X-T4, 2, -, 400, "Outer corona 2s"
-take_picture, C2, +, 0:00:55.0, Fuji Fujifilm X-T4, 4, -, 400, "Outer corona 4s - earthshine on the lunar disc if it reaches"
-for, C2, C3, 5, 62, -40
-take_picture, C2, +, 0:00:00.0, Fuji Fujifilm X-T4, 1/60, -, 400, "Corona single - these fill whatever the duration turns out to be"
+
+# ---------------------------------------------------------------- C2 beads
+take_burst, C2, -, 0:00:02.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 28, "C2 beads and diamond ring"
+
+# ------------------------------------------------- corona, forward from C2
+take_bracket, C2, +, 0:00:11.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder 1"
+take_bracket, C2, +, 0:00:22.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder 2"
+take_bracket, C2, +, 0:00:33.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder 3"
+take_bracket, C2, +, 0:00:44.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder 4"
+
+# The 4" rung at ISO 640 is where earthshine on the lunar disc lives, if it
+# reaches at all.  Mid-totality, furthest from either contact.
+take_bracket, C2, +, 0:00:55.0, Fuji Fujifilm X-T4, 1/2000, -, 640, 1/2000;1/500;1/125;1/30;1/8;1/2;2;4, "Corona ladder 5 + earthshine"
+
+# Whatever the duration gives beyond that, in whole ladders.  Produces nothing
+# when there is no room, so a short totality simply skips it.
+for, C2, C3, 11, 72, -35
+take_bracket, C2, +, 0:00:00.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder, filling the duration"
 endfor
-take_bracket, C3, -, 0:00:34.0, Fuji Fujifilm X-T4, 1/125, -, 400, "+/- 2", "Mid corona, second pass"
-take_bracket, C3, -, 0:00:18.0, Fuji Fujifilm X-T4, 1/1000, -, 400, "+/- 2", "Inner corona before C3"
+
+# ------------------------------------------------- corona, backward from C3
+take_bracket, C3, -, 0:00:24.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder, second last"
+take_bracket, C3, -, 0:00:13.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 1/2000;1/500;1/125;1/30;1/8;1/2;2, "Corona ladder, last before C3"
+
+# ---------------------------------------------------------------- C3 beads
 voice_prompt, C3, -, 0:00:20.0, C3_IN_10_SECONDS
-take_burst, C3, -, 0:00:02.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 28, "C3 beads - contact sits on C3"
+take_burst, C3, -, 0:00:02.0, Fuji Fujifilm X-T4, 1/2000, -, 400, 28, "C3 beads and diamond ring"
 voice_prompt, C3, +, 0:00:03.0, FILTERS_ON

@@ -85,6 +85,17 @@ def bracket_cost(base_speed: str, width: str) -> float:
         1/200   +/- 2    15.1s   12.0s
         1/2     +/- 2    20.7s   18.0s
     """
+    # A semicolon list is the ladder, taken literally: a corona ladder spans
+    # some twelve stops in 2 EV steps, which the symmetric form cannot express
+    # without firing dozens of redundant frames (see parse_bracket_speeds).
+    if ";" in width:
+        exposures = []
+        for text in (part.strip() for part in width.split(";")):
+            value = _parse_shutter_speed(text) if text else None
+            if value is not None:
+                exposures.append(value / 1_000_000.0)
+        return _ladder_seconds(exposures) if exposures else 34.0
+
     base = _parse_shutter_speed(str(base_speed).strip())
     if base is None:
         return 34.0                      # unreadable: charge the worst measured
@@ -102,10 +113,15 @@ def bracket_cost(base_speed: str, width: str) -> float:
         ev = 1.0
     positions = int(round(ev * 3))
 
+    return _ladder_seconds([base_s * (2.0 ** (step / 3.0))
+                            for step in range(-positions, positions + 1)])
+
+
+def _ladder_seconds(exposures: list) -> float:
+    """Seconds a ladder of these exposures holds the camera."""
     seconds = 0.0
     frames = 0
-    for step in range(-positions, positions + 1):
-        exposure = base_s * (2.0 ** (step / 3.0))
+    for exposure in exposures:
         seconds += max(TAP_GAP_S, exposure + 0.3) + PER_RUNG_USB_S
         # On CH a contact fires twice at a short exposure and once at a long one.
         frames += 2 if exposure < 0.1 else 1
