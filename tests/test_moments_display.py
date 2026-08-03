@@ -98,29 +98,60 @@ def test_the_relay_button_sits_next_to_the_cameras(view):
     assert labels.index("Relay") == labels.index("Camera(s)") + 1
 
 
-def test_live_view_does_not_claim_a_connected_fuji_is_missing(view, monkeypatch):
-    # The Fuji shoots through its own SDK, not gphoto2, so it is filtered out of
-    # the live-view camera list.  Telling the user no camera is connected - while
-    # the camera is visibly firing - sends them hunting for a fault that is not
-    # there.  Reported on the bench, 3 August.
+def _controller(view, cameras, scheduler=None):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        view=view, scheduler=scheduler, _live_view_window=None,
+        model=SimpleNamespace(camera_overview=SimpleNamespace(
+            camera_overview_dict=cameras)),
+    )
+
+
+def test_live_view_opens_for_a_fuji_over_the_sdk(view, monkeypatch):
+    # The Fuji shoots through its own SDK, so it is not a GPhotoCameraAdapter and
+    # was filtered out of the live-view list entirely - the window then said "no
+    # camera connected" while the camera was visibly firing.  Reported on the
+    # bench, 3 August; the SDK preview had been written in February and stranded.
+    from types import SimpleNamespace
+    from solareclipseworkbench import gui as gui_mod
+
+    opened = {}
+    fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
+    controller = _controller(view, {"Fuji Fujifilm X-T4": fuji})
+    # The stand-in is a namespace, so the hand-off has to be stubbed on it
+    # rather than on the class.
+    controller._open_fuji_live_view = lambda cam: opened.update(camera=cam)
+
+    gui_mod.SolarEclipseController._open_live_view(controller)
+
+    assert opened["camera"] is fuji
+
+
+def test_live_view_is_refused_while_the_schedule_is_armed(view, monkeypatch):
+    # It opens a video stream on the connection the schedule shoots through and
+    # takes priority over it.  Not a thing to discover during totality.
     from types import SimpleNamespace
     from solareclipseworkbench import gui as gui_mod
 
     shown = {}
-    monkeypatch.setattr(gui_mod.QMessageBox, "information",
+    monkeypatch.setattr(gui_mod.QMessageBox, "warning",
                         lambda *a, **k: shown.update(title=a[1], body=a[2]))
+    armed = SimpleNamespace(get_jobs=lambda: ["a scheduled frame"])
+    fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
+
+    gui_mod.SolarEclipseController._open_fuji_live_view(
+        _controller(view, {"X-T4": fuji}, scheduler=armed), fuji)
+
+    assert "armed" in shown["title"].lower()
+
+
+def test_live_view_still_says_so_when_nothing_is_connected(view, monkeypatch):
+    from solareclipseworkbench import gui as gui_mod
+
+    shown = {}
     monkeypatch.setattr(gui_mod.QMessageBox, "warning",
                         lambda *a, **k: shown.update(title=a[1], body=a[2]))
 
-    controller = SimpleNamespace(
-        view=view,
-        _live_view_window=None,
-        model=SimpleNamespace(camera_overview=SimpleNamespace(
-            camera_overview_dict={"Fuji Fujifilm X-T4":
-                                  SimpleNamespace(name="Fuji Fujifilm X-T4")})),
-    )
-    gui_mod.SolarEclipseController._open_live_view(controller)
+    gui_mod.SolarEclipseController._open_live_view(_controller(view, {}))
 
-    assert "not available" in shown["title"].lower()
-    assert "X-T4" in shown["body"]
-    assert "no camera" not in shown["body"].lower()
+    assert "no camera" in shown["title"].lower()

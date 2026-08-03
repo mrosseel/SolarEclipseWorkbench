@@ -1778,6 +1778,40 @@ class SolarEclipseController(Observer):
         except Exception:
             logging.exception('Exception while checking camera state')
 
+    def _open_fuji_live_view(self, camera):
+        """Open the SDK live view for a Fuji body, if the schedule is not armed.
+
+        Live view opens a video stream on the same USB session the eclipse runs
+        on, and takes PC priority to do it.  Whatever that does to a bracket
+        mid-totality is not something to find out on the day, so it is refused
+        while the scheduler holds jobs.  Before C1 it is the only way to focus
+        on the limb, which is what it is for.
+        """
+        scheduler = getattr(self, 'scheduler', None)
+        if scheduler is not None and scheduler.get_jobs():
+            QMessageBox.warning(
+                self.view,
+                "Not while the schedule is armed",
+                "Live view opens a video stream on the same connection the "
+                "schedule shoots through, and takes priority over it.\n\n"
+                "Focus first, then load the script."
+            )
+            return
+
+        from solareclipseworkbench.liveview import LiveViewWindow
+        if self._live_view_window is not None:
+            try:
+                self._live_view_window.close()
+            except Exception:
+                logging.debug("Could not close the previous live view", exc_info=True)
+
+        window = LiveViewWindow(camera._sdk_cam, self.view)
+        self.view.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, window)
+        window.setFloating(True)
+        window.show()
+        self._live_view_window = window
+        logging.info('Live view opened for %s', getattr(camera, 'name', 'the Fuji body'))
+
     def _open_live_view(self):
         """Open (or bring to front) the live view window.
 
@@ -1810,16 +1844,11 @@ class SolarEclipseController(Observer):
             # and shooting perfectly well; it simply has no preview path here.
             # Saying "no camera connected" while the camera is visibly firing
             # sends the user hunting for a fault that does not exist.
-            sdk_cameras = [cam.name for cam in cam_dict.values()
-                           if not isinstance(cam, (GPhotoCameraAdapter, VirtualCamera))]
+            sdk_cameras = [cam for cam in cam_dict.values()
+                           if not isinstance(cam, (GPhotoCameraAdapter, VirtualCamera))
+                           and getattr(cam, '_sdk_cam', None) is not None]
             if sdk_cameras:
-                QMessageBox.information(
-                    self.view,
-                    "Live view not available for this camera",
-                    f"{', '.join(sorted(set(sdk_cameras)))} is connected and will shoot "
-                    "normally, but live view is only wired for gphoto2 cameras.\n\n"
-                    "Focus and frame on the camera's own screen instead."
-                )
+                self._open_fuji_live_view(sdk_cameras[0])
             else:
                 QMessageBox.warning(
                     self.view,
