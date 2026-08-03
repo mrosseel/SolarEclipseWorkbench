@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
-from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
+from PyQt6.QtGui import QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
 QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
 QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter, QDockWidget
@@ -318,6 +318,18 @@ class SolarEclipseModel:
             self.max_info = self.reference_moments["MAX"]
             self.c3_info = self.reference_moments["C3"]
             self.c4_info = self.reference_moments["C4"]
+
+            # The number a script is chosen by: how many corona brackets fit
+            # between the contacts is decided when the script is written, and one
+            # laid out for a longer totality than this is still exposing when the
+            # sun comes back.  Load the longest script that does not exceed it.
+            duration = self.reference_moments["duration"].total_seconds()
+            LOGGER.info(f"Totality lasts {duration:.0f} s at {self.latitude:.4f}, "
+                        f"{self.longitude:.4f}, {self.altitude:.0f} m")
+            if "duration_mean" in self.reference_moments:
+                mean = self.reference_moments["duration_mean"].total_seconds()
+                LOGGER.info(f"Totality is {duration - mean:+.1f} s against the smooth-limb "
+                            f"{mean:.0f} s; the lunar limb profile is what makes the difference")
 
         self.sunrise_info = self.reference_moments["sunrise"]
         self.sunset_info = self.reference_moments["sunset"]
@@ -680,7 +692,7 @@ class SolarEclipseView(QMainWindow, Observable):
         place_time_grid_layout.addWidget(self.time_label_utc, 2, 2)
 
         place_time_group_box.setLayout(place_time_grid_layout)
-        place_time_group_box.setFixedWidth(400)
+        place_time_group_box.setMinimumWidth(250)
         vbox_left.addWidget(place_time_group_box)
 
         location_group_box = QGroupBox()
@@ -692,7 +704,7 @@ class SolarEclipseView(QMainWindow, Observable):
         location_grid_layout.addWidget(QLabel("Altitude [m]"), 2, 0)
         location_grid_layout.addWidget(self.altitude_label, 2, 1)
         location_group_box.setLayout(location_grid_layout)
-        location_group_box.setFixedWidth(400)
+        location_group_box.setMinimumWidth(250)
         vbox_left.addWidget(location_group_box)
 
         eclipse_date_group_box = QGroupBox()
@@ -703,7 +715,7 @@ class SolarEclipseView(QMainWindow, Observable):
         eclipse_date_grid_layout.addWidget(self.eclipse_type, 1, 1)
 
         eclipse_date_group_box.setLayout(eclipse_date_grid_layout)
-        eclipse_date_group_box.setFixedWidth(400)
+        eclipse_date_group_box.setMinimumWidth(250)
         vbox_left.addWidget(eclipse_date_group_box)
 
         reference_moments_group_box = QGroupBox()
@@ -781,10 +793,10 @@ class SolarEclipseView(QMainWindow, Observable):
         # every panel in it was crushed.  As a dock it gets real width, and it
         # opens by default because "is the body actually there" is the question
         # asked most often.
-        # Two or three rows plus a header; 180 was sized for a panel that had to
-        # fill a column, and along the bottom it only takes height from the
-        # schedule.
-        self.camera_overview.setMinimumHeight(110)
+        # No floor: with one body connected there is one row to show, and the
+        # strip should be draggable down to just that.  CAMERA_DOCK_HEIGHT is
+        # where it starts, not the least it can be.
+        self.camera_overview.setMinimumHeight(0)
         self.camera_dock = QDockWidget("Cameras", self)
         self.camera_dock.setObjectName("camera_dock")
         self.camera_dock.setWidget(self.camera_overview)
@@ -824,6 +836,30 @@ class SolarEclipseView(QMainWindow, Observable):
         dock_state = settings.value("layout/docks")
         if dock_state is not None:
             self.restoreState(dock_state)
+        self.fit_to_screen()
+
+    def fit_to_screen(self):
+        """Never open larger than the display, whatever the saved layout says.
+
+        A window whose minimum exceeds the screen cannot be shrunk at all - the
+        edge is off the display and there is nothing to drag - so a layout that
+        demands too much width locks the user out of fixing it.  This clamps the
+        window to what the screen actually offers and pulls it back on-screen if
+        a saved position put it half off.
+        """
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        width = min(self.width(), available.width())
+        height = min(self.height(), available.height())
+        if (width, height) != (self.width(), self.height()):
+            logging.info('Window clamped to the display: %dx%d', width, height)
+            self.resize(width, height)
+        frame = self.frameGeometry()
+        if not available.contains(frame):
+            frame.moveCenter(available.center())
+            self.move(frame.topLeft())
 
     def reset_layout(self):
         """Put every pane back where the code puts it.
@@ -1090,8 +1126,11 @@ class SolarEclipseView(QMainWindow, Observable):
         elif eclipse_type == "No eclipse":
             self.eclipse_type.setText(eclipse_type)
         else:
+            # Seconds as well as m:ss, because the scripts are chosen by the
+            # number of seconds of totality they fill.
+            total = round(reference_moments["duration"].total_seconds())
             minutes, seconds = divmod(reference_moments["duration"].seconds, 60)
-            self.eclipse_type.setText(f"{eclipse_type} ({minutes}:{seconds:02})")
+            self.eclipse_type.setText(f"{eclipse_type} ({minutes}:{seconds:02} = {total} s)")
 
         # First contact
 

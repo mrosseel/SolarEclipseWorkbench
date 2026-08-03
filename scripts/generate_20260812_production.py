@@ -26,15 +26,33 @@ Partial-phase frames alternate between the bodies so the pair samples the disc
 twice as often as either alone.
 
 The 800D is parked, so the two halves are written to separate files: the X-T4 gets
-``scripts/real/20260812_production.txt`` - the only thing in that directory,
-because it is the only file that runs on the day - and the 800D's commands go to
-``scripts/test/20260812_production_EOS800D.txt``.  Solar Eclipse Workbench loads
-one script at a time, so leaving the 800D lines in the production script would only
-have produced a wall of "camera not found" at load.
+``scripts/real/`` - the only directory that runs on the day - and the 800D's
+commands go to ``scripts/test/20260812_production_EOS800D.txt``.  Solar Eclipse
+Workbench loads one script at a time, so leaving the 800D lines in the production
+script would only have produced a wall of "camera not found" at load.
+
+One script per totality duration
+--------------------------------
+How long totality lasts depends on where you stand, and weather can move that on
+the morning.  Everything outside totality already follows the observer - the
+commands are offsets from C1/C2/C3, which Solar Eclipse Workbench resolves from
+the position set at run time, and the exposures track the sun's altitude at each
+frame.  What does not follow is how many corona ladders fit between the contacts:
+those are laid out here, and a layout built for a longer totality than you get is
+still exposing when C3 arrives, with the filter off.
+
+So this writes one script per duration, ``20260812_production_<D>s.txt``, each
+filling D seconds.  On the day, read the totality Solar Eclipse Workbench reports
+for the site and load **the largest D that does not exceed it** - the file says so
+in its own header.  A file that fills less than the totality you have costs a few
+unshot seconds at the end; one that fills more costs frames taken after C3.
 
     python scripts/generate_20260812_production.py
+    python scripts/generate_20260812_production.py --lat 42.31 --lon -3.98 \
+        --alt 900 --site "Burgos, N Spain"
 """
 
+import argparse
 import math
 import sys
 import types
@@ -56,13 +74,28 @@ from skyfield.api import load, wgs84
 from solareclipseworkbench.reference_moments import calculate_reference_moments
 from solareclipseworkbench.exposure_calculator import calculate_exposure, format_shutter_speed
 
-OUTPUT = REPO / "scripts" / "real" / "20260812_production.txt"
+OUTPUT_DIR = REPO / "scripts" / "real"
 PARKED = REPO / "scripts" / "test" / "20260812_production_EOS800D.txt"
 
 # --- Site -----------------------------------------------------------------
-SITE = "Palencia, N Spain"
-LAT, LON, OBS_ALT = 42.0095, -4.5289, 740.0
+# The planned site.  Everything below derives from these three numbers, so a
+# move is a re-run with --lat/--lon/--alt rather than an edit.
 ECLIPSE_DATE = "2026-08-12"
+
+_parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+_parser.add_argument("--site", default="Palencia, N Spain",
+                     help="name for the file headers")
+_parser.add_argument("--lat", type=float, default=42.0095)
+_parser.add_argument("--lon", type=float, default=-4.5289)
+_parser.add_argument("--alt", type=float, default=740.0, help="site height in metres")
+_parser.add_argument("--durations", type=float, nargs="+",
+                     default=[float(d) for d in range(40, 170, 10)],
+                     help="totality durations to write a script for, in seconds")
+_args = _parser.parse_args()
+
+SITE = _args.site
+LAT, LON, OBS_ALT = _args.lat, _args.lon, _args.alt
+DURATIONS = sorted(_args.durations)
 
 # --- Gear, identical on both bodies ---------------------------------------
 FOCAL_RATIO = 6.0          # 80/480 refractor, used for the exposure arithmetic
@@ -144,6 +177,12 @@ def fmt_delta(seconds: float) -> str:
 LINES = []
 FRAMES = {XT4: 0, EOS: 0}
 
+# Inside totality the absolute clock time of a frame is a property of the site's
+# own duration, not of the file, so totality frames are labelled by their offset
+# instead.  A file built for 90 s carries frames the site's 97 s would put at a
+# different wall-clock time, and printing that time would be a lie.
+NOTE_RELATIVE = False
+
 
 def emit(text="", owner=None):
     """Add a line.  ``owner`` is the camera it drives, or None for shared lines."""
@@ -162,7 +201,13 @@ def note(ref, sign, offset, what, extra=""):
     only correct for the site in the header - the commands themselves are scheduled
     relative to the reference moments, which are recomputed from the observer's
     actual position at run time.
+
+    Inside totality there is no honest absolute time to print: a file built for a
+    duration other than this site's would put the frame at a clock time that never
+    happens here, so those frames are labelled by their offset instead.
     """
+    if NOTE_RELATIVE:
+        return "%s @ %s%s%.1f s, sun %.1f deg%s" % (what, ref, sign, offset, alt_max, extra)
     when = moment_time(ref, sign, offset)
     return "%s @ %s, sun %.1f deg%s" % (what, when.strftime("%H:%M:%S"),
                                         sun_altitude(when), extra)
@@ -297,6 +342,80 @@ sys.stderr.write(
     "  faintest rung %.3fs @ISO%d = %.2fs at ISO%d; the singles it replaces reached %.2fs\n"
     % (_last, ISO_LADDER, _last * _gain, ISO_CORONA,
        totality_exposure("corona_outer_8R", alt_max, ISO_CORONA) * 2))
+
+
+# --------------------------------------------------------------------------
+# How many ladders fit in a totality
+# --------------------------------------------------------------------------
+# A command that cannot take the camera within 1.5s is dropped rather than
+# delayed, so ladders have to be spaced by what they actually cost.  These are
+# the constants scripts/validate_totality.py charges them, which were fitted to
+# the brackets measured on the X-T4 on 3 August; keeping the two in step means
+# the validator agrees with what was laid out here.
+LADDER_TAP_GAP_S = 0.35
+LADDER_PER_RUNG_USB_S = 0.35
+LADDER_DRAIN_S = 3.0
+# Below this the next ladder is starting while the one before it still has the
+# camera.  Six ladders 12s apart ran clean on 3 August, each taking about 8s.
+LADDER_PITCH_MIN_S = 12.0
+# The first ladder waits for the C2 burst to be released and its frames drained.
+TOTALITY_HEAD_S = 6.0
+# and the last has to be out of the way before the C3 bead sequence loads.
+TOTALITY_TAIL_MARGIN_S = 2.0
+
+
+def ladder_seconds(ladder: str) -> float:
+    """Seconds a semicolon ladder holds the camera.
+
+    Each rung waits out its own frame and then puts the next speed over USB, and
+    the bracket drains at the end.  The seven-rung ladder below models at 8.4s
+    against 7.7-8.0s measured, which is the direction to be wrong in.
+    """
+    total = LADDER_DRAIN_S
+    for rung in ladder.split(";"):
+        exposure = _rung_seconds(rung)
+        total += max(LADDER_TAP_GAP_S, exposure + 0.3) + LADDER_PER_RUNG_USB_S
+    return total
+
+
+def _rung_seconds(rung: str) -> float:
+    rung = rung.strip().rstrip('"')
+    if rung.startswith("1/"):
+        return 1.0 / float(rung[2:])
+    return float(rung)
+
+
+LADDER_RUN_S = ladder_seconds(CORONA_LADDER)
+
+
+def ladder_offsets(duration_s: float) -> list:
+    """C2-relative start times for the corona ladders, for a totality of `duration_s`.
+
+    As many as fit, spread evenly across what is left once the head and tail are
+    reserved, and never closer together than LADDER_PITCH_MIN_S.  Spreading
+    rather than packing puts the same number of ladders across the whole of
+    totality instead of crowding them against C2 and leaving a hole before C3.
+    """
+    usable = duration_s - TOTALITY_HEAD_S - totality_tail_s() - LADDER_RUN_S
+    if usable < 0.0:
+        return []
+    count = int(usable // LADDER_PITCH_MIN_S) + 1
+    if count == 1:
+        return [TOTALITY_HEAD_S]
+    pitch = usable / (count - 1)
+    return [TOTALITY_HEAD_S + i * pitch for i in range(count)]
+
+
+def totality_tail_s() -> float:
+    """Seconds before C3 that the last ladder has to be finished by.
+
+    The C3 block opens by loading the beads exposure, and that is a camera
+    command like any other: a ladder still running when it fires takes it out.
+    Where the bead window sits relative to C3 comes from the limb profile at
+    this site, so this is measured off the moments rather than assumed.
+    """
+    first_c3_command = moment_time("BEADS_C3", "-", 6.0)
+    return (c3 - first_c3_command).total_seconds() + TOTALITY_TAIL_MARGIN_S
 
 # The hold is bounded by the transfer queue, not by the card: every frame taken
 # with the SDK session open holds one of 32 slots until the drain that follows
@@ -496,107 +615,179 @@ emit()
 # --------------------------------------------------------------------------
 # Totality
 # --------------------------------------------------------------------------
-emit("# --- TOTALITY (%.0f s, sun %.1f deg - FILTERS OFF) ---" % (totality, alt_max))
-emit("# X-T4: relay bursts at both contacts, SDK brackets in between (%.1f fps over USB)." % XT4_SDK_FPS)
-emit("# The frames were laid out for two bodies, staggered so one is always exposing while")
-emit("# the other reads out; with the 800D parked the gaps it filled are simply empty.")
-emit("# The X-T4 take_picture before each burst exists to load the beads exposure before")
-emit("# the relay takes over - the relay fires whatever is already dialled in.")
-emit("#")
-emit("# Everything inside a minute of a contact - the bursts and the spoken countdown -")
-emit("# is scheduled against the limb-corrected moments, because that is when totality")
-emit("# actually begins and ends.  The cues further out stay on the mean contacts, where")
-emit("# a few seconds is nothing and not depending on the limb profile is worth more.")
-emit("#")
-emit("# The bead bursts are scheduled against the edges of the limb-corrected bead")
-emit("# window, not against the contacts.  A smooth-Moon C3 is %.1f s later than the real"
-     % abs((MOMENTS["C3_MEAN"].time_utc - MOMENTS["C3"].time_utc).total_seconds()))
-emit("# one here, which is most of a burst.  These lines need the lunar limb profile")
-emit("# installed and the correction switched on; without it they are skipped, and")
-emit("# Solar Eclipse Workbench says so when the script is loaded.")
-emit("#")
-emit("# The beads run %.2f s at C2 and %.2f s at C3, against a hold of %.1f s, so the burst"
-     % ((MOMENTS["BEADS_C2_END"].time_utc - MOMENTS["BEADS_C2_START"].time_utc).total_seconds(),
-        (MOMENTS["BEADS_C3_END"].time_utc - MOMENTS["BEADS_C3_START"].time_utc).total_seconds(),
-        RELAY_C2_S))
-emit("# cannot cover the whole window.  It is pinned to the contact-side edge, where the")
-emit("# diamond ring is: the C2 burst ends at BEADS_C2_END, the C3 burst starts at")
-emit("# BEADS_C3_START, both with %.1f s of margin towards totality." % RELAY_EDGE_MARGIN_S)
-emit("#")
-emit("# The hold is %.1f s because %d frames at %.0f fps is all the 32-slot transfer queue"
-     % (RELAY_C2_S, RELAY_C2_N, XT4_RELAY_FPS))
-emit("# takes; a full queue stops the body dead.  Covering the whole window needs a pulsed")
-emit("# burst at ~%.1f fps instead of a held one, which is not yet measured on this body."
-     % (RELAY_C2_N / (MOMENTS["BEADS_C2_END"].time_utc
-                      - MOMENTS["BEADS_C2_START"].time_utc).total_seconds()))
+# Everything above is the same whatever totality turns out to be: the commands
+# are offsets from C1 and C2, and the exposures follow the sun's altitude at the
+# site.  Only the corona ladders have to know how long they have, so the
+# totality block is built per duration and the rest is written once.
+PREAMBLE = LINES
+PREAMBLE_FRAMES = dict(FRAMES)
+LINES, FRAMES = [], {XT4: 0, EOS: 0}
 
-picture(XT4, "BEADS_C2", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
-relay_arm("BEADS_C2", "-", 4.0, "Pre-arm S1 for the C2 burst")
-burst(EOS, "BEADS_C2", "-", EOS_C2_BURST_S / 2, beads_e, ISO_BEADS, EOS_C2_BURST_S,
-      int(EOS_C2_BURST_S * EOS_BURST_FPS), "Diamond ring and Baily's beads at C2")
-relay_burst("BEADS_C2_END", "-", RELAY_C2_S + RELAY_LATENCY_S - RELAY_EDGE_MARGIN_S,
-            RELAY_C2_S, RELAY_C2_N,
-            "Diamond ring and Baily's beads at C2, relay at %.0f fps" % XT4_RELAY_FPS)
-relay_release("BEADS_C2_END", "+", 1.5, "Open every contact after the C2 burst")
-announce("C2", "-", 0, "C2", "Second contact - filters off, totality has begun")
-picture(EOS, "C2", "+", 4.0, chromo, ISO_BEADS, "Chromosphere")
-picture(EOS, "C2", "+", 5.5, prom, ISO_BEADS, "Prominences")
-bracket(XT4, "C2", "+", 6.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
-        CORONA_LADDER, CORONA_FRAMES, "Corona ladder A1, inner edge to outer streamers")
-hdr(EOS, "C2", "+", 7.0, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder A")
-bracket(XT4, "C2", "+", 18.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
-        CORONA_LADDER, CORONA_FRAMES, "Corona ladder A2, inner edge to outer streamers")
-bracket(XT4, "C2", "+", 30.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
-        CORONA_LADDER, CORONA_FRAMES, "Corona ladder A3, inner edge to outer streamers")
-hdr(EOS, "C2", "+", 26.0, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder B")
-announce("C2", "+", 30, "C2_PLUS_30_SECONDS", "Thirty seconds into totality")
-picture(EOS, "C2", "+", 45.0, deep, ISO_DEEP, "Deep outer corona")
-picture(EOS, "C2", "+", 47.5, deeper, ISO_DEEP, "Deepest outer corona / earthshine")
-announce("MAX", "-", 10, "MAX_IN_10_SECONDS", "Ten seconds to maximum eclipse")
-for n, name in ((5, "MAX_IN_5_SECONDS"), (4, "MAX_IN_4_SECONDS"), (3, "MAX_IN_3_SECONDS"),
-                (2, "MAX_IN_2_SECONDS"), (1, "MAX_IN_1_SECOND")):
-    announce("MAX", "-", n, name, "%d to maximum eclipse" % n)
-picture(EOS, "C2", "+", 50.5, inner, ISO_CORONA, "Inner corona at maximum eclipse")
-announce("MAX", "-", 0, "MAX", "Maximum eclipse")
-picture(EOS, "C2", "+", 53.0, deeper, ISO_DEEP, "Deepest outer corona / earthshine")
-picture(EOS, "C2", "+", 55.5, deep, ISO_DEEP, "Deep outer corona")
-announce("C3", "-", 45, "C3_IN_45_SECONDS", "Forty-five seconds of totality left")
-bracket(XT4, "C2", "+", 56.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
-        CORONA_LADDER, CORONA_FRAMES, "Corona ladder B1, inner edge to outer streamers")
-hdr(EOS, "C2", "+", 58.5, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder C")
-bracket(XT4, "C2", "+", 68.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
-        CORONA_LADDER, CORONA_FRAMES, "Corona ladder B2, inner edge to outer streamers")
-bracket(XT4, "C2", "+", 80.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
-        CORONA_LADDER, CORONA_FRAMES, "Corona ladder B3, inner edge to outer streamers")
-picture(EOS, "C3", "-", 23.0, deep, ISO_DEEP, "Deep outer corona")
-picture(EOS, "C3", "-", 20.5, inner, ISO_CORONA, "Inner corona")
-announce("C3", "-", 20, "C3_IN_20_SECONDS", "Twenty seconds to third contact")
-picture(EOS, "C3", "-", 16.0, prom, ISO_BEADS, "Prominences before C3")
-picture(EOS, "C3", "-", 14.0, chromo, ISO_BEADS, "Chromosphere before C3")
-picture(XT4, "BEADS_C3", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
-announce("C3", "-", 8, "C3_IN_8_SECONDS", "Eight seconds - look away from the eyepiece")
-relay_arm("BEADS_C3", "-", 4.0, "Pre-arm S1 for the C3 burst")
-burst(EOS, "BEADS_C3", "-", EOS_C3_BURST_S / 2, beads_e, ISO_BEADS, EOS_C3_BURST_S,
-      int(EOS_C3_BURST_S * EOS_BURST_FPS), "Baily's beads and diamond ring at C3")
-relay_burst("BEADS_C3_START", "-", RELAY_LATENCY_S + RELAY_EDGE_MARGIN_S,
-            RELAY_C3_S, RELAY_C3_N,
-            "Baily's beads and diamond ring at C3, relay at %.0f fps" % XT4_RELAY_FPS)
-relay_release("BEADS_C3_START", "+", RELAY_C3_S + 1.5,
-              "Open every contact after the C3 burst")
-for n, name in ((5, "C3_IN_5_SECONDS"), (4, "C3_IN_4_SECONDS"), (3, "C3_IN_3_SECONDS"),
-                (2, "C3_IN_2_SECONDS"), (1, "C3_IN_1_SECOND")):
-    announce("C3", "-", n, name, "%d to third contact" % n)
-announce("C3", "+", 2, "C3_PLUS_2_SECONDS", "Third contact - totality is over")
-announce("C3", "+", 5, "FILTERS_ON", "FILTERS ON BOTH SCOPES")
-# Recovery ladder: under adrenaline the minute after C3 is when filters get
-# forgotten and settings get left where totality put them.
-announce("C3", "+", 10, "C3_PLUS_10_SECONDS", "Ten seconds past third contact")
-announce("C3", "+", 15, "C3_PLUS_15_SECONDS", "Fifteen seconds past third contact")
-announce("C3", "+", 25, "C3_PLUS_25_SECONDS", "Twenty-five seconds past third contact")
-announce("C3", "+", 45, "C3_PLUS_45_SECONDS", "Forty-five seconds past third contact")
-announce("C3", "+", 60, "C3_PLUS_1_MINUTE", "One minute past third contact")
-announce("C3", "+", 120, "C3_PLUS_2_MINUTES", "Two minutes past third contact")
-emit()
+
+def capture(fn, *args):
+    """Run `fn` and return the lines it emitted and what they cost in frames."""
+    global LINES, FRAMES
+    outer_lines, outer_frames = LINES, FRAMES
+    LINES, FRAMES = [], {XT4: 0, EOS: 0}
+    try:
+        fn(*args)
+        return LINES, FRAMES
+    finally:
+        LINES, FRAMES = outer_lines, outer_frames
+
+
+def inside(offset: float, target_s: float) -> bool:
+    """Is a cue this far past C2, or this far before C3, still inside totality?"""
+    return 0.0 < offset < target_s
+
+
+def totality_block(target_s: float) -> None:
+    global NOTE_RELATIVE
+    NOTE_RELATIVE = True
+    try:
+        _totality_block(target_s)
+    finally:
+        NOTE_RELATIVE = False
+
+
+def _totality_block(target_s: float) -> None:
+    offsets = ladder_offsets(target_s)
+    emit("# --- TOTALITY (%.0f s, sun %.1f deg - FILTERS OFF) ---" % (target_s, alt_max))
+    emit("# X-T4: relay bursts at both contacts, SDK brackets in between (%.1f fps over USB)." % XT4_SDK_FPS)
+    emit("# The X-T4 take_picture before each burst exists to load the beads exposure before")
+    emit("# the relay takes over - the relay fires whatever is already dialled in.")
+    emit("#")
+    emit("# This file fills %.0f s of totality: %d corona ladder(s) of %d frames, the first"
+         % (target_s, len(offsets), CORONA_FRAMES))
+    emit("# %.1f s after C2 and the last finishing %.1f s before C3.  Load it only when Solar"
+         % (TOTALITY_HEAD_S,
+            target_s - (offsets[-1] + LADDER_RUN_S) if offsets else target_s))
+    emit("# Eclipse Workbench reports totality of at least %.0f s for where you are standing;"
+         % target_s)
+    emit("# at less than that the last ladder is still exposing when the sun comes back.")
+    emit("#")
+    emit("# Everything inside a minute of a contact - the bursts and the spoken countdown -")
+    emit("# is scheduled against the limb-corrected moments, because that is when totality")
+    emit("# actually begins and ends.  The cues further out stay on the mean contacts, where")
+    emit("# a few seconds is nothing and not depending on the limb profile is worth more.")
+    emit("#")
+    emit("# The bead bursts are scheduled against the edges of the limb-corrected bead")
+    emit("# window, not against the contacts.  A smooth-Moon C3 is %.1f s later than the real"
+         % abs((MOMENTS["C3_MEAN"].time_utc - MOMENTS["C3"].time_utc).total_seconds()))
+    emit("# one here, which is most of a burst.  These lines need the lunar limb profile")
+    emit("# installed and the correction switched on; without it they are skipped, and")
+    emit("# Solar Eclipse Workbench says so when the script is loaded.")
+    emit("#")
+    emit("# The beads run %.2f s at C2 and %.2f s at C3, against a hold of %.1f s, so the burst"
+         % ((MOMENTS["BEADS_C2_END"].time_utc - MOMENTS["BEADS_C2_START"].time_utc).total_seconds(),
+            (MOMENTS["BEADS_C3_END"].time_utc - MOMENTS["BEADS_C3_START"].time_utc).total_seconds(),
+            RELAY_C2_S))
+    emit("# cannot cover the whole window.  It is pinned to the contact-side edge, where the")
+    emit("# diamond ring is: the C2 burst ends at BEADS_C2_END, the C3 burst starts at")
+    emit("# BEADS_C3_START, both with %.1f s of margin towards totality." % RELAY_EDGE_MARGIN_S)
+    emit("#")
+    emit("# The hold is %.1f s because %d frames at %.0f fps is all the 32-slot transfer queue"
+         % (RELAY_C2_S, RELAY_C2_N, XT4_RELAY_FPS))
+    emit("# takes; a full queue stops the body dead.  Covering the whole window needs a pulsed")
+    emit("# burst at ~%.1f fps instead of a held one, which is not yet measured on this body."
+         % (RELAY_C2_N / (MOMENTS["BEADS_C2_END"].time_utc
+                          - MOMENTS["BEADS_C2_START"].time_utc).total_seconds()))
+
+    picture(XT4, "BEADS_C2", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
+    relay_arm("BEADS_C2", "-", 4.0, "Pre-arm S1 for the C2 burst")
+    burst(EOS, "BEADS_C2", "-", EOS_C2_BURST_S / 2, beads_e, ISO_BEADS, EOS_C2_BURST_S,
+          int(EOS_C2_BURST_S * EOS_BURST_FPS), "Diamond ring and Baily's beads at C2")
+    relay_burst("BEADS_C2_END", "-", RELAY_C2_S + RELAY_LATENCY_S - RELAY_EDGE_MARGIN_S,
+                RELAY_C2_S, RELAY_C2_N,
+                "Diamond ring and Baily's beads at C2, relay at %.0f fps" % XT4_RELAY_FPS)
+    relay_release("BEADS_C2_END", "+", 1.5, "Open every contact after the C2 burst")
+    announce("C2", "-", 0, "C2", "Second contact - filters off, totality has begun")
+    if inside(4.0, target_s):
+        picture(EOS, "C2", "+", 4.0, chromo, ISO_BEADS, "Chromosphere")
+    if inside(5.5, target_s):
+        picture(EOS, "C2", "+", 5.5, prom, ISO_BEADS, "Prominences")
+
+    # The file is read before the day, so it is written in the order things
+    # happen.  How many ladders there are depends on the duration, so the cues
+    # that fall among them are placed by offset rather than by hand.  MAX sits
+    # in the middle of totality wherever you stand, which is what orders the
+    # frames anchored to it.
+    middle = target_s / 2.0
+    timeline = []
+    for index, offset in enumerate(offsets, start=1):
+        timeline.append((offset, _ladder, (index, len(offsets), offset)))
+    if inside(30.0, target_s):
+        timeline.append((30.0, announce,
+                         ("C2", "+", 30, "C2_PLUS_30_SECONDS", "Thirty seconds into totality")))
+    timeline.append((middle - 10.0, announce,
+                     ("MAX", "-", 10, "MAX_IN_10_SECONDS", "Ten seconds to maximum eclipse")))
+    for n, name in ((5, "MAX_IN_5_SECONDS"), (4, "MAX_IN_4_SECONDS"), (3, "MAX_IN_3_SECONDS"),
+                    (2, "MAX_IN_2_SECONDS"), (1, "MAX_IN_1_SECOND")):
+        timeline.append((middle - n, announce,
+                         ("MAX", "-", n, name, "%d to maximum eclipse" % n)))
+    timeline.append((middle, announce, ("MAX", "-", 0, "MAX", "Maximum eclipse")))
+    # The parked body's mid-totality singles hang off MAX rather than off C2, so
+    # they stay centred on totality instead of walking off the end of a short one.
+    for delta, exposure, iso, what in ((-5.0, deep, ISO_DEEP, "Deep outer corona"),
+                                       (-2.5, deeper, ISO_DEEP, "Deepest outer corona / earthshine"),
+                                       (0.5, inner, ISO_CORONA, "Inner corona at maximum eclipse"),
+                                       (3.0, deeper, ISO_DEEP, "Deepest outer corona / earthshine"),
+                                       (5.5, deep, ISO_DEEP, "Deep outer corona")):
+        sign = "+" if delta >= 0 else "-"
+        timeline.append((middle + delta, picture,
+                         (EOS, "MAX", sign, abs(delta), exposure, iso, what)))
+    if inside(45.0, target_s):
+        timeline.append((target_s - 45.0, announce,
+                         ("C3", "-", 45, "C3_IN_45_SECONDS", "Forty-five seconds of totality left")))
+    for offset in (7.0, 26.0, 58.5):
+        if inside(offset, target_s):
+            timeline.append((offset, hdr,
+                             (EOS, "C2", "+", offset, hdr_start, ISO_CORONA, hdr_stops,
+                              "Corona ladder")))
+    for before, exposure, iso, what in ((23.0, deep, ISO_DEEP, "Deep outer corona"),
+                                        (20.5, inner, ISO_CORONA, "Inner corona"),
+                                        (16.0, prom, ISO_BEADS, "Prominences before C3"),
+                                        (14.0, chromo, ISO_BEADS, "Chromosphere before C3")):
+        if inside(before, target_s):
+            timeline.append((target_s - before, picture,
+                             (EOS, "C3", "-", before, exposure, iso, what)))
+    if inside(20.0, target_s):
+        timeline.append((target_s - 20.0, announce,
+                         ("C3", "-", 20, "C3_IN_20_SECONDS", "Twenty seconds to third contact")))
+    for _, call, arguments in sorted(timeline, key=lambda event: event[0]):
+        call(*arguments)
+
+    picture(XT4, "BEADS_C3", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
+    if inside(8.0, target_s):
+        announce("C3", "-", 8, "C3_IN_8_SECONDS", "Eight seconds - look away from the eyepiece")
+    relay_arm("BEADS_C3", "-", 4.0, "Pre-arm S1 for the C3 burst")
+    burst(EOS, "BEADS_C3", "-", EOS_C3_BURST_S / 2, beads_e, ISO_BEADS, EOS_C3_BURST_S,
+          int(EOS_C3_BURST_S * EOS_BURST_FPS), "Baily's beads and diamond ring at C3")
+    relay_burst("BEADS_C3_START", "-", RELAY_LATENCY_S + RELAY_EDGE_MARGIN_S,
+                RELAY_C3_S, RELAY_C3_N,
+                "Baily's beads and diamond ring at C3, relay at %.0f fps" % XT4_RELAY_FPS)
+    relay_release("BEADS_C3_START", "+", RELAY_C3_S + 1.5,
+                  "Open every contact after the C3 burst")
+    for n, name in ((5, "C3_IN_5_SECONDS"), (4, "C3_IN_4_SECONDS"), (3, "C3_IN_3_SECONDS"),
+                    (2, "C3_IN_2_SECONDS"), (1, "C3_IN_1_SECOND")):
+        announce("C3", "-", n, name, "%d to third contact" % n)
+    announce("C3", "+", 2, "C3_PLUS_2_SECONDS", "Third contact - totality is over")
+    announce("C3", "+", 5, "FILTERS_ON", "FILTERS ON BOTH SCOPES")
+    # Recovery ladder: under adrenaline the minute after C3 is when filters get
+    # forgotten and settings get left where totality put them.
+    announce("C3", "+", 10, "C3_PLUS_10_SECONDS", "Ten seconds past third contact")
+    announce("C3", "+", 15, "C3_PLUS_15_SECONDS", "Fifteen seconds past third contact")
+    announce("C3", "+", 25, "C3_PLUS_25_SECONDS", "Twenty-five seconds past third contact")
+    announce("C3", "+", 45, "C3_PLUS_45_SECONDS", "Forty-five seconds past third contact")
+    announce("C3", "+", 60, "C3_PLUS_1_MINUTE", "One minute past third contact")
+    announce("C3", "+", 120, "C3_PLUS_2_MINUTES", "Two minutes past third contact")
+    emit()
+
+
+def _ladder(index: int, count: int, offset: float) -> None:
+    bracket(XT4, "C2", "+", offset, CORONA_LADDER.split(";")[0], ISO_LADDER,
+            CORONA_LADDER, CORONA_FRAMES,
+            "Corona ladder %d of %d, inner edge to outer streamers" % (index, count))
 
 # --------------------------------------------------------------------------
 # Partial phases C3 -> sunset
@@ -637,8 +828,11 @@ announce("C4", "-", 20, "C4_IN_20_SECONDS", "Twenty seconds to fourth contact")
 announce("C4", "-", 0, "C4", "Fourth contact - eclipse over")
 
 
+POSTLUDE = LINES
+POSTLUDE_FRAMES = dict(FRAMES)
+
 # --------------------------------------------------------------------------
-# Output, one file per body
+# Output, one file per totality duration
 # --------------------------------------------------------------------------
 # The X-T4 file keeps every shared line - the comments, the voice prompts and the
 # camera sync - because it is the one that runs.  The 800D file carries only its own
@@ -646,11 +840,69 @@ announce("C4", "-", 0, "C4", "Fourth contact - eclipse over")
 # is ever run again it is on a second machine, and doubling the voice prompts across
 # two laptops standing next to each other would be worse than having none.
 
-production = [text for owner, text in LINES if owner in (None, XT4)]
-OUTPUT.write_text("\n".join(production) + "\n")
-print("written %s (%d lines, %s %d frames)" % (OUTPUT, len(production), XT4, FRAMES[XT4]))
 
-parked = [text for owner, text in LINES if owner == EOS]
+def assemble(target_s: float) -> tuple:
+    """The whole script for a totality of `target_s`, and what it costs in frames."""
+    middle, middle_frames = capture(totality_block, target_s)
+    lines = PREAMBLE + middle + POSTLUDE
+    frames = {cam: PREAMBLE_FRAMES[cam] + middle_frames[cam] + POSTLUDE_FRAMES[cam]
+              for cam in middle_frames}
+    return lines, frames
+
+
+def banner(target_s: float, ladders: int) -> list:
+    """The first thing you see on opening the file, because picking wrong is silent."""
+    return [
+        "# " + "#" * 74,
+        "# THIS SCRIPT FILLS %.0f SECONDS OF TOTALITY." % target_s,
+        "#",
+        "# Load it only if Solar Eclipse Workbench reports totality of at least %.0f s"
+        % target_s,
+        "# for where you are standing.  Of the scripts in this directory, take the",
+        "# LARGEST that does not exceed the totality you have: at %.0f s that is %s."
+        % (totality, "20260812_production_%03ds.txt" % max(
+            [d for d in DURATIONS if d <= totality] or [DURATIONS[0]])),
+        "#",
+        "#   too small  you lose a few seconds of corona at the end of totality",
+        "#   too large  the last ladder is still exposing after C3, filter off",
+        "#",
+        "# %d corona ladder(s) here.  The planned site has %.0f s." % (ladders, totality),
+        "# " + "#" * 74,
+        "#",
+    ]
+
+
+written = []
+for target in DURATIONS:
+    offsets = ladder_offsets(target)
+    if not offsets:
+        sys.stderr.write("skipped %3.0fs: no room for a corona ladder between the bursts\n"
+                         % target)
+        continue
+    lines, frames = assemble(target)
+    production = banner(target, len(offsets)) + [text for owner, text in lines
+                                                 if owner in (None, XT4)]
+    path = OUTPUT_DIR / ("20260812_production_%03ds.txt" % target)
+    path.write_text("\n".join(production) + "\n")
+    written.append((target, path, len(offsets), frames[XT4]))
+
+print("\n%-34s  %8s  %7s  %6s" % ("script", "totality", "ladders", "frames"))
+for target, path, ladders, frames in written:
+    print("%-34s  %6.0f s  %7d  %6d" % (path.name, target, ladders, frames))
+print("\nAt the planned site totality is %.0f s, so the one to load is %s."
+      % (totality, "20260812_production_%03ds.txt" % max(
+          [d for d in DURATIONS if d <= totality] or [DURATIONS[0]])))
+
+_stale = OUTPUT_DIR / "20260812_production.txt"
+if _stale.exists():
+    print("\n%s carries no duration in its name and is not regenerated here.\n"
+          "Remove it: a file in this directory that does not say what it fits is\n"
+          "the one you will load by mistake in the dark." % _stale)
+
+# The parked body's half is written once, for the planned site's own duration.
+_site_lines, _site_frames = assemble(totality)
+parked = [text for owner, text in _site_lines if owner == EOS]
+FRAMES = _site_frames
 PARKED_HEADER = [
     "# Solar Eclipse Workbench script - total solar eclipse of 12 August 2026",
     "# Generated by scripts/generate_20260812_production.py - edit that, not this file.",

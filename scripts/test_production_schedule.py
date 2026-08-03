@@ -23,7 +23,12 @@ from solareclipseworkbench.hardware_registry import register_hardware
 from solareclipseworkbench.relay_trigger import relay_arm, relay_release
 from solareclipseworkbench.utils import schedule_commands, start_scheduler
 
-SCRIPT = Path(__file__).resolve().parent / "real" / "20260812_production.txt"
+# There is one production script per totality duration.  Default to the longest
+# that fits the planned site, which is the one that would be loaded on the day;
+# pass a path to dry-run any of the others.
+REAL = Path(__file__).resolve().parent / "real"
+SCRIPT = (Path(sys.argv[1]) if len(sys.argv) > 1
+          else sorted(REAL.glob("20260812_production_*s.txt"))[-1])
 
 fc.SETTLE_BEFORE_DRAIN_S = 0.0
 fc.SETTLE_BETWEEN_DRAINS_S = 0.0

@@ -78,7 +78,9 @@ class BeadsView(QWidget):
         self.exaggeration = 50.0
         self.live_hours = None
         self.countdown = None
-        self.setMinimumSize(320, 140)
+        # 320 here set the floor for the whole left dock column, and through it
+        # the window: it only needs to be wide enough to draw a limb profile.
+        self.setMinimumSize(240, 140)
 
     def set_mode(self, mode):
         self.mode = mode

@@ -271,3 +271,26 @@ def test_the_contact_labels_are_not_clipped(view):
     assert boxes, "the reference-moments box should declare a minimum width"
     for gb in boxes:
         assert gb.minimumWidth() >= gb.minimumSizeHint().width()
+
+
+def test_the_window_never_opens_larger_than_the_display(view):
+    # A window whose minimum exceeds the screen cannot be shrunk: the edge is off
+    # the display and there is nothing to drag, so a bad saved layout locks the
+    # user out of fixing it.  Reported 3 August - "bigger than my screen and I
+    # can't resize it".
+    from PyQt6.QtGui import QGuiApplication
+    view.show()
+    QApplication.processEvents()
+    available = QGuiApplication.primaryScreen().availableGeometry()
+
+    # It cannot go below its own minimum, so the invariant is that it is clamped
+    # as far as it can be.  That the minimum itself fits a real display is
+    # test_the_window_fits_a_1440_wide_screen; the test screen here is 800x600.
+    assert view.width() <= max(view.minimumWidth(), available.width())
+    assert view.height() <= max(view.minimumHeight(), available.height())
+
+
+def test_the_camera_strip_can_be_pulled_down_to_one_row(view):
+    # With one body connected there is one row to show.  A 110px floor meant the
+    # strip kept taking height from the schedule that it had nothing to put in.
+    assert view.camera_overview.minimumHeight() == 0
