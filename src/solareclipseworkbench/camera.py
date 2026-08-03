@@ -9,7 +9,7 @@ import time
 import gphoto2
 import gphoto2 as gp
 
-from solareclipseworkbench import hardware_problems
+from solareclipseworkbench import frame_log, hardware_problems
 from datetime import datetime
 import os
 
@@ -720,6 +720,11 @@ def _serialised_on_camera(func):
                 '(shot is too late; timing accuracy preserved)',
                 func.__name__, _MAX_LOCK_WAIT_S,
             )
+            # Deliberate, but not free: this frame does not exist and the log
+            # line alone was joined to nothing.  The row names which scheduled
+            # command it was, so a rehearsal can be counted rather than read.
+            frame_log.record("dropped",
+                             f"camera busy for more than {_MAX_LOCK_WAIT_S}s")
             return
         try:
             return func(camera, *args, **kwargs)

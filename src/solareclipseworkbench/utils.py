@@ -1,7 +1,9 @@
-import logging
 import csv
+import functools
+import logging
 from datetime import datetime, timedelta
 
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 import pytz
@@ -10,7 +12,7 @@ from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_b
 from solareclipseworkbench import relay_shoot, relay_burst, relay_bulb
 from solareclipseworkbench.relay_trigger import relay_arm, relay_release
 from solareclipseworkbench import mount_track_sun, mount_goto_sun, mount_tracking, mount_park, mount_unpark, mount_stop
-from solareclipseworkbench import hardware_problems
+from solareclipseworkbench import frame_log, hardware_problems
 from solareclipseworkbench.camera import CameraSettings
 from solareclipseworkbench.notifications import check_notification
 from solareclipseworkbench.gui import SolarEclipseController
@@ -120,9 +122,69 @@ def start_scheduler():
     # inside _serialised_on_camera: if the USB lock is busy for more than
     # _MAX_LOCK_WAIT_S the shot is dropped rather than taken late.
     scheduler = BackgroundScheduler()
+    scheduler.add_listener(_on_job_problem, EVENT_JOB_ERROR | EVENT_JOB_MISSED)
     scheduler.start()
 
     return scheduler
+
+
+def _on_job_problem(event) -> None:
+    """Report a job that raised or never ran.
+
+    APScheduler swallows both by default: an exception inside a job is logged to
+    its own logger and the job simply disappears, and a job whose misfire grace
+    expired is discarded without a word.  Either way a frame is lost and nothing
+    on screen says so, which during totality is the whole eclipse quietly going
+    wrong.  Routing them into hardware_problems puts them where every other
+    hardware fault already appears.
+    """
+    name = getattr(event, "job_id", "?")
+    job = None
+    try:
+        job = event.job          # present on some APScheduler versions
+    except AttributeError:
+        pass
+    description = getattr(job, "name", None) or name
+
+    if getattr(event, "exception", None) is not None:
+        logging.exception('Scheduled command "%s" raised: %s', description, event.exception)
+        hardware_problems.report(
+            "Schedule", f'"{description}" failed and its frame was not taken',
+            detail=str(event.exception),
+        )
+        frame_log.record("error", str(event.exception))
+    else:
+        logging.warning('Scheduled command "%s" was missed and did not run', description)
+        hardware_problems.report(
+            "Schedule", f'"{description}" was missed and its frame was not taken',
+            detail="the scheduler could not run it within its grace time",
+            severity="warning",
+        )
+        frame_log.record("missed")
+
+
+def _timed(func, intended: datetime, description: str):
+    """Carry the intended time into the job, so the row can be written.
+
+    The command itself takes a camera and its settings and has no idea what time
+    it was meant to run, which is why a late frame and an on-time one used to be
+    indistinguishable afterwards.  The wrapper tells the frame log before the
+    call and writes the outcome after it, whatever that outcome is.
+    """
+    @functools.wraps(func)
+    def run(*args, **kwargs):
+        frame_log.begin(description, intended)
+        try:
+            result = func(*args, **kwargs)
+        except Exception as exc:
+            # Recorded here as well as by the listener: the listener sees the job,
+            # this sees the thread that ran it, and only one row is kept.
+            frame_log.record("error", str(exc))
+            raise
+        frame_log.record("ok")
+        return result
+
+    return run
 
 
 def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_moments: dict,
@@ -314,7 +376,8 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
 
         trigger = DateTrigger(run_date=execution_time, timezone=pytz.utc)
 
-        scheduler.add_job(func, trigger=trigger, args=args, name=description)
+        scheduler.add_job(_timed(func, execution_time, description),
+                          trigger=trigger, args=args, name=description)
     except KeyError as missing:
         # A line naming a moment the calculation did not produce.  Usually a
         # limb-corrected moment — BEADS_C2 and friends only exist when the
