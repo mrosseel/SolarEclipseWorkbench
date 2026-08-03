@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from . import hardware_problems
+from . import exposure_trim, hardware_problems
 from .camera import BaseCamera, CameraError
 from .hardware_registry import HARDWARE, register_hardware
 
@@ -928,7 +928,9 @@ class FujiCamera(BaseCamera):
                     f"{self.name}: bracket lists shutter speeds this camera does "
                     f"not have: {', '.join(unknown)}"
                 )
-            return speeds
+            # The rungs are exposures too, so the observer's correction moves
+            # the whole ladder rather than only the frames outside it.
+            return [exposure_trim.apply_microseconds(v) for v in speeds]
 
         # The base of the ladder is whatever is on the body: the caller has just
         # dialled in the exposure this bracket is meant to straddle.
@@ -1000,7 +1002,7 @@ class FujiCamera(BaseCamera):
                 speeds.append(value)
 
         self._warn_if_short(speeds, positions, current_speed, steps_str)
-        return speeds
+        return [exposure_trim.apply_microseconds(v) for v in speeds]
 
     def _warn_if_short(self, speeds: list, positions: int, current_speed: int,
                        steps_str: str) -> None:

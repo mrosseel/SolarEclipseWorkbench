@@ -45,7 +45,7 @@ from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get
     get_shooting_mode, get_focus_mode, set_time, CameraSettings, LiveViewThread, \
     get_sony_save_destination, get_sony_image_quality
 from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
-from solareclipseworkbench import hardware_problems
+from solareclipseworkbench import exposure_trim, hardware_problems
 from solareclipseworkbench.hardware_registry import register_hardware
 from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wiring, discover_relays,
@@ -833,6 +833,18 @@ class SolarEclipseView(QMainWindow, Observable):
         settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
         # Docks are keyed by object name, so a layout saved before one of them
         # existed leaves that dock where the code put it.
+        trim = settings.value("exposure/trim_stops")
+        if trim is not None:
+            try:
+                exposure_trim.set_stops(float(trim))
+                index = self.exposure_trim_combo.findData(exposure_trim.stops())
+                if index >= 0:
+                    self.exposure_trim_combo.blockSignals(True)
+                    self.exposure_trim_combo.setCurrentIndex(index)
+                    self.exposure_trim_combo.blockSignals(False)
+            except (TypeError, ValueError):
+                logging.debug("Ignoring an unreadable saved exposure trim: %r", trim)
+
         dock_state = settings.value("layout/docks")
         if dock_state is not None:
             self.restoreState(dock_state)
@@ -1024,6 +1036,22 @@ class SolarEclipseView(QMainWindow, Observable):
         self.mount_dock_action.setStatusTip("Show the mount controls")
         self.toolbar.addAction(self.mount_dock_action)
 
+        # The haze correction.  Sits on the toolbar rather than in a dialog
+        # because it is judged by eye against live view and adjusted while the
+        # eclipse runs, not set once and forgotten.
+        self.toolbar.addWidget(QLabel("  Exposure "))
+        self.exposure_trim_combo = QComboBox()
+        steps = int(exposure_trim.LIMIT_STOPS / exposure_trim.STEP_STOPS)
+        for n in range(steps, -steps - 1, -1):
+            value = n * exposure_trim.STEP_STOPS
+            self.exposure_trim_combo.addItem(
+                "0 EV" if not value else f"{value:+.1f} EV", value)
+        self.exposure_trim_combo.setCurrentIndex(steps)      # 0 EV
+        self.exposure_trim_combo.setStatusTip(
+            "Correct every scheduled exposure - for haze, judged against live view")
+        self.exposure_trim_combo.currentIndexChanged.connect(self.on_exposure_trim_changed)
+        self.toolbar.addWidget(self.exposure_trim_combo)
+
         # A saved layout overrides the defaults completely, so a pane dragged to
         # a few pixels stays that way across restarts.  Without this the only way
         # back is editing an ini by hand, which is not a thing to discover on
@@ -1033,6 +1061,19 @@ class SolarEclipseView(QMainWindow, Observable):
             "Put the panes back where they started")
         self.reset_layout_action.triggered.connect(self.reset_layout)
         self.toolbar.addAction(self.reset_layout_action)
+
+    def on_exposure_trim_changed(self, index: int):
+        """Apply the observer's haze correction to every exposure from now on."""
+        value = self.exposure_trim_combo.currentData()
+        if value is None:
+            return
+        exposure_trim.set_stops(value)
+        settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
+        settings.setValue("exposure/trim_stops", value)
+        if hasattr(self, "statusBar"):
+            self.statusBar().showMessage(
+                f"Exposure trim {exposure_trim.describe()} - applies to every "
+                f"frame from now on, not to those already taken", 8000)
 
     def on_toolbar_button_click(self):
         """ Action triggered when a toolbar button is clicked."""

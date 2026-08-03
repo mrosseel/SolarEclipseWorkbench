@@ -9,7 +9,7 @@ import time
 import gphoto2
 import gphoto2 as gp
 
-from solareclipseworkbench import frame_log, hardware_problems
+from solareclipseworkbench import exposure_trim, frame_log, hardware_problems
 from datetime import datetime
 import os
 
@@ -1245,7 +1245,48 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
             raise
 
 
+def _trimmed(camera_settings: CameraSettings) -> CameraSettings:
+    """The settings with the observer's exposure correction applied.
+
+    A copy, never the caller's object: the same CameraSettings instance is held
+    by a scheduled job and reused every time it fires, so correcting it in place
+    would compound the trim on every frame.
+    """
+    if not exposure_trim.stops():
+        return camera_settings
+    seconds = _speed_to_seconds(camera_settings.shutter_speed)
+    if seconds is None:
+        return camera_settings
+    trimmed = CameraSettings(camera_settings.camera_name,
+                             _seconds_to_speed(exposure_trim.apply_seconds(seconds)),
+                             camera_settings.aperture, camera_settings.iso)
+    logging.debug('%s: %s -> %s (%s trim)', camera_settings.camera_name,
+                  camera_settings.shutter_speed, trimmed.shutter_speed,
+                  exposure_trim.describe())
+    return trimmed
+
+
+def _speed_to_seconds(value) -> Optional[float]:
+    """Parse a script's shutter speed - "1/2000", "0.5", "2" - into seconds."""
+    text = str(value).strip().rstrip('"')
+    try:
+        if "/" in text:
+            num, den = text.split("/")
+            return float(num) / float(den)
+        return float(text)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _seconds_to_speed(seconds: float) -> str:
+    """Back to the form a script writes, so every downstream path still parses it."""
+    if seconds >= 1.0:
+        return f"{seconds:.4g}"
+    return f"1/{round(1.0 / seconds):d}"
+
+
 def __adapt_camera_settings(camera, camera_settings):
+    camera_settings = _trimmed(camera_settings)
     # For virtual or non-gphoto cameras, skip gphoto configuration and
     # return (None, None) so callers can handle capture directly.
     if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
