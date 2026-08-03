@@ -1953,6 +1953,12 @@ class SolarEclipseController(Observer):
             self._stop_live_view_yielding()
             return
 
+        # The controller's own totality pause holds from C2-15s to C3+15s and is
+        # the stronger of the two: while it is on, this must not keep restarting
+        # the stream underneath it.
+        if getattr(window, '_totality_paused', False):
+            return
+
         gap = self._seconds_to_next_frame()
         running = window._thread is not None
         if gap is not None and gap < LIVE_VIEW_CLEARANCE_S:

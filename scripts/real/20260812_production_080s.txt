@@ -2,13 +2,14 @@
 # THIS SCRIPT FILLS 80 SECONDS OF TOTALITY.
 #
 # Load it only if Solar Eclipse Workbench reports totality of at least 80 s
-# for where you are standing.  Of the scripts in this directory, take the
-# LARGEST that does not exceed the totality you have: at 97 s that is 20260812_production_090s.txt.
+# where you are standing.  Of the scripts in this directory, take the LARGEST
+# that does not exceed the totality you have.
 #
 #   too small  you lose a few seconds of corona at the end of totality
 #   too large  the last ladder is still exposing after C3, filter off
 #
-# 5 corona ladder(s) here.  The planned site has 97 s.
+# 5 corona ladders.  The planned site has 97 s, which makes
+# 20260812_production_090s.txt the one to load unless you have moved.
 # ##########################################################################
 #
 # Solar Eclipse Workbench PRODUCTION script - total solar eclipse of 12 August 2026
@@ -177,7 +178,7 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # The X-T4 take_picture before each burst exists to load the beads exposure before
 # the relay takes over - the relay fires whatever is already dialled in.
 #
-# This file fills 80 s of totality: 5 corona ladder(s) of 7 frames, the first
+# This file fills 80 s of totality: 5 corona ladders of 7 frames, the first
 # 6.0 s after C2 and the last finishing 6.0 s before C3.  Load it only when Solar
 # Eclipse Workbench reports totality of at least 80 s for where you are standing;
 # at less than that the last ladder is still exposing when the sun comes back.

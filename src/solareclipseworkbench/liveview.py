@@ -613,6 +613,32 @@ class LiveViewWindow(QDockWidget):
             except XSDKError as e:
                 log.warning("Failed to set live view quality: %s", e)
 
+    def set_totality_paused(self, paused: bool):
+        """Stop streaming from just before C2 until just after C3, and resume.
+
+        The controller calls this every clock tick.  Its gphoto2 counterpart has
+        always had it; this window was written before that guard existed and
+        stranded on a branch before it arrived, so restoring it crashed the clock
+        with AttributeError the moment a live view was open.
+
+        Totality is the one stretch where the camera cannot afford to share the
+        connection: the frames are dense and every one of them is unrepeatable.
+        A stream the user started themselves is resumed afterwards, so the pause
+        does not quietly turn live view off for the rest of the eclipse.
+        """
+        if getattr(self, '_totality_paused', False) == paused:
+            return
+        self._totality_paused = paused
+        if paused:
+            self._resume_after_totality = self._thread is not None
+            if self._thread is not None:
+                log.info("Live view paused for totality")
+                self.stop_stream()
+        elif getattr(self, '_resume_after_totality', False):
+            self._resume_after_totality = False
+            log.info("Totality over, live view resuming")
+            self.start_stream()
+
     def closeEvent(self, event):
         try:
             self.stop_stream()

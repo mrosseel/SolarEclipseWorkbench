@@ -23,12 +23,29 @@ from solareclipseworkbench.hardware_registry import register_hardware
 from solareclipseworkbench.relay_trigger import relay_arm, relay_release
 from solareclipseworkbench.utils import schedule_commands, start_scheduler
 
-# There is one production script per totality duration.  Default to the longest
-# that fits the planned site, which is the one that would be loaded on the day;
-# pass a path to dry-run any of the others.
 REAL = Path(__file__).resolve().parent / "real"
-SCRIPT = (Path(sys.argv[1]) if len(sys.argv) > 1
-          else sorted(REAL.glob("20260812_production_*s.txt"))[-1])
+
+# The simulated contacts, in hours from now.  C2 and C3 are what set how long
+# totality lasts here, and that is what decides which production script fits.
+CONTACT_OFFSETS_H = [("C1", 1), ("C2", 2.3), ("MAX", 2.31), ("C3", 2.33), ("C4", 3.6)]
+SIM_TOTALITY_S = (dict(CONTACT_OFFSETS_H)["C3"] - dict(CONTACT_OFFSETS_H)["C2"]) * 3600.0
+
+
+def script_for(duration_s: float) -> Path:
+    """The production script to load for a totality this long: the longest that fits.
+
+    There is one per duration, and one laid out for longer than you get is still
+    exposing after C3 - so the choice is always downwards.
+    """
+    fits = [path for path in sorted(REAL.glob("20260812_production_*s.txt"))
+            if float(path.stem.rsplit("_", 1)[1].rstrip("s")) <= duration_s]
+    if not fits:
+        raise SystemExit(f"no production script fits {duration_s:.0f}s of totality")
+    return fits[-1]
+
+
+# Pass a path to dry-run a specific one.
+SCRIPT = Path(sys.argv[1]) if len(sys.argv) > 1 else script_for(SIM_TOTALITY_S)
 
 fc.SETTLE_BEFORE_DRAIN_S = 0.0
 fc.SETTLE_BETWEEN_DRAINS_S = 0.0
@@ -79,9 +96,8 @@ def main() -> None:
     register_hardware("sdk_camera", camera)
 
     now = datetime.now(timezone.utc)
-    offsets = [("C1", 1), ("C2", 2.3), ("MAX", 2.31), ("C3", 2.33), ("C4", 3.6)]
     moments = {name: SimpleNamespace(time_utc=now + timedelta(hours=offset))
-               for name, offset in offsets}
+               for name, offset in CONTACT_OFFSETS_H}
 
     # The bead windows the production script schedules its contact bursts against.
     # Seconds relative to the contacts, from the real solve at the site in the

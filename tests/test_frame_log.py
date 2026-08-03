@@ -126,3 +126,48 @@ def test_a_job_that_never_ran_is_reported_too():
 
     assert any("C3 beads" in str(p) for p in hardware_problems.peek())
     assert frame_log.summarise()["outcomes"] == {"missed": 1}
+
+
+# ------------------------------------------------- live view around totality
+
+class _FakeLiveView:
+    """Enough of the Fuji live view window to exercise the pause contract."""
+
+    def __init__(self):
+        self._thread = object()
+        self.events = []
+
+    def stop_stream(self):
+        self._thread = None
+        self.events.append("stop")
+
+    def start_stream(self):
+        self._thread = object()
+        self.events.append("start")
+
+
+def test_live_view_pauses_for_totality_and_comes_back():
+    # The controller calls this every clock tick.  The restored window did not
+    # have it, and the clock died with AttributeError the moment a live view was
+    # open - reported 3 August, 22:11.
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    window = _FakeLiveView()
+    LiveViewWindow.set_totality_paused(window, True)
+    LiveViewWindow.set_totality_paused(window, True)     # every tick, not just the edge
+    LiveViewWindow.set_totality_paused(window, False)
+
+    assert window.events == ["stop", "start"]
+
+
+def test_a_live_view_the_user_had_closed_is_not_opened_by_totality_ending():
+    # Resuming something that was not running would turn live view on during the
+    # partials after C3, holding the camera nobody asked it to hold.
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    window = _FakeLiveView()
+    window._thread = None                                 # not streaming
+    LiveViewWindow.set_totality_paused(window, True)
+    LiveViewWindow.set_totality_paused(window, False)
+
+    assert window.events == []

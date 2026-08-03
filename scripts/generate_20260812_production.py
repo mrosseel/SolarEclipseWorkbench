@@ -657,8 +657,8 @@ def _totality_block(target_s: float) -> None:
     emit("# The X-T4 take_picture before each burst exists to load the beads exposure before")
     emit("# the relay takes over - the relay fires whatever is already dialled in.")
     emit("#")
-    emit("# This file fills %.0f s of totality: %d corona ladder(s) of %d frames, the first"
-         % (target_s, len(offsets), CORONA_FRAMES))
+    emit("# This file fills %.0f s of totality: %d corona ladder%s of %d frames, the first"
+         % (target_s, len(offsets), "" if len(offsets) == 1 else "s", CORONA_FRAMES))
     emit("# %.1f s after C2 and the last finishing %.1f s before C3.  Load it only when Solar"
          % (TOTALITY_HEAD_S,
             target_s - (offsets[-1] + LADDER_RUN_S) if offsets else target_s))
@@ -850,6 +850,12 @@ def assemble(target_s: float) -> tuple:
     return lines, frames
 
 
+def site_script() -> str:
+    """The file the planned site's own totality calls for."""
+    fits = [d for d in DURATIONS if d <= totality] or [DURATIONS[0]]
+    return "20260812_production_%03ds.txt" % max(fits)
+
+
 def banner(target_s: float, ladders: int) -> list:
     """The first thing you see on opening the file, because picking wrong is silent."""
     return [
@@ -858,15 +864,15 @@ def banner(target_s: float, ladders: int) -> list:
         "#",
         "# Load it only if Solar Eclipse Workbench reports totality of at least %.0f s"
         % target_s,
-        "# for where you are standing.  Of the scripts in this directory, take the",
-        "# LARGEST that does not exceed the totality you have: at %.0f s that is %s."
-        % (totality, "20260812_production_%03ds.txt" % max(
-            [d for d in DURATIONS if d <= totality] or [DURATIONS[0]])),
+        "# where you are standing.  Of the scripts in this directory, take the LARGEST",
+        "# that does not exceed the totality you have.",
         "#",
         "#   too small  you lose a few seconds of corona at the end of totality",
         "#   too large  the last ladder is still exposing after C3, filter off",
         "#",
-        "# %d corona ladder(s) here.  The planned site has %.0f s." % (ladders, totality),
+        "# %d corona ladder%s.  The planned site has %.0f s, which makes"
+        % (ladders, "" if ladders == 1 else "s", totality),
+        "# %s the one to load unless you have moved." % site_script(),
         "# " + "#" * 74,
         "#",
     ]
@@ -889,9 +895,8 @@ for target in DURATIONS:
 print("\n%-34s  %8s  %7s  %6s" % ("script", "totality", "ladders", "frames"))
 for target, path, ladders, frames in written:
     print("%-34s  %6.0f s  %7d  %6d" % (path.name, target, ladders, frames))
-print("\nAt the planned site totality is %.0f s, so the one to load is %s."
-      % (totality, "20260812_production_%03ds.txt" % max(
-          [d for d in DURATIONS if d <= totality] or [DURATIONS[0]])))
+print("\nAt %s totality is %.0f s, so the one to load is %s."
+      % (SITE, totality, site_script()))
 
 _stale = OUTPUT_DIR / "20260812_production.txt"
 if _stale.exists():
