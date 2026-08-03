@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 from fujixsdk import LiveViewStream
 from fujixsdk._constants import (
     FOCUS_MODE_NAMES,
+    SHUTTER_SPEED_NAMES,
     LIVEVIEW_QUALITY_FINE,
     LIVEVIEW_QUALITY_NAMES,
     LIVEVIEW_SIZE_XGA,
@@ -35,6 +36,18 @@ from fujixsdk._errors import XSDKError
 from fujixsdk.camera import Camera
 
 log = logging.getLogger(__name__)
+
+# What the X-T4 can actually be set to, out of the 89 values the SDK names -
+# the table runs from 1/180000" to 60 minutes and neither end exists on this
+# body.  Microseconds, as the SDK counts them.
+_SHUTTER_MIN_US = 1_000_000 // 8000
+_SHUTTER_MAX_US = 30 * 1_000_000
+
+# The body reports no ISO list on some firmware, so this is the fallback.  These
+# are the native values; the extended ones below 160 and above 12800 are pulled
+# from a different sensor gain and are not what a corona wants.
+_ISO_FALLBACK = [160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600,
+                 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800]
 
 # Focus peaking: edge threshold and overlay colour
 _PEAKING_THRESHOLD = 30
@@ -373,6 +386,20 @@ class LiveViewWindow(QDockWidget):
         self._quality_combo.currentIndexChanged.connect(self._on_quality_changed)
         controls.addWidget(self._quality_combo)
 
+        # Exposure.  Live view shows what the body is set to, so a preview too
+        # dark to focus by can only be fixed here - and until now the window
+        # neither showed the exposure nor let it be changed.
+        controls.addWidget(QLabel("Shutter:"))
+        self._shutter_combo = QComboBox()
+        self._shutter_combo.currentIndexChanged.connect(self._on_shutter_changed)
+        controls.addWidget(self._shutter_combo)
+
+        controls.addWidget(QLabel("ISO:"))
+        self._iso_combo = QComboBox()
+        self._iso_combo.currentIndexChanged.connect(self._on_iso_changed)
+        controls.addWidget(self._iso_combo)
+
+        controls.addStretch(1)
         layout.addLayout(controls)
 
         # Buttons
@@ -391,13 +418,16 @@ class LiveViewWindow(QDockWidget):
         # Status bar
         self._status_bar = QStatusBar()
         self._focus_label = QLabel("Focus: --")
+        self._exposure_label = QLabel("Exposure: --")
         self._fps_label = QLabel("FPS: --")
         self._status_bar.addWidget(self._focus_label)
+        self._status_bar.addWidget(self._exposure_label)
         self._status_bar.addPermanentWidget(self._fps_label)
         layout.addWidget(self._status_bar)
 
         self.setWidget(container)
         self._populate_controls()
+        self._populate_exposure()
 
     def _populate_controls(self):
         """Query camera for focus mode indicator."""
@@ -498,6 +528,8 @@ class LiveViewWindow(QDockWidget):
         self._frame_count = 0
         self._focus_graph.reset()
         self._fps_timer.start(1000)
+        # The dials may have been turned by hand since the window was opened.
+        self._refresh_exposure()
 
         self._stop_btn.setEnabled(True)
         self._status_bar.showMessage("Streaming...")
@@ -612,6 +644,83 @@ class LiveViewWindow(QDockWidget):
                 self._camera.set_live_view_quality(val)
             except XSDKError as e:
                 log.warning("Failed to set live view quality: %s", e)
+
+    # ------------------------------------------------------------------
+    # Exposure
+    # ------------------------------------------------------------------
+
+    def _populate_exposure(self):
+        """Fill the shutter and ISO lists and show what the body is set to.
+
+        The shutter values come from the SDK's own name table rather than from
+        CapShutterSpeed, which this body does not implement - it answers with an
+        empty list, and a dropdown built from that would be empty too.
+        """
+        speeds = sorted(k for k in SHUTTER_SPEED_NAMES
+                        if isinstance(k, int) and _SHUTTER_MIN_US <= k <= _SHUTTER_MAX_US)
+        self._shutter_combo.blockSignals(True)
+        self._shutter_combo.clear()
+        for value in speeds:
+            self._shutter_combo.addItem(str(SHUTTER_SPEED_NAMES[value]), value)
+        self._shutter_combo.blockSignals(False)
+
+        try:
+            isos = [i for i in self._camera.get_supported_iso() if i > 0]
+        except Exception:
+            isos = []
+        if not isos:
+            isos = _ISO_FALLBACK
+        self._iso_combo.blockSignals(True)
+        self._iso_combo.clear()
+        for value in sorted(isos):
+            self._iso_combo.addItem(str(value), value)
+        self._iso_combo.blockSignals(False)
+
+        self._refresh_exposure()
+
+    def _refresh_exposure(self):
+        """Read the body's exposure and show it, without firing the signals."""
+        try:
+            speed, _bulb = self._camera.get_shutter_speed()
+            iso = self._camera.get_iso()
+        except Exception as exc:
+            log.debug("Could not read the exposure: %s", exc)
+            self._exposure_label.setText("Exposure: unreadable")
+            return
+
+        name = SHUTTER_SPEED_NAMES.get(speed, f"{speed}us")
+        self._exposure_label.setText(f"Exposure: {name}  ISO {iso}")
+        for combo, value in ((self._shutter_combo, speed), (self._iso_combo, iso)):
+            index = combo.findData(value)
+            if index >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+
+    def _on_shutter_changed(self, index: int):
+        value = self._shutter_combo.currentData()
+        if value is None:
+            return
+        try:
+            self._camera.set_shutter_speed(value)
+        except XSDKError as exc:
+            # 0x1006 here usually means the shutter dial is not on T.
+            log.warning("Could not set the shutter speed: %s", exc)
+            self._status_bar.showMessage(
+                f"Shutter speed refused ({exc}) - is the shutter dial on T?", 6000)
+        self._refresh_exposure()
+
+    def _on_iso_changed(self, index: int):
+        value = self._iso_combo.currentData()
+        if value is None:
+            return
+        try:
+            self._camera.set_iso(value)
+        except XSDKError as exc:
+            log.warning("Could not set the ISO: %s", exc)
+            self._status_bar.showMessage(
+                f"ISO refused ({exc}) - is the ISO dial on C?", 6000)
+        self._refresh_exposure()
 
     def is_streaming(self) -> bool:
         """True when frames are actually being fetched.

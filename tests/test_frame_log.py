@@ -171,3 +171,111 @@ def test_a_live_view_the_user_had_closed_is_not_opened_by_totality_ending():
     LiveViewWindow.set_totality_paused(window, False)
 
     assert window.events == []
+
+
+# ------------------------------------------------- live view exposure controls
+
+class _FakeSDK:
+    """A body that answers the exposure calls live view makes."""
+
+    def __init__(self, speed=8000, iso=400, supported_iso=None):
+        self.speed, self.iso = speed, iso
+        self._supported = supported_iso
+        self.written = []
+
+    def get_shutter_speed(self):
+        return self.speed, 0
+
+    def get_iso(self):
+        return self.iso
+
+    def get_supported_iso(self):
+        if self._supported is None:
+            raise RuntimeError("CapSensitivity not implemented on this body")
+        return self._supported
+
+    def set_shutter_speed(self, value):
+        self.speed = value
+        self.written.append(("shutter", value))
+
+    def set_iso(self, value):
+        self.iso = value
+        self.written.append(("iso", value))
+
+
+def _live_view_stub(sdk):
+    """The window's exposure methods, bound to a stand-in with just the widgets."""
+    from types import SimpleNamespace
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    class _Combo:
+        def __init__(self): self.items, self.index = [], -1
+        def blockSignals(self, b): pass
+        def clear(self): self.items = []
+        def addItem(self, text, data): self.items.append((text, data))
+        def findData(self, data):
+            return next((i for i, (_, d) in enumerate(self.items) if d == data), -1)
+        def setCurrentIndex(self, i): self.index = i
+        def currentData(self):
+            return self.items[self.index][1] if 0 <= self.index < len(self.items) else None
+
+    win = SimpleNamespace(_camera=sdk, _shutter_combo=_Combo(), _iso_combo=_Combo(),
+                          _status_bar=SimpleNamespace(showMessage=lambda *a: None))
+    win.shown = ""
+    win._exposure_label = SimpleNamespace(setText=lambda t: setattr(win, "shown", t))
+    # The methods run unbound with this as self, so what they call on self has to
+    # be attached here.
+    win._refresh_exposure = lambda: LiveViewWindow._refresh_exposure(win)
+    LiveViewWindow._populate_exposure(win)
+    return win, LiveViewWindow
+
+
+def test_live_view_shows_the_shutter_speed_and_iso():
+    # Reported 3 August: "I don't see what the shutter speed or the ISO is, I
+    # only see that it's under-exposed and I can't change it."
+    win, _ = _live_view_stub(_FakeSDK(speed=8000, iso=400))
+
+    assert "ISO 400" in win.shown
+    assert "Exposure:" in win.shown
+
+
+def test_the_shutter_list_is_built_without_asking_the_body():
+    # This body does not implement CapShutterSpeed - it answers with an empty
+    # list, and a dropdown built from that would be empty too.
+    win, _ = _live_view_stub(_FakeSDK())
+
+    values = [d for _, d in win._shutter_combo.items]
+    assert len(values) > 20
+    assert max(values) <= 30_000_000        # nothing past 30s
+    assert min(values) >= 125               # nothing faster than 1/8000
+
+
+def test_the_iso_list_falls_back_when_the_body_offers_none():
+    win, _ = _live_view_stub(_FakeSDK())     # get_supported_iso raises
+
+    values = [d for _, d in win._iso_combo.items]
+    assert 400 in values and 3200 in values
+
+
+def test_changing_the_shutter_reaches_the_camera():
+    sdk = _FakeSDK(speed=8000, iso=400)
+    win, LiveViewWindow = _live_view_stub(sdk)
+    target = win._shutter_combo.findData(500_000)     # 1/2 s
+    win._shutter_combo.setCurrentIndex(target)
+
+    LiveViewWindow._on_shutter_changed(win, target)
+
+    assert ("shutter", 500_000) in sdk.written
+    assert "ISO 400" in win.shown
+
+
+def test_changing_the_iso_reaches_the_camera():
+    sdk = _FakeSDK(speed=8000, iso=400, supported_iso=[200, 400, 1600])
+    win, LiveViewWindow = _live_view_stub(sdk)
+    target = win._iso_combo.findData(1600)
+    win._iso_combo.setCurrentIndex(target)
+
+    LiveViewWindow._on_iso_changed(win, target)
+
+    assert ("iso", 1600) in sdk.written
+    assert "ISO 1600" in win.shown
