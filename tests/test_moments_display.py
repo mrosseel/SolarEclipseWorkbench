@@ -71,10 +71,12 @@ def test_the_correction_moves_the_contact_times_on_screen(view):
 def test_the_bead_windows_are_shown_with_their_duration(view):
     _shown(view, True)
 
-    for label in (view.beads_c2_label, view.beads_c3_label):
-        text = label.text()
-        assert " - " in text, text
-        assert text.endswith("s)"), text
+    for label, duration in ((view.beads_c2_label, view.beads_c2_duration_label),
+                            (view.beads_c3_label, view.beads_c3_duration_label)):
+        assert " - " in label.text(), label.text()
+        # The length moved to its own cell under "Countdown", so that each part
+        # sits beneath the header it belongs to.
+        assert duration.text().endswith("s"), duration.text()
 
 
 def test_the_bead_rows_say_why_they_are_empty(view):
@@ -350,6 +352,9 @@ def test_the_bead_rows_say_they_are_a_window(view):
 
 
 def test_a_bead_window_reads_as_a_span_with_its_length(view):
+    # The span sits under "Time (local)" and its length under "Countdown", so
+    # each is beneath the header it belongs to.  As one string spanning two
+    # columns it ran across the table and made every column look ragged.
     _shown(view, True)
-    text = view.beads_c2_label.text()
-    assert "-" in text and text.strip().endswith("s)"), text
+    assert "-" in view.beads_c2_label.text()
+    assert view.beads_c2_duration_label.text().endswith("s")

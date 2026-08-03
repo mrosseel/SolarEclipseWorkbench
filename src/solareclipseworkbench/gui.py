@@ -483,6 +483,13 @@ class SolarEclipseView(QMainWindow, Observable):
         self.beads_c2_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.beads_c3_label = QLabel()
         self.beads_c3_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        # The window is a time and a length.  Kept apart so each sits under the
+        # header it belongs to; as one string spanning two columns it ran across
+        # the table and made every column look ragged.
+        self.beads_c2_duration_label = QLabel()
+        self.beads_c2_duration_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.beads_c3_duration_label = QLabel()
+        self.beads_c3_duration_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.limb_correction_checkbox = QCheckBox(
             "Apply the lunar limb correction to the contact times")
@@ -759,9 +766,11 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(QLabel("Sunrise"), 6, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunset"), 7, 0)
         reference_moments_grid_layout.addWidget(QLabel("Beads window (C2)"), 8, 0)
-        reference_moments_grid_layout.addWidget(self.beads_c2_label, 8, 1, 1, 2)
+        reference_moments_grid_layout.addWidget(self.beads_c2_label, 8, 1)
+        reference_moments_grid_layout.addWidget(self.beads_c2_duration_label, 8, 3)
         reference_moments_grid_layout.addWidget(QLabel("Beads window (C3)"), 9, 0)
-        reference_moments_grid_layout.addWidget(self.beads_c3_label, 9, 1, 1, 2)
+        reference_moments_grid_layout.addWidget(self.beads_c3_label, 9, 1)
+        reference_moments_grid_layout.addWidget(self.beads_c3_duration_label, 9, 3)
 
         # The correction belongs with the numbers it changes: it moves C2 and C3
         # by seconds, which is more than a bead burst is long.  Default on — the
@@ -1260,18 +1269,21 @@ class SolarEclipseView(QMainWindow, Observable):
 
         # Bead windows
 
-        for contact, label in (("C2", self.beads_c2_label), ("C3", self.beads_c3_label)):
+        for contact, label, duration_label in (
+                ("C2", self.beads_c2_label, self.beads_c2_duration_label),
+                ("C3", self.beads_c3_label, self.beads_c3_duration_label)):
             start = reference_moments.get(f"BEADS_{contact}_START")
             end = reference_moments.get(f"BEADS_{contact}_END")
             if start is None or end is None:
                 # Name the reason: a blank cell reads like a solve that failed.
                 label.setText("correction off" if not limb_correction_is_enabled()
                               else "no limb profile")
+                duration_label.setText("")
                 continue
             seconds = (end.time_utc - start.time_utc).total_seconds()
-            label.setText("%s - %s  (%.2f s)" % (format_time(start.time_local, self.time_format),
-                                                 format_time(end.time_local, self.time_format),
-                                                 seconds))
+            label.setText("%s - %s" % (format_time(start.time_local, self.time_format),
+                                       format_time(end.time_local, self.time_format)))
+            duration_label.setText("%.2f s" % seconds)
             label.setToolTip("%s - %s UTC" % (format_time(start.time_utc, self.time_format),
                                               format_time(end.time_utc, self.time_format)))
 

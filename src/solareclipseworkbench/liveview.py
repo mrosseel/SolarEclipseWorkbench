@@ -884,8 +884,14 @@ class LiveViewWindow(QDockWidget):
         if worker is not None:
             worker.pause()
         if not self._usb_lock.acquire(timeout=_STREAM_SETUP_WAIT_S):
+            # Logged, not only shown: this path was silent, so a refusal here
+            # and a refusal from the body were indistinguishable afterwards.
+            # And it does not blame a schedule - the lock is held by whatever is
+            # using the camera, which with no script loaded is this window.
+            log.warning("Could not set the %s: the camera was still in use after "
+                        "%.0fs", what, _STREAM_SETUP_WAIT_S)
             self._status_bar.showMessage(
-                "The camera is busy with the schedule - try again in a moment", 6000)
+                f"Could not set the {what}: the camera did not come free", 6000)
             if worker is not None:
                 worker.resume()
             return False
@@ -900,7 +906,10 @@ class LiveViewWindow(QDockWidget):
                         raise
                     time.sleep(0.05)
         except XSDKError as exc:
-            log.warning("Could not set the %s: %s", what, exc)
+            # The code matters: 0x1006 while the body writes is a different
+            # problem from 0x1003 on a dead handle, and both used to read as
+            # "refused - check the dial".
+            log.warning("Could not set the %s: %s", what, exc, exc_info=True)
             self._status_bar.showMessage(
                 f"{what.capitalize()} refused ({exc}) - {dial_hint}", 6000)
             return False
