@@ -684,7 +684,7 @@ class SolarEclipseView(QMainWindow, Observable):
         place_time_group_box = QGroupBox()
         place_time_grid_layout = QGridLayout()
 
-        place_time_grid_layout.addWidget(QLabel("Local", alignment=Qt.AlignmentFlag.AlignRight), 0, 1)
+        # No "Local" header: it labelled one of two columns and there is one now.
         # No UTC column here either - it is on the local value as a tooltip.
 
         place_time_grid_layout.addWidget(self.date_label, 1, 0)
