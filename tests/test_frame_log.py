@@ -225,7 +225,9 @@ def _live_view_stub(sdk):
     win._exposure_label = SimpleNamespace(setText=lambda t: setattr(win, "shown", t))
     # The methods run unbound with this as self, so what they call on self has to
     # be attached here.
+    import threading
     win._worker = None                      # no stream running in these tests
+    win._usb_lock = threading.RLock()       # the real one is the camera's
     win._refresh_exposure = lambda: LiveViewWindow._refresh_exposure(win)
     win._write_exposure = lambda action, what, hint: LiveViewWindow._write_exposure(
         win, action, what, hint)

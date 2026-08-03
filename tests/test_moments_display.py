@@ -204,7 +204,10 @@ def test_live_view_opens_during_the_partials_with_a_script_loaded(view, monkeypa
 
     gui_mod.SolarEclipseController._open_fuji_live_view(controller, fuji)
 
-    assert opened["sdk"] is fuji._sdk_cam
+    # The adapter, not the bare SDK handle: the window serialises on the
+    # camera's lock, and without it a preview read and a scheduled shot end up
+    # in the SDK together and drop the session.
+    assert opened["sdk"] is fuji
 
 
 def test_live_view_stands_aside_for_a_frame_and_comes_back(view):

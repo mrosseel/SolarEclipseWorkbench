@@ -404,3 +404,52 @@ def test_free_slots_ignore_the_total_the_sdk_reports_beside_the_count():
 
     assert not camera.buffer_is_filling()
     assert camera.ensure_room_for(28) == 0
+
+
+# ------------------------------------------------- a session that has been lost
+
+def _comms():
+    from fujixsdk._constants import ERRCODE_COMMUNICATION
+    from fujixsdk._errors import CommunicationError
+    return CommunicationError(ERRCODE_COMMUNICATION, "Communication error")
+
+
+def test_a_lost_session_is_rebuilt_and_the_setting_retried(monkeypatch):
+    # 0x2001 means the handle is dead, and retrying it changes nothing.  On
+    # 3 August a session lost at second contact took the whole of totality with
+    # it: eleven ladders writing to a dead handle, every frame at whatever speed
+    # the body was last on, every one reported as a success.
+    monkeypatch.setattr(fuji_camera, "BUSY_BACKOFF_S", 0.0)
+
+    camera, sdk = _camera()
+    sdk.set_shutter_speed.side_effect = [_comms(), None]
+    monkeypatch.setattr(camera, "_reconnect", lambda: True, raising=False)
+
+    camera.configure(shutter_speed="1/2000")
+
+    assert sdk.set_shutter_speed.call_count == 2, "it should retry on the new session"
+
+
+def test_a_rebuild_that_fails_is_reported_not_swallowed(monkeypatch):
+    camera, sdk = _camera()
+    sdk.set_shutter_speed.side_effect = _comms()
+    monkeypatch.setattr(camera, "_reconnect", lambda: False, raising=False)
+
+    with pytest.raises(CameraError):
+        camera.configure(shutter_speed="1/2000")
+
+    assert any("could not be rebuilt" in str(p) for p in hardware_problems.peek()), \
+        hardware_problems.peek()
+
+
+def test_rebuilding_is_rate_limited(monkeypatch):
+    # The failure arrives once per setting per frame; rebuilding on each would
+    # spend totality reconnecting.
+    camera, _ = _camera()
+    attempts = []
+    monkeypatch.setattr(camera, "_reconnect",
+                        lambda: attempts.append(1) or True, raising=False)
+
+    assert camera.recover_session() is True
+    assert camera.recover_session() is False, "the second is inside the interval"
+    assert len(attempts) == 1

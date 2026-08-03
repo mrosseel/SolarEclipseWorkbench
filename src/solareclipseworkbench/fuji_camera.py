@@ -46,7 +46,7 @@ try:
         SHUTTER_SPEED_NAMES,
         SDK_FOCUS_MANUAL,
     )
-    from fujixsdk._errors import BusyError
+    from fujixsdk._errors import BusyError, CommunicationError
     # The buffer belongs to the body, so its size and the fraction of it
     # that may fill live with the SDK wrapper rather than being restated here.
     from fujixsdk.camera import BUFFER_SLOTS, DRAIN_AT
@@ -58,6 +58,9 @@ except ImportError as _exc:
 
     class BusyError(Exception):
         """Stand-in so the retry helpers below still import without the SDK."""
+
+    class CommunicationError(Exception):
+        """Stand-in for the lost-session error, likewise."""
 
     BUFFER_SLOTS = 32
     DRAIN_AT = 0.75
@@ -140,8 +143,12 @@ FRAME_WRITE_S = 1.5
 # asks for something impossible must not swallow the rest of totality.
 MAX_EXPOSURE_WAIT_S = 8.0
 
+# A lost session reports itself once per setting per frame, so rebuilding on
+# every one would spend totality reconnecting.  One attempt per this long.
+RECOVERY_INTERVAL_S = 10.0
 
-def _through_busy(action, what: str, deadline: float):
+
+def _through_busy(action, what: str, deadline: float, recover=None):
     """Run a camera call, waiting out the 0x1006 raised while the body writes.
 
     ``deadline`` is a :func:`time.monotonic` instant past which the call is
@@ -151,6 +158,16 @@ def _through_busy(action, what: str, deadline: float):
     """
     while True:
         try:
+            return action()
+        except CommunicationError:
+            # The session is gone, not busy - 0x2001.  Retrying it changes
+            # nothing: on 3 August a session lost at C2 left every ladder for the
+            # rest of totality writing to a dead handle, taking frames at
+            # whatever speed the body was last on and reporting success.  One
+            # rebuild, then try again; if that fails the caller reports it.
+            if recover is None or not recover():
+                raise
+            logging.warning('%s: the camera session was rebuilt; retrying', what)
             return action()
         except BusyError:
             remaining = deadline - time.monotonic()
@@ -162,11 +179,17 @@ def _through_busy(action, what: str, deadline: float):
             time.sleep(min(BUSY_BACKOFF_S, remaining))
 
 
-def _retry_busy(action, what: str, deadline: float) -> bool:
+def _retry_busy(action, what: str, deadline: float, recover=None) -> bool:
     """As :func:`_through_busy`, but reports the failure instead of raising."""
     try:
-        _through_busy(action, what, deadline)
+        _through_busy(action, what, deadline, recover)
         return True
+    except CommunicationError as exc:
+        # One line, not a traceback per rung: a lost session produces one of
+        # these for every setting of every frame that follows, and eight
+        # tracebacks a bracket buries the one message that matters.
+        logging.error('%s failed - the camera session is gone (%s)', what, exc)
+        return False
     except Exception:
         logging.exception('%s failed', what)
         return False
@@ -226,7 +249,8 @@ class _RelayShooter:
                 self.camera._applied_speed = speed
                 if not _retry_busy(lambda s=speed: self.camera._sdk_cam.set_shutter_speed(s),
                                    f'{self.camera.name}: set shutter speed {speed}',
-                                   time.monotonic() + BRACKET_STEP_BUDGET_S):
+                                   time.monotonic() + BRACKET_STEP_BUDGET_S,
+                                   self.camera.recover_session):
                     self.camera._applied_speed = None
                     # Fire anyway: a frame at the previous speed beats no frame at
                     # all, and there is no second chance at a contact.  But the
@@ -589,7 +613,8 @@ class FujiCamera(BaseCamera):
                 failures.append(f"{name}={raw!r} is not a value this camera understands")
                 return
             try:
-                _through_busy(lambda: setter(value), f'{self.name}: set {name}', deadline)
+                _through_busy(lambda: setter(value), f'{self.name}: set {name}',
+                              deadline, self.recover_session)
             except Exception as exc:
                 failures.append(f"{name}={raw!r} rejected by the camera ({exc})")
 
@@ -612,7 +637,7 @@ class FujiCamera(BaseCamera):
                 return
             try:
                 _through_busy(lambda: self._sdk_cam.set_iso(value),
-                              f'{self.name}: set ISO {raw}', deadline)
+                              f'{self.name}: set ISO {raw}', deadline, self.recover_session)
                 self._applied_iso = value
             except Exception as exc:
                 self._applied_iso = None
@@ -642,7 +667,8 @@ class FujiCamera(BaseCamera):
                 return
             try:
                 _through_busy(lambda: self._sdk_cam.set_shutter_speed(value),
-                              f'{self.name}: set shutter speed {raw}', deadline)
+                              f'{self.name}: set shutter speed {raw}', deadline,
+                              self.recover_session)
                 self._applied_speed = value
             except Exception as exc:
                 self._applied_speed = None
@@ -743,6 +769,39 @@ class FujiCamera(BaseCamera):
             logging.debug('%s: buffer unreadable', self.name, exc_info=True)
             return False
         return captured >= BUFFER_SLOTS * DRAIN_AT
+
+    def recover_session(self) -> bool:
+        """Rebuild the USB session after it has been lost, and say whether it worked.
+
+        0x2001 means the handle is dead: every call on it fails from then on.
+        Without this a session lost at second contact took the whole of totality
+        with it - eleven ladders writing to a dead handle, each frame taken at
+        whatever speed the body was last set to, each reporting success.
+
+        Rate limited, because the failure arrives once per setting per frame and
+        rebuilding on every one of them would spend totality reconnecting.  The
+        exposure the caller last asked for is put back by `_reconnect`, which
+        clears what it believed was applied.
+        """
+        now = time.monotonic()
+        if now - getattr(self, '_last_recovery', 0.0) < RECOVERY_INTERVAL_S:
+            return False
+        self._last_recovery = now
+
+        logging.warning('%s: the camera session was lost; rebuilding it', self.name)
+        if not self._reconnect():
+            hardware_problems.report(
+                self.name,
+                'The camera connection was lost and could not be rebuilt',
+                detail='frames from here on will be at whatever the body is set to',
+            )
+            return False
+        hardware_problems.report(
+            self.name, 'The camera connection was lost and rebuilt',
+            detail='check the frames around this moment for the wrong exposure',
+            severity='warning',
+        )
+        return True
 
     def _note_frame_fired(self) -> None:
         """Record when the body should be free again after the frame just fired.
