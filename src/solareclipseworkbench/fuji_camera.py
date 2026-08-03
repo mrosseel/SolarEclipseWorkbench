@@ -136,6 +136,19 @@ BUSY_BACKOFF_S = 0.3
 EXPOSURE_BUDGET_S = 1.5      # the whole of `configure`, every setting together
 BRACKET_STEP_BUDGET_S = 0.3  # one speed change between two taps of a bracket
 
+# A frame is not finished when `capture` returns: the relay contact lasts 80ms
+# and the shutter stays open for the exposure, after which the body writes.  Two
+# long singles in a row therefore collide - measured 3 August, a 4" frame asked
+# for straight after a 2" one was refused for the whole 1.5s budget and taken at
+# 2" instead, which looks entirely normal until the card is read.  The budget is
+# extended to cover the frame already in flight, and this is how long the body
+# needs after the shutter closes before it will accept the next setting.
+FRAME_WRITE_S = 1.5
+
+# However long the body claims to need, the wait is capped here: a script that
+# asks for something impossible must not swallow the rest of totality.
+MAX_EXPOSURE_WAIT_S = 8.0
+
 
 def _through_busy(action, what: str, deadline: float):
     """Run a camera call, waiting out the 0x1006 raised while the body writes.
@@ -242,6 +255,9 @@ class _RelayShooter:
                 relay = self._keep_buffer_clear(relay)
         finally:
             relay.release_all()
+        # The last rung is still being written, and whatever `configure` is
+        # asked for next has to wait for it like any other frame.
+        self.camera._note_frame_fired()
         self.camera.drain()
         return taken
 
@@ -520,6 +536,9 @@ class FujiCamera(BaseCamera):
         # The ISO this session last wrote successfully; see configure().
         self._applied_iso: Optional[int] = None
         self._applied_speed: Optional[int] = None
+        # When the frame currently in flight should be written and the body will
+        # take settings again.  See FRAME_WRITE_S.
+        self._frame_busy_until: float = 0.0
 
     def connect(self) -> None:
         self._connected = True
@@ -637,7 +656,10 @@ class FujiCamera(BaseCamera):
             # Started after the lock, so a queued caller inherits a full budget
             # rather than one already spent waiting its turn.
             started = time.monotonic()
-            deadline = started + EXPOSURE_BUDGET_S
+            # Long enough for the body to finish the frame already in flight,
+            # since it refuses every setting until it has.
+            deadline = min(max(started + EXPOSURE_BUDGET_S, self._frame_busy_until),
+                           started + MAX_EXPOSURE_WAIT_S)
 
             if kwargs.get('iso') is not None:
                 _apply_iso(kwargs['iso'], deadline)
@@ -652,13 +674,14 @@ class FujiCamera(BaseCamera):
                 _apply_speed(kwargs['shutter_speed'], deadline)
 
             elapsed = time.monotonic() - started
+            allowed = deadline - started
 
-        # The budget bounds the waiting, not the USB round-trips themselves, so
-        # say so when a configure runs long: at eclipse cadence it is the
-        # difference between a frame on time and a frame missed.
-        if elapsed > EXPOSURE_BUDGET_S:
-            logging.warning('%s: applying settings took %.1fs (budget %.1fs)',
-                            self.name, elapsed, EXPOSURE_BUDGET_S)
+        # Measured against the deadline actually in force, not the base budget:
+        # after a long exposure the deadline is deliberately longer, and warning
+        # about a wait that was planned for would be noise.
+        if elapsed > allowed:
+            logging.warning('%s: applying settings took %.1fs (allowed %.1fs)',
+                            self.name, elapsed, allowed)
 
         if failures:
             raise CameraError(
@@ -725,6 +748,16 @@ class FujiCamera(BaseCamera):
             return False
         return captured >= BUFFER_SLOTS * DRAIN_AT
 
+    def _note_frame_fired(self) -> None:
+        """Record when the body should be free again after the frame just fired.
+
+        The exposure is whatever was last applied; when that is unknown — no
+        `configure` since the session was rebuilt — only the write time is
+        assumed, which is the same as the behaviour before any of this.
+        """
+        exposure_s = (self._applied_speed or 0) / 1_000_000.0
+        self._frame_busy_until = time.monotonic() + exposure_s + FRAME_WRITE_S
+
     def ensure_room_for(self, frames: int) -> int:
         """Clear the queue unless it can already hold ``frames`` more.
 
@@ -774,6 +807,7 @@ class FujiCamera(BaseCamera):
         with self._lock:
             if self.relay is not None:
                 self.relay.shoot(pulse=TAP_S)
+                self._note_frame_fired()
                 # `shoot` leaves both contacts open, so the queue can be cleared
                 # here — but only when it has actually filled.
                 self.drain_if_filling()

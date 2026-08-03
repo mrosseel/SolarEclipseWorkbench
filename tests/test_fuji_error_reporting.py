@@ -32,6 +32,7 @@ def _camera(**sdk):
     camera.name = "X-T4"
     camera._applied_iso = None
     camera._applied_speed = None
+    camera._frame_busy_until = 0.0
     import threading
     camera._lock = threading.RLock()
     return camera, sdk_cam

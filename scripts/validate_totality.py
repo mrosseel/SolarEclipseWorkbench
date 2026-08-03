@@ -56,10 +56,12 @@ COSTS = {
 DEFAULT_COST = 1.0
 
 # On top of the exposure itself: the speed change over USB, the tap, and the
-# body settling before the next command can have it.  Not yet measured against a
-# long exposure - the body dropped off the bus before that run - so this is the
-# per-frame overhead seen at 1/500 (0.60s) rounded up, and should be checked.
-SINGLE_OVERHEAD_S = 1.0
+# body settling before the next command can have it.  Measured 3 August with
+# 1", 2" and 4" singles back to back - 0.52s, 2.75s, 3.78s, each dominated by
+# waiting out the frame before it rather than by its own exposure.  The cost of
+# a single is therefore the previous exposure plus this, and taking it as this
+# frame's exposure plus the same is the conservative reading.
+SINGLE_OVERHEAD_S = 1.8
 
 # A bracket's cost is dominated by how long its shutter is open, so it cannot be
 # read off the width alone: 19 rungs cost 19s at 1/1000 and 34s at 1/2.  Each rung

@@ -35,6 +35,7 @@ def _camera(**sdk):
     cam.name = "X-T4"
     cam._applied_iso = None
     cam._applied_speed = None
+    cam._frame_busy_until = 0.0
     import threading
     cam._lock = threading.RLock()
     return cam, sdk_cam
@@ -271,3 +272,42 @@ def test_a_bracket_leaves_configure_knowing_what_it_wrote(monkeypatch):
         register_hardware('relay', None)
 
     assert cam._applied_speed == 300
+
+
+def test_a_long_exposure_extends_the_wait_for_the_next_setting(_quick_backoff):
+    # A 4" frame asked for straight after a 2" one was refused for the whole
+    # budget and taken at 2" instead, measured 3 August.  The body will not take
+    # a setting until the frame in flight is written, so the budget has to know
+    # how long that frame is.
+    cam, sdk = _camera()
+    cam._applied_speed = fuji_camera._parse_shutter_speed('2')   # 2 seconds
+    fired = time.monotonic()
+    cam._note_frame_fired()
+
+    assert cam._frame_busy_until >= fired + 2.0 + fuji_camera.FRAME_WRITE_S - 0.1
+
+
+def test_the_wait_for_a_frame_is_capped(_quick_backoff, monkeypatch):
+    # However long the body claims to need, one setting must not swallow the
+    # rest of totality.
+    monkeypatch.setattr(fuji_camera, 'MAX_EXPOSURE_WAIT_S', 0.05)
+    cam, sdk = _camera()
+    cam._frame_busy_until = time.monotonic() + 3600
+    sdk.set_shutter_speed.side_effect = _busy
+
+    started = time.monotonic()
+    with pytest.raises(camera_mod.CameraError):
+        cam.configure(shutter_speed='1/200')
+
+    assert time.monotonic() - started < 1.0
+
+
+def test_a_short_exposure_does_not_extend_anything(_quick_backoff):
+    # The extension is for the frame in flight, not a licence to wait longer in
+    # general: a 1/1000 frame is done before the next command is issued.
+    cam, _ = _camera()
+    cam._applied_speed = fuji_camera._parse_shutter_speed('1/1000')
+    fired = time.monotonic()
+    cam._note_frame_fired()
+
+    assert cam._frame_busy_until < fired + fuji_camera.FRAME_WRITE_S + 0.1
