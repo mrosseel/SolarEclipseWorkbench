@@ -75,6 +75,16 @@ SETTINGS_PATH = Path.home() / ".SolarEclipseWorkbench.ini"
 #: live view being refused from the moment a script is loaded.
 LIVE_VIEW_CLEARANCE_S = 12.0
 
+#: Starting width of the left dock column.  The eclipse geometry is a pair of
+#: discs and reads best near square; wider than this only adds empty margin, and
+#: the schedule beside it is the thing that benefits from width.  The canvas asks
+#: for 600x620 if left alone, which is where the long empty slice came from.
+DOCK_COLUMN_WIDTH = 340
+
+#: Starting height of the camera strip along the bottom.  Enough for a header and
+#: a few bodies; the schedule above it wants the rest.
+CAMERA_DOCK_HEIGHT = 150
+
 ICON_PATH = Path(__file__).parent.resolve() / "img"
 
 TIME_FORMATS = {
@@ -632,12 +642,24 @@ class SolarEclipseView(QMainWindow, Observable):
         self.eclipse_visualization.setMinimumHeight(160)
         self.beads_panel.setMinimumHeight(120)
 
+        # The geometry is two discs - it wants to be about as wide as it is tall.
+        # Left to itself the dock column takes a third of the window and draws a
+        # small pair of circles in the middle of a tall empty slice, so the
+        # column is given a width that suits the drawing and the schedule keeps
+        # the rest.  A drag still overrides this; it is only where it starts.
+        self.resizeDocks([self.geometry_dock], [DOCK_COLUMN_WIDTH],
+                         Qt.Orientation.Horizontal)
+        self.resizeDocks([self.geometry_dock, self.beads_dock],
+                         [1, 1], Qt.Orientation.Vertical)
+
         # The mount is watchable for the whole run, and closing it must not
         # disturb the rest of the window.  All three docks are built before the
         # toolbar, which borrows their show/hide actions.
         self.mount_dock = MountDock(self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.mount_dock)
-        self.mount_dock.show()
+        # Closed by default: a mount is the exception, not the rule, and an empty
+        # panel taking a quarter of the window is worse than a toolbar button.
+        self.mount_dock.hide()
 
         self.add_toolbar()
 
@@ -742,15 +764,41 @@ class SolarEclipseView(QMainWindow, Observable):
         # A minimum rather than a fixed width, so the box cannot be squeezed until
         # the reference-moment columns collide but can still give space back when
         # the window is narrow.
-        reference_moments_group_box.setMinimumWidth(600)
+        # Its own minimumSizeHint, measured: 544.  Below that the contact labels
+        # clip to "First conta..." and the column headers to "ountdown", which is
+        # what 430 did.  Above it - 600 was the old value - it takes width the
+        # camera list needs and that panel disappears instead.
+        reference_moments_group_box.setMinimumWidth(544)
 
         # noinspection SpellCheckingInspection
         input_hbox = QHBoxLayout()
-        input_hbox.addLayout(vbox_left)
-        input_hbox.addWidget(reference_moments_group_box)
+        input_hbox.addLayout(vbox_left, 0)
+        input_hbox.addWidget(reference_moments_group_box, 3)
 
-        self.camera_overview.setMinimumHeight(180)
-        input_hbox.addWidget(self.camera_overview)
+        # The camera overview is a table and does not belong wedged into a row of
+        # input boxes: on a 1440-wide screen that row plus the dock column forced
+        # a 1714px minimum, so the window could not fit the display at all and
+        # every panel in it was crushed.  As a dock it gets real width, and it
+        # opens by default because "is the body actually there" is the question
+        # asked most often.
+        # Two or three rows plus a header; 180 was sized for a panel that had to
+        # fill a column, and along the bottom it only takes height from the
+        # schedule.
+        self.camera_overview.setMinimumHeight(110)
+        self.camera_dock = QDockWidget("Cameras", self)
+        self.camera_dock.setObjectName("camera_dock")
+        self.camera_dock.setWidget(self.camera_overview)
+        # Along the bottom, not down the side: it is a table of a few rows, so it
+        # reads better wide than tall, and the window is already at its minimum
+        # width - a fourth column would leave it the sliver it had before.
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.camera_dock)
+        self.camera_dock.show()
+        # Built after add_toolbar, so its toggle is added here rather than with
+        # the others.  Placed before the mount's, matching the order they matter.
+        self.camera_dock_action = self.camera_dock.toggleViewAction()
+        self.camera_dock_action.setText("Cameras")
+        self.camera_dock_action.setStatusTip("Show the connected cameras")
+        self.toolbar.insertAction(self.mount_dock_action, self.camera_dock_action)
 
         # Below about this width the two discs stop being readable.
         self.eclipse_visualization.setMinimumWidth(240)
@@ -791,16 +839,23 @@ class SolarEclipseView(QMainWindow, Observable):
         settings.remove("layout/output_splitter")
         settings.sync()
 
-        for dock in (self.geometry_dock, self.beads_dock, self.mount_dock):
+        for dock in (self.geometry_dock, self.beads_dock, self.camera_dock,
+                     self.mount_dock):
             dock.setFloating(False)
             dock.show()
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.geometry_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.beads_dock)
         self.splitDockWidget(self.geometry_dock, self.beads_dock,
                              Qt.Orientation.Vertical)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.camera_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.mount_dock)
+        self.resizeDocks([self.geometry_dock], [DOCK_COLUMN_WIDTH],
+                         Qt.Orientation.Horizontal)
         self.resizeDocks([self.geometry_dock, self.beads_dock],
-                         [3, 2], Qt.Orientation.Vertical)
+                         [1, 1], Qt.Orientation.Vertical)
+        self.resizeDocks([self.camera_dock], [CAMERA_DOCK_HEIGHT],
+                         Qt.Orientation.Vertical)
+        self.mount_dock.hide()
         logging.info("Window layout reset to the default arrangement")
 
     def save_splitter_state(self):

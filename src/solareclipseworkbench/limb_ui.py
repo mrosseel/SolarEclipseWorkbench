@@ -339,6 +339,15 @@ class BeadsPanel(QWidget):
         self.contact_box.currentTextChanged.connect(self._on_contact)
         controls.addWidget(self.contact_box)
 
+        # These four in a row set the panel's minimum width, and through it the
+        # whole window's: at their natural sizes they demanded 393px, which put
+        # the window's minimum at 1453 against a 1440-wide screen.  They elide
+        # instead - every option is two or three characters wide and the current
+        # one still reads.
+        for box in (self.mode_box, self.exaggeration_box,
+                    self.follow_box, self.contact_box):
+            box.setMaximumWidth(86)
+
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(-SLIDER_STEPS, SLIDER_STEPS)
         self.slider.valueChanged.connect(self._on_slider)

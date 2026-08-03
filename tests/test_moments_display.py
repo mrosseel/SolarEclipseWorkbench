@@ -16,6 +16,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from astropy.time import Time
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 from solareclipseworkbench import gui, limb_correction
@@ -85,13 +86,27 @@ def test_the_bead_rows_say_why_they_are_empty(view):
     assert view.beads_c3_label.text() == "correction off"
 
 
-def test_the_three_docks_exist_and_are_visible(view):
+def test_geometry_and_beads_are_open_and_stacked(view):
     view.show()
     QApplication.processEvents()
 
-    for dock in (view.geometry_dock, view.beads_dock, view.mount_dock):
+    for dock in (view.geometry_dock, view.beads_dock):
         assert dock.objectName()
         assert dock.isVisible(), dock.objectName()
+    # Stacked, not tabbed: both are pictures of the same moment and both are
+    # worth watching at once.
+    assert not view.tabifiedDockWidgets(view.geometry_dock)
+
+
+def test_the_mount_starts_closed(view):
+    # A mount is the exception, not the rule.  An empty panel taking a quarter of
+    # the window is worse than a toolbar button that opens it on request.
+    view.show()
+    QApplication.processEvents()
+
+    assert view.mount_dock.objectName()
+    assert not view.mount_dock.isVisible()
+    assert view.mount_dock_action.text() == "Mount"
 
 
 def test_the_relay_button_sits_next_to_the_cameras(view):
@@ -229,3 +244,30 @@ def test_live_view_still_says_so_when_nothing_is_connected(view, monkeypatch):
     gui_mod.SolarEclipseController._open_live_view(_controller(view, {}))
 
     assert "no camera" in shown["title"].lower()
+
+
+def test_the_window_fits_a_1440_wide_screen(view):
+    # It demanded 1714 while the laptop is 1440 logical, so the window could not
+    # fit the display and every panel in it was crushed - which is what "the
+    # screen is a mess" was.  Reported 3 August.
+    assert view.minimumSizeHint().width() <= 1440
+
+
+def test_the_cameras_panel_is_open_and_readable(view):
+    # It was wedged into the input row, squeezed to nothing by a moments box with
+    # a 600px floor.  Along the bottom it has the full width instead.
+    view.show()
+    QApplication.processEvents()
+
+    assert view.camera_dock.isVisible()
+    assert view.dockWidgetArea(view.camera_dock) == Qt.DockWidgetArea.BottomDockWidgetArea
+
+
+def test_the_contact_labels_are_not_clipped(view):
+    # Dropping the moments box to 430 to make room clipped them to "First
+    # conta..." and the headers to "ountdown".  Its own minimum is 544.
+    from PyQt6.QtWidgets import QGroupBox
+    boxes = [gb for gb in view.findChildren(QGroupBox) if gb.minimumWidth() > 400]
+    assert boxes, "the reference-moments box should declare a minimum width"
+    for gb in boxes:
+        assert gb.minimumWidth() >= gb.minimumSizeHint().width()
