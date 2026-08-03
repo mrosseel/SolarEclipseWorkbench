@@ -68,12 +68,6 @@ from solareclipseworkbench import configuration
 #: pane, which is not a property of the code.
 SETTINGS_PATH = Path.home() / ".SolarEclipseWorkbench.ini"
 
-#: Clear seconds live view needs before a scheduled frame.  The stream holds the
-#: camera and takes PC priority, so it stands aside this long before each frame
-#: and resumes after - which is what lets focus be worked on through the whole
-#: partial phase, right up to the last frame before second contact, rather than
-#: live view being refused from the moment a script is loaded.
-LIVE_VIEW_CLEARANCE_S = 12.0
 
 #: Starting width of the left dock column.  The eclipse geometry is a pair of
 #: discs and reads best near square; wider than this only adds empty margin, and
@@ -1927,14 +1921,25 @@ class SolarEclipseController(Observer):
         the next frame, not whether a schedule exists, and the stream closes
         itself before that frame rather than waiting to be told.
         """
-        gap = self._seconds_to_next_frame()
-        if gap is not None and gap < LIVE_VIEW_CLEARANCE_S:
+        # Not while a schedule exists.  Live view opened during a run has now
+        # taken the camera off the USB bus twice - 4 August, both rehearsals -
+        # and the second time was after it was made to serialise on the camera
+        # lock, so the API calls were not the whole of it.  Something about live
+        # view and relay shooting on this body does not coexist, and until that
+        # is understood on a bench rather than during a run, the two do not
+        # happen together.
+        #
+        # This was the original rule.  It was loosened to allow focusing through
+        # the partials, which is a real need - but a focus check is not worth
+        # the eclipse, and the loosened version is what broke both runs.
+        scheduler = getattr(self, 'scheduler', None)
+        if scheduler is not None and scheduler.get_jobs():
             QMessageBox.warning(
                 self.view,
-                "Too close to the next frame",
-                f"The next scheduled frame is {gap:.0f} s away, and live view "
-                f"holds the camera.\n\nIt needs {LIVE_VIEW_CLEARANCE_S:.0f} s of "
-                f"clear time — wait for the gap after this one."
+                "Not while a script is loaded",
+                "Live view has taken the camera off the USB bus mid-run, and why "
+                "is not yet understood.\n\nFocus before loading the script. If "
+                "you need it now, stop the schedule first."
             )
             return
 
@@ -1952,13 +1957,6 @@ class SolarEclipseController(Observer):
         window.show()
         self._live_view_window = window
 
-        # Stand aside for each scheduled frame and come back after it, so focus
-        # can be worked on continuously through the partials instead of the
-        # window being refused for the whole run.
-        self._live_view_yield_timer = QTimer(self.view)
-        self._live_view_yield_timer.setInterval(1000)
-        self._live_view_yield_timer.timeout.connect(self._yield_live_view_for_frames)
-        self._live_view_yield_timer.start()
         logging.info('Live view opened for %s', getattr(camera, 'name', 'the Fuji body'))
 
     def _seconds_to_next_frame(self):
@@ -1975,42 +1973,6 @@ class SolarEclipseController(Observer):
             if gap >= 0 and (soonest is None or gap < soonest):
                 soonest = gap
         return soonest
-
-    def _yield_live_view_for_frames(self):
-        """Stop the stream while a frame is due, and start it again afterwards.
-
-        The camera cannot stream and shoot at once, so the choice is between
-        refusing live view whenever a script is loaded and letting it take
-        turns.  Taking turns is what makes focusing possible right up to the
-        last partial before second contact.
-        """
-        window = self._live_view_window
-        if window is None or not window.isVisible():
-            self._stop_live_view_yielding()
-            return
-
-        # The controller's own totality pause holds from C2-15s to C3+15s and is
-        # the stronger of the two: while it is on, this must not keep restarting
-        # the stream underneath it.
-        if getattr(window, '_totality_paused', False):
-            return
-
-        gap = self._seconds_to_next_frame()
-        running = window.is_streaming()
-        if gap is not None and gap < LIVE_VIEW_CLEARANCE_S:
-            if running:
-                logging.info('Live view standing aside, next frame in %.0fs', gap)
-                window.stop_stream()
-                self._live_view_yielded = True
-        elif getattr(self, '_live_view_yielded', False) and not running:
-            self._live_view_yielded = False
-            window.start_stream()
-
-    def _stop_live_view_yielding(self):
-        timer = getattr(self, '_live_view_yield_timer', None)
-        if timer is not None:
-            timer.stop()
-            self._live_view_yield_timer = None
 
     def _open_live_view(self):
         """Open (or bring to front) the live view window.

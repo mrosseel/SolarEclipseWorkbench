@@ -453,3 +453,48 @@ def test_rebuilding_is_rate_limited(monkeypatch):
     assert camera.recover_session() is True
     assert camera.recover_session() is False, "the second is inside the interval"
     assert len(attempts) == 1
+
+
+def test_a_failed_reconnect_drops_the_dead_handle(monkeypatch):
+    # _reconnect closes the old handle first.  When the reopen fails, what is
+    # left points at freed SDK memory: calls answer 0x1003 and then segfault the
+    # process - which on 4 August killed a rehearsal six seconds into totality.
+    camera, _ = _camera()
+    monkeypatch.setattr(fuji_camera, "SDKCamera",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no camera")),
+                        raising=False)
+    camera._sdk_path, camera._device_name = "/nonexistent", "ENUM:0"
+
+    assert camera._reconnect() is False
+    assert camera._sdk_cam is None, "the closed handle must not be kept"
+
+
+def test_a_gone_session_says_so_instead_of_crashing():
+    # Every path reaches the SDK through the guard, so a lost session produces a
+    # message naming the fix rather than a walk into freed memory.
+    camera, _ = _camera()
+    camera._sdk_cam = None
+
+    with pytest.raises(CameraError, match="power-cycle"):
+        camera.configure(shutter_speed="1/2000")
+
+
+def test_a_gone_session_does_not_stop_the_relay_firing(monkeypatch):
+    # A frame at the wrong exposure still records the corona; no frame records
+    # nothing.  The bracket keeps tapping and reports what it could not set.
+    monkeypatch.setattr(fuji_camera, "TAP_GAP_S", 0.0)
+    monkeypatch.setattr(fuji_camera, "SETTLE_BEFORE_DRAIN_S", 0.0)
+    monkeypatch.setattr(fuji_camera, "SETTLE_BETWEEN_DRAINS_S", 0.0)
+
+    camera, _ = _camera()
+    camera._sdk_cam = None
+    relay = MagicMock()
+    register_hardware("relay", relay)
+    try:
+        taken = fuji_camera._RelayShooter(camera).bracket_no_download([100, 200, 300])
+    finally:
+        register_hardware("relay", None)
+
+    assert taken == 3
+    assert relay.shoot.call_count == 3
+    assert hardware_problems.count() >= 1

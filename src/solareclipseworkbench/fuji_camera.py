@@ -247,7 +247,7 @@ class _RelayShooter:
                 # here — otherwise the next single at the bracket's last rung
                 # would be skipped as already applied and shot at the wrong speed.
                 self.camera._applied_speed = speed
-                if not _retry_busy(lambda s=speed: self.camera._sdk_cam.set_shutter_speed(s),
+                if not _retry_busy(lambda s=speed: self.camera._sdk.set_shutter_speed(s),
                                    f'{self.camera.name}: set shutter speed {speed}',
                                    time.monotonic() + BRACKET_STEP_BUDGET_S,
                                    self.camera.recover_session):
@@ -636,7 +636,7 @@ class FujiCamera(BaseCamera):
                 logging.debug('%s: ISO already %s, not writing it again', self.name, raw)
                 return
             try:
-                _through_busy(lambda: self._sdk_cam.set_iso(value),
+                _through_busy(lambda: self._sdk.set_iso(value),
                               f'{self.name}: set ISO {raw}', deadline, self.recover_session)
                 self._applied_iso = value
             except Exception as exc:
@@ -666,7 +666,7 @@ class FujiCamera(BaseCamera):
                               self.name, raw)
                 return
             try:
-                _through_busy(lambda: self._sdk_cam.set_shutter_speed(value),
+                _through_busy(lambda: self._sdk.set_shutter_speed(value),
                               f'{self.name}: set shutter speed {raw}', deadline,
                               self.recover_session)
                 self._applied_speed = value
@@ -689,7 +689,7 @@ class FujiCamera(BaseCamera):
             # A telescope has no electronic aperture, so a script says "-" and
             # the setting is skipped rather than failing every single frame.
             if kwargs.get('aperture') not in (None, '', '-'):
-                _apply('aperture', _parse_aperture, self._sdk_cam.set_aperture,
+                _apply('aperture', _parse_aperture, self._sdk.set_aperture,
                        kwargs['aperture'], deadline)
 
             if kwargs.get('shutter_speed') is not None:
@@ -741,7 +741,7 @@ class FujiCamera(BaseCamera):
         for _ in range(max(1, DRAIN_ROUNDS if rounds is None else rounds)):
             time.sleep(settle)
             try:
-                this_round = self._sdk_cam.drain_buffer()
+                this_round = self._sdk.drain_buffer()
             except Exception:
                 logging.exception('%s: drain failed; shooting is unaffected', self.name)
                 break
@@ -764,7 +764,7 @@ class FujiCamera(BaseCamera):
         as at 25.
         """
         try:
-            captured, _ = self._sdk_cam.get_buffer_capacity()
+            captured, _ = self._sdk.get_buffer_capacity()
         except Exception:
             logging.debug('%s: buffer unreadable', self.name, exc_info=True)
             return False
@@ -830,7 +830,7 @@ class FujiCamera(BaseCamera):
         three free slots however empty the buffer really was.
         """
         try:
-            captured, _ = self._sdk_cam.get_buffer_capacity()
+            captured, _ = self._sdk.get_buffer_capacity()
         except Exception:
             logging.warning('%s: buffer unreadable before a burst; draining to be '
                             'sure there is room', self.name, exc_info=True)
@@ -868,7 +868,7 @@ class FujiCamera(BaseCamera):
                 self.drain_if_filling()
                 return
             try:
-                self._sdk_cam.shoot_no_af()
+                self._sdk.shoot_no_af()
             except Exception as first_err:
                 logging.warning('Fuji capture failed (%s), attempting reconnect...', first_err)
                 if not self._reconnect():
@@ -889,10 +889,23 @@ class FujiCamera(BaseCamera):
                             detail=str(exc),
                         )
                 try:
-                    self._sdk_cam.shoot_no_af()
+                    self._sdk.shoot_no_af()
                 except Exception:
                     logging.exception('Fuji capture failed again after reconnect')
                     raise
+
+    @property
+    def _sdk(self):
+        """The SDK handle, or a clear failure if the session is gone.
+
+        Never reach for `_sdk_cam` directly: after a failed reconnect it is None
+        precisely so that a call cannot walk into a closed handle.
+        """
+        if self._sdk_cam is None:
+            raise CameraError(
+                f"{self.name}: the camera connection is gone - power-cycle the "
+                f"body and detect it again")
+        return self._sdk_cam
 
     def _reconnect(self) -> bool:
         """Attempt to close and reopen the SDK camera connection."""
@@ -909,6 +922,13 @@ class FujiCamera(BaseCamera):
             logging.info('Fuji camera reconnected successfully')
             return True
         except Exception as e:
+            # The old handle was closed above, so what is left points at freed
+            # SDK memory.  Calling into it answers 0x1003 and then, a few calls
+            # later, segfaults the process - which on 4 August took a rehearsal
+            # down six seconds into totality.  Dropping it means every later call
+            # raises a CameraError that says what is wrong, and the run keeps
+            # going on the relay instead of dying.
+            self._sdk_cam = None
             logging.error('Fuji reconnect failed: %s', e)
             return False
 
@@ -940,7 +960,7 @@ class FujiCamera(BaseCamera):
 
     def get_storageinfo(self) -> list:
         try:
-            free_kb = self._sdk_cam.get_media_capacity()
+            free_kb = self._sdk.get_media_capacity()
             # SDK only returns free capacity; estimate total as 2x free
             # (we don't have a total capacity API)
             return [_FujiStorageEntry(float(free_kb), float(free_kb) * 2)]
@@ -994,7 +1014,7 @@ class FujiCamera(BaseCamera):
         # The base of the ladder is whatever is on the body: the caller has just
         # dialled in the exposure this bracket is meant to straddle.
         try:
-            current_speed, _ = self._sdk_cam.get_shutter_speed()
+            current_speed, _ = self._sdk.get_shutter_speed()
         except Exception as exc:
             raise CameraError(
                 f"{self.name}: cannot build a bracket — the camera would not report its "
@@ -1020,7 +1040,7 @@ class FujiCamera(BaseCamera):
         # A body that reports its own scale knows best: its list is already the
         # 1/3 EV grid this bracket wants, so step along it.
         try:
-            supported = self._sdk_cam.get_supported_shutter_speeds()
+            supported = self._sdk.get_supported_shutter_speeds()
         except Exception:
             supported = []
 

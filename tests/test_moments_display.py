@@ -157,9 +157,11 @@ def _scheduler_with_next_frame_in(seconds):
     return SimpleNamespace(get_jobs=lambda: [SimpleNamespace(next_run_time=when)])
 
 
-def test_live_view_waits_when_a_frame_is_seconds_away(view, monkeypatch):
-    # It holds the camera and takes PC priority, so it must not be streaming
-    # when a frame is due.
+def test_live_view_is_refused_while_a_script_is_loaded(view, monkeypatch):
+    # Live view took the camera off the USB bus mid-run twice on 4 August, the
+    # second time after it was made to serialise on the camera lock - so the API
+    # calls were not the whole of it.  Until that is understood on a bench, the
+    # two do not happen together.
     from types import SimpleNamespace
     from solareclipseworkbench import gui as gui_mod
 
@@ -171,13 +173,12 @@ def test_live_view_waits_when_a_frame_is_seconds_away(view, monkeypatch):
 
     gui_mod.SolarEclipseController._open_fuji_live_view(controller, fuji)
 
-    assert "next frame" in shown["title"].lower()
+    assert "script is loaded" in shown["title"].lower()
 
 
-def test_live_view_opens_during_the_partials_with_a_script_loaded(view, monkeypatch):
-    # Partial frames are minutes apart and the script is loaded from twenty
-    # minutes before first contact.  Refusing for the whole run would mean no
-    # focus check at all on the day - and focus drifts as the tube cools.
+def test_live_view_opens_when_no_script_is_loaded(view, monkeypatch):
+    # Focusing happens before the script goes on; with no schedule there is
+    # nothing for live view to collide with.
     from types import SimpleNamespace
     from solareclipseworkbench import gui as gui_mod
 
@@ -199,7 +200,7 @@ def test_live_view_opens_during_the_partials_with_a_script_loaded(view, monkeypa
     monkeypatch.setattr(lv, "LiveViewWindow", _Win)
 
     fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
-    controller = _controller(view, {"X-T4": fuji}, scheduler=_scheduler_with_next_frame_in(180))
+    controller = _controller(view, {"X-T4": fuji}, scheduler=None)
     controller.view = view
 
     gui_mod.SolarEclipseController._open_fuji_live_view(controller, fuji)
@@ -208,36 +209,6 @@ def test_live_view_opens_during_the_partials_with_a_script_loaded(view, monkeypa
     # camera's lock, and without it a preview read and a scheduled shot end up
     # in the SDK together and drop the session.
     assert opened["sdk"] is fuji
-
-
-def test_live_view_stands_aside_for_a_frame_and_comes_back(view):
-    # Taking turns is what makes focusing possible right up to the last partial
-    # before second contact, instead of the window being refused outright.
-    from types import SimpleNamespace
-    from solareclipseworkbench import gui as gui_mod
-
-    events = []
-    class _Win:
-        """Answers the live view contract - is_streaming/start/stop - which is
-        what the controller drives, rather than either window's private state."""
-        streaming = True
-        def isVisible(self): return True
-        def is_streaming(self): return self.streaming
-        def stop_stream(self): events.append("stop"); self.streaming = False
-        def start_stream(self): events.append("start"); self.streaming = True
-    window = _Win()
-
-    controller = _controller(view, {})
-    controller._live_view_window = window
-    controller._live_view_yield_timer = None
-    controller._stop_live_view_yielding = lambda: None
-    controller._seconds_to_next_frame = lambda: 4          # a frame is imminent
-    gui_mod.SolarEclipseController._yield_live_view_for_frames(controller)
-
-    controller._seconds_to_next_frame = lambda: 175        # the gap after it
-    gui_mod.SolarEclipseController._yield_live_view_for_frames(controller)
-
-    assert events == ["stop", "start"]
 
 
 def test_live_view_still_says_so_when_nothing_is_connected(view, monkeypatch):
