@@ -46,6 +46,17 @@ def main(args):
                     'No relay could be opened; relay and fuji commands in the '
                     'script will be skipped.', exc_info=True)
 
+            # The GUI registers the relay from its toolbar; headless has no
+            # toolbar, so open it here — the eclipse script's relay and fuji
+            # commands are silently skipped without it.  Wiring matches the
+            # bench rig: CH1 holds S1 (ring), CH2 fires S2 (tip).
+            try:
+                register_hardware('relay', open_trigger('auto', s1_channel=1, s2_channel=2))
+            except Exception:
+                logging.warning(
+                    'No relay could be opened; relay and fuji commands in the '
+                    'script will be skipped.', exc_info=True)
+
             # Only do a simulation if args.c1 is set
             if args.ref_moment:
                 scheduler, unknown = observe_solar_eclipse(timings, filename, cameras, None, args.ref_moment,

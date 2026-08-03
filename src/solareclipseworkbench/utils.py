@@ -337,6 +337,15 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
             'schedule_command: could not schedule "%s" (%s) — line skipped, '
             'the rest of the script is unaffected', func_name, description)
         return
+    except Exception:
+        # One bad line must never take the application down: PyQt6 turns an
+        # unhandled exception in the load handler into a hard abort, which on
+        # eclipse morning would kill every OTHER scheduled moment too.  Log it,
+        # skip the line, keep the rest of the eclipse.
+        logging.exception(
+            'schedule_command: could not schedule "%s" (%s) — line skipped, '
+            'the rest of the script is unaffected', func_name, description)
+        return
 
 # Main
 def main():
