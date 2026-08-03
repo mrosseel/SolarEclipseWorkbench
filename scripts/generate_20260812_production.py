@@ -531,6 +531,8 @@ emit("#")
 emit("#   RIG")
 emit("#   [ ] solar filter ON and secure - it comes off only between C2 and C3")
 emit("#   [ ] focus set on the limb at high magnification, then taped or locked")
+emit("#   [ ] PREVIEW EXP./WB IN MANUAL MODE = ON, or live view shows a")
+emit("#       normalised image and its histogram says nothing about exposure")
 emit("#   [ ] framing allows for drift across the whole of totality")
 emit("#   [ ] clear, low western horizon - the sun sets %.0f s after C4"
      % (sunset - c4).total_seconds())

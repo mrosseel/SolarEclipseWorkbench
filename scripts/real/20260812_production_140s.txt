@@ -90,6 +90,8 @@
 #   RIG
 #   [ ] solar filter ON and secure - it comes off only between C2 and C3
 #   [ ] focus set on the limb at high magnification, then taped or locked
+#   [ ] PREVIEW EXP./WB IN MANUAL MODE = ON, or live view shows a
+#       normalised image and its histogram says nothing about exposure
 #   [ ] framing allows for drift across the whole of totality
 #   [ ] clear, low western horizon - the sun sets 19 s after C4
 #

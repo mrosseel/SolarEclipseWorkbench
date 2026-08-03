@@ -99,6 +99,82 @@ def _peaking_mask_from_lap(lap: np.ndarray, w: int, h: int) -> QImage:
 # Focus score sparkline graph
 # ------------------------------------------------------------------
 
+class _Histogram(QWidget):
+    """Luminance histogram of the preview, with a clipped-pixel readout.
+
+    Read the caveat before trusting it for exposure: this is the 8-bit JPEG the
+    body sends for live view, already through a film simulation and a tone
+    curve, not the RAW.  Highlights that read as clipped here often still have a
+    stop or more of headroom in the file, and the preview only tracks the
+    exposure at all when the body has "preview exposure in manual mode" on.
+
+    What it is good for is the partial phases: through the solar filter the disc
+    is the only bright thing in the frame, so the top end of the histogram is
+    the disc and nothing else, and watching it not touch the wall is a real
+    check that the filtered exposure is in range.
+    """
+
+    _HEIGHT = 74
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setFixedHeight(self._HEIGHT)
+        self._bins: np.ndarray | None = None
+        self._clipped = 0.0
+        self._black = 0.0
+
+    def set_image(self, img: QImage):
+        w, h = img.width(), img.height()
+        if w < 8 or h < 8:
+            return
+        gray = img.convertToFormat(QImage.Format.Format_Grayscale8)
+        ptr = gray.bits()
+        ptr.setsize(gray.bytesPerLine() * h)
+        data = np.frombuffer(ptr, dtype=np.uint8).reshape(h, gray.bytesPerLine())[:, :w]
+        self._bins = np.bincount(data.reshape(-1), minlength=256).astype(float)
+        total = float(data.size)
+        # 250 rather than 255: the JPEG's own tone curve rolls the top off, so
+        # waiting for a true 255 understates how close the disc is to the wall.
+        self._clipped = 100.0 * self._bins[250:].sum() / total
+        self._black = 100.0 * self._bins[:6].sum() / total
+        self.update()
+
+    def clear(self):
+        self._bins = None
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(20, 20, 24))
+        w, h = self.width(), self.height()
+        if self._bins is None or w < 16:
+            painter.setPen(QColor(120, 120, 130))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Histogram - no frame")
+            painter.end()
+            return
+
+        # Log scale: a solar disc is a few percent of the frame against black, so
+        # on a linear scale the disc is invisible next to the background spike.
+        bins = np.log1p(self._bins)
+        peak = bins.max() or 1.0
+        painter.setPen(QColor(210, 210, 220))
+        for x in range(w):
+            lo = x * 256 // w
+            hi = max(lo + 1, (x + 1) * 256 // w)
+            value = bins[lo:hi].max() / peak
+            bar = int(value * (h - 18))
+            if bar > 0:
+                painter.drawLine(x, h - 18, x, h - 18 - bar)
+
+        painter.setPen(QColor(90, 90, 100))
+        painter.drawLine(0, h - 18, w, h - 18)
+        painter.setPen(QColor(200, 80, 90) if self._clipped > 0.05 else QColor(150, 150, 160))
+        painter.drawText(6, h - 4, f"clipped {self._clipped:.2f}%")
+        painter.setPen(QColor(150, 150, 160))
+        painter.drawText(w - 96, h - 4, f"black {self._black:.1f}%")
+        painter.end()
+
+
 class _FocusScoreGraph(QWidget):
     """Sparkline graph showing recent focus score history with peak marker."""
 
@@ -336,6 +412,7 @@ class LiveViewWindow(QDockWidget):
         self._zoom_factor = 1
         self._zoom_center = QPointF(0.5, 0.5)
         self._peaking_enabled = False
+        self._histogram_enabled = False
 
         # FPS tracking
         self._frame_count = 0
@@ -364,6 +441,10 @@ class LiveViewWindow(QDockWidget):
         self._focus_graph = _FocusScoreGraph()
         layout.addWidget(self._focus_graph)
 
+        self._histogram = _Histogram()
+        self._histogram.setVisible(False)
+        layout.addWidget(self._histogram)
+
         # Control bar
         controls = QHBoxLayout()
 
@@ -371,6 +452,11 @@ class LiveViewWindow(QDockWidget):
         self._peaking_btn.setCheckable(True)
         self._peaking_btn.toggled.connect(self._on_peaking_toggled)
         controls.addWidget(self._peaking_btn)
+
+        self._histogram_btn = QPushButton("Histogram: OFF")
+        self._histogram_btn.setCheckable(True)
+        self._histogram_btn.toggled.connect(self._on_histogram_toggled)
+        controls.addWidget(self._histogram_btn)
 
         controls.addWidget(QLabel("Zoom:"))
         self._zoom_combo = QComboBox()
@@ -575,6 +661,11 @@ class LiveViewWindow(QDockWidget):
         if not img.loadFromData(data):
             return
 
+        if self._histogram_enabled:
+            # The whole frame, before the zoom crop: the exposure is a property
+            # of the scene, not of whichever corner is being magnified to focus.
+            self._histogram.set_image(img)
+
         source_w, source_h = img.width(), img.height()
         crop_rect = None
 
@@ -625,6 +716,13 @@ class LiveViewWindow(QDockWidget):
     def _on_peaking_toggled(self, checked: bool):
         self._peaking_enabled = checked
         self._peaking_btn.setText(f"Focus Peaking: {'ON' if checked else 'OFF'}")
+
+    def _on_histogram_toggled(self, checked: bool):
+        self._histogram_enabled = checked
+        self._histogram_btn.setText(f"Histogram: {'ON' if checked else 'OFF'}")
+        self._histogram.setVisible(checked)
+        if not checked:
+            self._histogram.clear()
 
     def _on_zoom_changed(self, index: int):
         val = self._zoom_combo.currentData()

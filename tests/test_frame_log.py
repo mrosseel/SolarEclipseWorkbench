@@ -279,3 +279,62 @@ def test_changing_the_iso_reaches_the_camera():
 
     assert ("iso", 1600) in sdk.written
     assert "ISO 1600" in win.shown
+
+
+# ------------------------------------------------------- live view histogram
+
+def _grey_image(value, w=64, h=64):
+    from PyQt6.QtGui import QImage
+    img = QImage(w, h, QImage.Format.Format_Grayscale8)
+    img.fill(value)
+    return img
+
+
+def test_the_histogram_reports_clipping():
+    # The number that matters for a filtered partial: the disc is the only bright
+    # thing in frame, so anything at the top of the scale is the disc against the
+    # wall.
+    from PyQt6.QtWidgets import QApplication
+    from solareclipseworkbench.liveview import _Histogram
+    QApplication.instance() or QApplication([])
+
+    hist = _Histogram()
+    hist.set_image(_grey_image(255))
+
+    assert hist._clipped > 99.0
+
+
+def test_the_histogram_reports_a_dark_frame_as_black_not_clipped():
+    from PyQt6.QtWidgets import QApplication
+    from solareclipseworkbench.liveview import _Histogram
+    QApplication.instance() or QApplication([])
+
+    hist = _Histogram()
+    hist.set_image(_grey_image(2))
+
+    assert hist._black > 99.0
+    assert hist._clipped == 0.0
+
+
+def test_a_well_exposed_frame_is_neither():
+    from PyQt6.QtWidgets import QApplication
+    from solareclipseworkbench.liveview import _Histogram
+    QApplication.instance() or QApplication([])
+
+    hist = _Histogram()
+    hist.set_image(_grey_image(128))
+
+    assert hist._clipped == 0.0 and hist._black == 0.0
+
+
+def test_clipping_counts_the_shoulder_not_only_pure_white():
+    # The JPEG's tone curve rolls the top off, so waiting for a true 255
+    # understates how close the disc is to the wall.
+    from PyQt6.QtWidgets import QApplication
+    from solareclipseworkbench.liveview import _Histogram
+    QApplication.instance() or QApplication([])
+
+    hist = _Histogram()
+    hist.set_image(_grey_image(252))
+
+    assert hist._clipped > 99.0
