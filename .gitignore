@@ -185,3 +185,9 @@ SDK/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Syncthing conflict copies.  This repository is synced between two machines, so
+# a file edited on both appears as gui.sync-conflict-<date>-<device>.py beside
+# the real one.  One was committed by a `git add -A` on 3 August; they are never
+# wanted in history.
+*sync-conflict-*
