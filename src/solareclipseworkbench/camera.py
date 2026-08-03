@@ -64,6 +64,37 @@ def _normalise_aperture(value: str) -> str:
     return value
 
 
+# Per-camera cache of the settings last pushed over USB successfully.  Without
+# it every frame reconfigures ISO, shutter speed and aperture whether or not they
+# changed - two set_config round-trips to send the body values it already has,
+# and a script holds one exposure for a whole phase.  The Fuji path has done this
+# since 3 August (`_applied_speed`, `_applied_iso`); this is the gphoto2 half.
+#
+# Only a completed apply is recorded, and any failure drops the entry, so a skip
+# can never outlive the evidence that the values are really on the body.
+_last_settings: dict = {}
+
+
+def _settings_key(camera_settings) -> tuple:
+    """What has to match for a reconfigure to be skippable."""
+    return (str(camera_settings.shutter_speed),
+            str(camera_settings.aperture),
+            str(camera_settings.iso))
+
+
+def forget_camera_settings(camera_name: Optional[str] = None) -> None:
+    """Drop what a camera is believed to have applied.
+
+    Call after anything that could leave the body holding something else - a
+    reconnect, a failed write, a session rebuilt underneath us.  With no name,
+    forgets every camera.
+    """
+    if camera_name is None:
+        _last_settings.clear()
+    else:
+        _last_settings.pop(camera_name, None)
+
+
 # Per-camera aperture verification cache.  Maps camera_name -> set of aperture strings
 # that have already been checked via a read-back round-trip.  Once an aperture value
 # has been verified (or a mismatch has been warned about) for a given camera, subsequent
@@ -1099,6 +1130,10 @@ def _reset_canon_eos_ptp_session(camera) -> None:
         # Clear the flag regardless of success so we do not attempt the reset
         # again even if it failed (to avoid an infinite retry loop).
         camera._capture_preview_was_called = False
+        # exit + init rebuilt the session, so whatever the body was believed to
+        # be holding is no longer known.  Skipping the next reconfigure on the
+        # strength of it would photograph the frame at the camera's own settings.
+        forget_camera_settings(getattr(camera, 'name', None))
 
 
 @_serialised_on_camera
@@ -1179,8 +1214,9 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
     # causes the camera to use its physical-dial settings, ignoring USB-set
     # values — so it must not be used for take_picture.
     # On EOS R-series mirrorless bodies trigger_capture incurs a live-view
-    # exit+re-entry overhead (~1-2 s).  This is handled by increasing
-    # misfire_grace_time in the APScheduler so queued shots are not dropped.
+    # exit+re-entry overhead (~1-2 s).  Nothing accommodates that: the scheduler
+    # runs on the default one-second misfire grace, and a shot that cannot take
+    # the camera lock within _MAX_LOCK_WAIT_S is dropped rather than taken late.
     try:
         gp.check_result(gp.gp_camera_trigger_capture(target, context))
         logging.debug('%s: take_picture fired trigger_capture', camera_name)
@@ -1234,6 +1270,19 @@ def __adapt_camera_settings(camera, camera_settings):
     config = gp.check_result(gp.gp_camera_get_config(target, context))
 
     vendor = getattr(camera, 'vendor', None)
+
+    # Nothing to send if the body already holds these.  The config is still read
+    # above because callers bracket against its widgets; what is skipped is the
+    # two set_config round-trips, which is the part that costs the frame time.
+    wanted = _settings_key(camera_settings)
+    if _last_settings.get(camera_settings.camera_name) == wanted:
+        logging.debug('%s: exposure unchanged (%s), not reconfiguring',
+                      camera_settings.camera_name, wanted)
+        return context, config
+
+    # Anything from here can fail part-way, leaving the body holding some of the
+    # old settings and some of the new.  Forget first, record only on success.
+    _last_settings.pop(camera_settings.camera_name, None)
 
     # --- Step 1: mutate exposure mode in memory (no separate set_config) ---
     # The mode widget is included in the ISO+shutter batch below so that all
@@ -1383,7 +1432,12 @@ def __adapt_camera_settings(camera, camera_settings):
                 pass  # Read-back failure is non-fatal
     except gphoto2.GPhoto2Error:
         # Read-only or absent aperture widget (telescope, fixed-aperture lens) — ignore.
+        # Not a reason to distrust the ISO and shutter speed, which went on above.
         logging.debug('Aperture widget not settable (telescope/fixed lens) — skipping')
+
+    # Everything that was going to reach the body has.  The next frame at these
+    # settings can skip the round-trips.
+    _last_settings[camera_settings.camera_name] = wanted
 
     return context, config
 

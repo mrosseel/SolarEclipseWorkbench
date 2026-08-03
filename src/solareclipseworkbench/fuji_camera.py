@@ -47,6 +47,9 @@ try:
         SDK_FOCUS_MANUAL,
     )
     from fujixsdk._errors import BusyError
+    # The buffer belongs to the body, so its size and the fraction of it
+    # that may fill live with the SDK wrapper rather than being restated here.
+    from fujixsdk.camera import BUFFER_SLOTS, DRAIN_AT
     FUJIXSDK_AVAILABLE = True
     FUJIXSDK_IMPORT_ERROR = None
 except ImportError as _exc:
@@ -55,6 +58,9 @@ except ImportError as _exc:
 
     class BusyError(Exception):
         """Stand-in so the retry helpers below still import without the SDK."""
+
+    BUFFER_SLOTS = 32
+    DRAIN_AT = 0.75
 
 
 # ======================================================================
@@ -80,10 +86,6 @@ MAX_BURST_S = 1.9
 # working out whether a burst will fit.
 CH_FPS = 15
 
-# The transfer queue holds this many frames, taken from what the body reports at
-# rest.  It is not read from the SDK per call because the figure beside the count
-# is not the buffer size while frames are in flight — see `ensure_room_for`.
-BUFFER_SLOTS = 32
 
 # Closing and opening the relay costs this much on top of whatever hold is asked
 # for - +0.15s at every duration from 0.2s to 1.9s, measured 3 August.  A burst
@@ -108,21 +110,6 @@ SETTLE_BEFORE_DRAIN_S = 1.0
 DRAIN_ROUNDS = 4
 SETTLE_BETWEEN_DRAINS_S = 0.6
 
-# Fraction of the 32-slot transfer queue that may fill before shooting stops to
-# clear it.  Measured on 3 August, 67 taps at 1/1000" and 1/4000", filling to
-# 30/32 each round:
-#
-#   one tap adds 2 or 3 frames, never 4 (28 twos and 12 threes at 1/1000, 19 and
-#   8 at 1/4000 - the 80 ms contact bounds it, not the shutter speed)
-#
-#   a tap's frames appear in GetBufferCapacity all at once, 0.35-0.75s later.
-#   Read sooner - and the bracket reads TAP_GAP_S = 0.35s after the tap - and
-#   the count shows none of them
-#
-# So a reading may understate by a whole tap (3), and one more tap fires before
-# the next reading (3): true occupancy can be 6 above what the check saw, which
-# puts the ceiling at 26/32.  24 is that with two slots to spare.
-DRAIN_AT = 0.75
 
 # For about a second after a frame the body refuses exposure changes with
 # 0x1006 while it writes to the card.  The busy clears by itself.

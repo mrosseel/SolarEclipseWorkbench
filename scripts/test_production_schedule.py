@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 from solareclipseworkbench import fuji_camera as fc
 from solareclipseworkbench import relay_trigger as rt
 from solareclipseworkbench.camera import CameraSettings, take_bracket, take_burst, take_picture
-from solareclipseworkbench.fuji_camera import FujiCamera
+from solareclipseworkbench.fuji_camera import BUFFER_SLOTS, DRAIN_AT, FujiCamera
 from solareclipseworkbench.hardware_registry import register_hardware
 from solareclipseworkbench.relay_trigger import relay_arm, relay_release
 from solareclipseworkbench.utils import schedule_commands, start_scheduler
@@ -26,6 +26,7 @@ from solareclipseworkbench.utils import schedule_commands, start_scheduler
 SCRIPT = Path(__file__).resolve().parent / "real" / "20260812_production.txt"
 
 fc.SETTLE_BEFORE_DRAIN_S = 0.0
+fc.SETTLE_BETWEEN_DRAINS_S = 0.0
 fc.TAP_GAP_S = 0.0
 
 
@@ -77,13 +78,16 @@ def main() -> None:
     moments = {name: SimpleNamespace(time_utc=now + timedelta(hours=offset))
                for name, offset in offsets}
 
-    # The limb-corrected moments the production script schedules its contacts and
-    # its countdown against.  Seconds relative to the mean contacts, taken from
-    # the real solve at the site in the script header - without these the whole
-    # totality sequence would silently not be scheduled at all.
-    for name, base, delta in (("C2_LIMB", "C2", 0.507), ("BEADS_C2", "C2", -1.118),
+    # The bead windows the production script schedules its contact bursts against.
+    # Seconds relative to the contacts, from the real solve at the site in the
+    # script header.  The contacts themselves are NOT invented here: at run time
+    # the limb-corrected times take over the C2 and C3 names, so a script that
+    # asks for C2 already gets the corrected one.  Inventing C2_LIMB/C3_LIMB - as
+    # this did until 3 August - hid the fact that nothing produces those names any
+    # more, and that every command scheduled against them was being dropped.
+    for name, base, delta in (("BEADS_C2", "C2", -1.118),
                               ("BEADS_C2_START", "C2", -2.743), ("BEADS_C2_END", "C2", 0.507),
-                              ("C3_LIMB", "C3", -3.496), ("BEADS_C3", "C3", -1.471),
+                              ("BEADS_C3", "C3", -1.471),
                               ("BEADS_C3_START", "C3", -3.496), ("BEADS_C3_END", "C3", 0.554)):
         moments[name] = SimpleNamespace(
             time_utc=moments[base].time_utc + timedelta(seconds=delta))
@@ -99,22 +103,41 @@ def main() -> None:
 
     settings = CameraSettings("Fuji Fujifilm X-T4", "1/1000", "-", 320)
 
+    # A single no longer drains after every frame: the queue holds 32 and a drain
+    # is a settle plus the deletes, so paying it to reclaim one slot spent the
+    # whole gap between two scripted frames.  Measured 3 August, that alone took a
+    # single from 2.03s to 0.52s.  It drains when the queue is actually filling.
     take_picture(camera, settings)
-    assert sdk.drains == 1, "a single frame must drain after itself"
+    assert sdk.drains == 0, "a single frame must not stop to drain an empty queue"
     assert trigger.closed_channels == set(), "contacts must be open again"
 
+    # Draining repeats until a round comes back empty - a burst is still
+    # arriving 2.5s after the contact opens - so the count here is rounds, not
+    # drains.  What matters is that it happened and the queue is clear.
+    sdk.pending = int(BUFFER_SLOTS * DRAIN_AT) + 1
+    take_picture(camera, settings)
+    assert sdk.drains >= 1, "a single frame must drain a queue that has filled"
+    assert sdk.pending == 0
+
+    drains_after_single = sdk.drains
     sdk.pending = 27
     take_burst(camera, settings, 27)
-    assert sdk.drains == 2 and sdk.pending == 0, "a burst must drain after itself"
+    assert sdk.drains > drains_after_single and sdk.pending == 0, \
+        "a burst must drain after itself"
+    drains_after_burst = sdk.drains
 
     sdk.pending = 8
     ladder = "1/2000;1/500;1/125;1/30;1/8;1/2;2;4"
     before = len(sdk.speeds)
     take_bracket(camera, settings, ladder)
-    assert sdk.drains == 3 and sdk.pending == 0, "a bracket must drain after itself"
-    # One set from configure staging the base speed, then one per rung.
-    rungs = len(sdk.speeds) - before - 1
-    assert rungs == 8, f"one speed per rung, got {rungs}"
+    assert sdk.drains > drains_after_burst and sdk.pending == 0, \
+        "a bracket must drain after itself"
+    # The ladder itself, in order.  Not counted relative to `before`, because
+    # configure stages a base speed only when it differs from what the body
+    # already holds - it is skipped otherwise, and a count would move with it.
+    wanted = [fc._parse_shutter_speed(part) for part in ladder.split(";")]
+    assert sdk.speeds[-len(wanted):] == wanted, (
+        f"one speed per rung in order, got {sdk.speeds[-len(wanted):]}")
     assert sdk.speeds[-1] == 4_000_000, "the last rung is the 4 s earthshine frame"
     assert 320 in sdk.isos, "ISO must reach the camera"
 

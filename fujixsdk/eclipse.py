@@ -13,7 +13,7 @@ from typing import Optional
 
 from . import _constants as C
 from ._errors import BusyError, XSDKError
-from .camera import Camera
+from .camera import BUFFER_SLOTS, DRAIN_AT, Camera
 
 log = logging.getLogger(__name__)
 
@@ -463,23 +463,26 @@ class EclipseShooter:
     # ------------------------------------------------------------------
     # High-speed no-download shooting
     # ------------------------------------------------------------------
-    #: Fraction of the volatile buffer that may fill before it is cleared.
-    #: Nothing else empties it: shooting no-download leaves every frame queued
-    #: for a PC transfer that never comes, and at 32 slots a run of any length
-    #: simply stops.  Draining costs 0.018 s per image on an X-T4, so clearing
-    #: two dozen mid-totality is under half a second.
-    DRAIN_AT = 0.75
-
     def _keep_buffer_clear(self) -> None:
         """Clear the volatile buffer before it fills.
 
+        Nothing else empties it: shooting no-download leaves every frame queued
+        for a PC transfer that never comes, and at BUFFER_SLOTS a run of any
+        length simply stops.  Draining costs 0.018 s per image on an X-T4, so
+        clearing two dozen mid-totality is under half a second.
+
         The images are on the card - this only discards the queued PC transfer.
+
+        Measured against BUFFER_SLOTS and not against the total returned beside
+        the count: that total sits three above the count while frames are being
+        written, so `captured >= total * DRAIN_AT` would have fired at thirteen
+        frames as readily as at twenty-five.
         """
-        captured, total = self.camera.get_buffer_capacity()
-        if total > 0 and captured >= total * self.DRAIN_AT:
+        captured, _ = self.camera.get_buffer_capacity()
+        if captured >= BUFFER_SLOTS * DRAIN_AT:
             drained = self.camera.drain_buffer()
             log.info("Drained %d image(s) at %d/%d to keep shooting",
-                     drained, captured, total)
+                     drained, captured, BUFFER_SLOTS)
 
     def shoot_fast(self, retries: int = 5) -> bool:
         """Fire one shot, no download. Returns False if buffer full."""

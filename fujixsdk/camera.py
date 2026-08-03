@@ -30,6 +30,28 @@ from ._structures import (
 DRAIN_BUDGET_S = 2.0
 DRAIN_BUSY_BACKOFF_S = 0.1
 
+# The transfer queue holds this many frames.  Taken as a constant rather than
+# read per call because the second value GetBufferCapacity returns is not the
+# buffer size: while frames are being written it tracks three above the count
+# (13/16, 18/21, 20/23, 23/26, 27/30 through one burst on 3 August) and settles
+# at 32 only once the body is idle.  Free slots computed as total - captured
+# would read three however empty the buffer really was.
+BUFFER_SLOTS = 32
+
+# Fraction of those slots that may fill before shooting stops to clear them.
+# Measured 3 August, 67 taps at 1/1000" and 1/4000", filling to 30/32 each round:
+#
+#   one tap adds 2 or 3 frames, never 4 (28 twos and 12 threes at 1/1000, 19 and
+#   8 at 1/4000 - the 80 ms contact bounds it, not the shutter speed)
+#
+#   a tap's frames appear in the count all at once, 0.35-0.75s later.  Read
+#   sooner - and a bracket reads 0.35s after the tap - and it shows none of them
+#
+# So a reading may understate by a whole tap (3), and one more tap fires before
+# the next reading (3): true occupancy can be 6 above what the check saw, which
+# puts the ceiling at 26/32.  24 is that with two slots to spare.
+DRAIN_AT = 0.75
+
 
 @dataclass
 class CameraInfo:
