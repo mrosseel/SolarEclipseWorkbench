@@ -215,10 +215,13 @@ def test_live_view_stands_aside_for_a_frame_and_comes_back(view):
 
     events = []
     class _Win:
-        _thread = object()
+        """Answers the live view contract - is_streaming/start/stop - which is
+        what the controller drives, rather than either window's private state."""
+        streaming = True
         def isVisible(self): return True
-        def stop_stream(self): events.append("stop"); type(self)._thread = None
-        def start_stream(self): events.append("start"); type(self)._thread = object()
+        def is_streaming(self): return self.streaming
+        def stop_stream(self): events.append("stop"); self.streaming = False
+        def start_stream(self): events.append("start"); self.streaming = True
     window = _Win()
 
     controller = _controller(view, {})
@@ -294,3 +297,16 @@ def test_the_camera_strip_can_be_pulled_down_to_one_row(view):
     # With one body connected there is one row to show.  A 110px floor meant the
     # strip kept taking height from the schedule that it had nothing to put in.
     assert view.camera_overview.minimumHeight() == 0
+
+
+def test_both_live_view_windows_answer_the_same_contract():
+    # The controller drives whichever window the connected camera needs, and
+    # restoring one that predated set_totality_paused crashed the clock on the
+    # first tick.  Whatever the controller calls, both must answer.
+    from solareclipseworkbench.gui import LiveViewWindow as GPhotoLiveView
+    from solareclipseworkbench.liveview import LiveViewWindow as FujiLiveView
+
+    for name in ("set_totality_paused", "is_streaming", "start_stream", "stop_stream"):
+        for window in (GPhotoLiveView, FujiLiveView):
+            assert callable(getattr(window, name, None)), \
+                f"{window.__module__}.{window.__name__} is missing {name}()"

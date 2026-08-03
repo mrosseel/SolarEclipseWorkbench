@@ -1960,7 +1960,7 @@ class SolarEclipseController(Observer):
             return
 
         gap = self._seconds_to_next_frame()
-        running = window._thread is not None
+        running = window.is_streaming()
         if gap is not None and gap < LIVE_VIEW_CLEARANCE_S:
             if running:
                 logging.info('Live view standing aside, next frame in %.0fs', gap)
@@ -3734,11 +3734,33 @@ class LiveViewWindow(QWidget):
     # Public API (called by the controller)
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # The live view contract.  Both windows - this one and the Fuji SDK one in
+    # liveview.py - answer these, so the controller never has to know which
+    # camera it is driving or reach into either one's private state.  Restoring
+    # a window that predated set_totality_paused crashed the clock on 3 August;
+    # writing the contract down is what stops the next one doing the same.
+    # ------------------------------------------------------------------
+
     def set_totality_paused(self, paused: bool):
         """Auto-pause or auto-resume live view around totality."""
         if self._totality_paused == paused:
             return
         self._totality_paused = paused
+        self._apply_state()
+
+    def is_streaming(self) -> bool:
+        """True when frames are actually being fetched."""
+        return self._thread is not None and self._user_enabled and not self._totality_paused
+
+    def start_stream(self):
+        """Begin fetching frames, as though the user had enabled it."""
+        self._user_enabled = True
+        self._apply_state()
+
+    def stop_stream(self):
+        """Stop fetching frames and let go of the camera."""
+        self._user_enabled = False
         self._apply_state()
 
     # ------------------------------------------------------------------

@@ -613,6 +613,16 @@ class LiveViewWindow(QDockWidget):
             except XSDKError as e:
                 log.warning("Failed to set live view quality: %s", e)
 
+    def is_streaming(self) -> bool:
+        """True when frames are actually being fetched.
+
+        Part of the contract both live view windows answer; see the note beside
+        the gphoto2 one in gui.py.  It exists so callers stop reading `_thread`,
+        which means different things in the two implementations - this one tears
+        the thread down, the other keeps it and pauses it.
+        """
+        return self._thread is not None
+
     def set_totality_paused(self, paused: bool):
         """Stop streaming from just before C2 until just after C3, and resume.
 
