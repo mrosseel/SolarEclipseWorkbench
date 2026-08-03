@@ -266,14 +266,28 @@ def test_the_cameras_panel_is_open_and_readable(view):
     assert view.dockWidgetArea(view.camera_dock) == Qt.DockWidgetArea.BottomDockWidgetArea
 
 
-def test_the_contact_labels_are_not_clipped(view):
-    # Dropping the moments box to 430 to make room clipped them to "First
-    # conta..." and the headers to "ountdown".  Its own minimum is 544.
-    from PyQt6.QtWidgets import QGroupBox
-    boxes = [gb for gb in view.findChildren(QGroupBox) if gb.minimumWidth() > 400]
-    assert boxes, "the reference-moments box should declare a minimum width"
-    for gb in boxes:
-        assert gb.minimumWidth() >= gb.minimumSizeHint().width()
+def test_the_contact_times_scroll_rather_than_clip_or_dictate_the_width(view):
+    # A 544px floor stopped the labels clipping to "First conta..." but made the
+    # panel most of a laptop screen for a table of ten numbers.  Scrolling gets
+    # both: it can be given any width and the content is still reachable.
+    from PyQt6.QtWidgets import QScrollArea
+    assert isinstance(view.moments_dock.widget(), QScrollArea)
+    assert view.moments_dock.widget().widgetResizable()
+    assert view.moments_dock.minimumSizeHint().width() < 250
+
+
+def test_the_contact_times_are_a_dock_that_can_be_closed(view):
+    view.show()
+    QApplication.processEvents()
+    assert view.moments_dock.isVisible()
+    assert view.moments_dock_action.text() == "Contact times"
+
+
+def test_utc_survives_the_column_being_dropped(view):
+    # Published predictions are in UTC, so it is what a cross-check is against.
+    # The column is gone; the number is on the local time as a tooltip.
+    _shown(view, True)
+    assert "UTC" in view.c2_time_local_label.toolTip()
 
 
 def test_the_window_never_opens_larger_than_the_display(view):

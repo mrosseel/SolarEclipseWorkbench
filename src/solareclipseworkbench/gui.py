@@ -85,6 +85,11 @@ DOCK_COLUMN_WIDTH = 340
 #: a few bodies; the schedule above it wants the rest.
 CAMERA_DOCK_HEIGHT = 150
 
+#: Starting width of the contact-times column: what its four columns measure,
+#: plus room for a scrollbar.  Below this the Altitude header clips to "Alt".
+#: It scrolls if given less, so this is where it starts and not a floor.
+MOMENTS_DOCK_WIDTH = 510
+
 ICON_PATH = Path(__file__).parent.resolve() / "img"
 
 TIME_FORMATS = {
@@ -720,6 +725,9 @@ class SolarEclipseView(QMainWindow, Observable):
 
         reference_moments_group_box = QGroupBox()
         reference_moments_grid_layout = QGridLayout()
+        reference_moments_grid_layout.setVerticalSpacing(2)
+        reference_moments_grid_layout.setHorizontalSpacing(14)
+        reference_moments_grid_layout.setContentsMargins(8, 6, 8, 6)
         reference_moments_grid_layout.addWidget(QLabel("Time (local)", alignment=Qt.AlignmentFlag.AlignRight), 0, 1)
         reference_moments_grid_layout.addWidget(self.c1_time_local_label, 1, 1)
         reference_moments_grid_layout.addWidget(self.c2_time_local_label, 2, 1)
@@ -728,14 +736,10 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(self.c4_time_local_label, 5, 1)
         reference_moments_grid_layout.addWidget(self.sunrise_time_local_label, 6, 1)
         reference_moments_grid_layout.addWidget(self.sunset_time_local_label, 7, 1)
-        reference_moments_grid_layout.addWidget(QLabel("Time (UTC)", alignment=Qt.AlignmentFlag.AlignRight), 0, 2)
-        reference_moments_grid_layout.addWidget(self.c1_time_utc_label, 1, 2)
-        reference_moments_grid_layout.addWidget(self.c2_time_utc_label, 2, 2)
-        reference_moments_grid_layout.addWidget(self.max_time_utc_label, 3, 2)
-        reference_moments_grid_layout.addWidget(self.c3_time_utc_label, 4, 2)
-        reference_moments_grid_layout.addWidget(self.c4_time_utc_label, 5, 2)
-        reference_moments_grid_layout.addWidget(self.sunrise_time_utc_label, 6, 2)
-        reference_moments_grid_layout.addWidget(self.sunset_time_utc_label, 7, 2)
+        # The UTC column is not laid out: it doubled the width of the panel and
+        # the same times are on the local column as a tooltip.  The widgets are
+        # kept and still updated, because the settings dialog and the clock both
+        # write to them.
         reference_moments_grid_layout.addWidget(QLabel("Countdown", alignment=Qt.AlignmentFlag.AlignRight), 0, 3)
         reference_moments_grid_layout.addWidget(self.c1_countdown_label, 1, 3)
         reference_moments_grid_layout.addWidget(self.c2_countdown_label, 2, 3)
@@ -772,20 +776,39 @@ class SolarEclipseView(QMainWindow, Observable):
         # by seconds, which is more than a bead burst is long.  Default on — the
         # corrected contacts are the real ones, a smooth Moon is the approximation.
         reference_moments_grid_layout.addWidget(self.limb_correction_checkbox, 10, 0, 1, 6)
+        # Somewhere for the slack to go.  Without these the grid stretches to
+        # fill a full-height dock: ten rows spread seventy pixels apart and four
+        # columns spread across five hundred, which is the "waaaay too much
+        # space" - the panel was not big, it was inflated.
+        reference_moments_grid_layout.setRowStretch(11, 1)
+        reference_moments_grid_layout.setColumnStretch(6, 1)
+
         reference_moments_group_box.setLayout(reference_moments_grid_layout)
         # A minimum rather than a fixed width, so the box cannot be squeezed until
         # the reference-moment columns collide but can still give space back when
         # the window is narrow.
-        # Its own minimumSizeHint, measured: 544.  Below that the contact labels
-        # clip to "First conta..." and the column headers to "ountdown", which is
-        # what 430 did.  Above it - 600 was the old value - it takes width the
-        # camera list needs and that panel disappears instead.
-        reference_moments_group_box.setMinimumWidth(544)
+        # No minimum: it scrolls, so it can be given whatever width is left
+        # rather than dictating the window's.  It used to sit in the input row
+        # with a 544px floor, which is most of a laptop screen for a table of
+        # ten numbers.
 
         # noinspection SpellCheckingInspection
+        moments_scroller = QScrollArea()
+        moments_scroller.setWidget(reference_moments_group_box)
+        moments_scroller.setWidgetResizable(True)
+        moments_scroller.setFrameShape(QFrame.Shape.NoFrame)
+
+        self.moments_dock = QDockWidget("Contact times", self)
+        self.moments_dock.setObjectName("moments_dock")
+        self.moments_dock.setWidget(moments_scroller)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.moments_dock)
+        self.moments_dock.show()
+        self.resizeDocks([self.moments_dock], [MOMENTS_DOCK_WIDTH],
+                         Qt.Orientation.Horizontal)
+
         input_hbox = QHBoxLayout()
         input_hbox.addLayout(vbox_left, 0)
-        input_hbox.addWidget(reference_moments_group_box, 3)
+        input_hbox.addStretch(1)
 
         # The camera overview is a table and does not belong wedged into a row of
         # input boxes: on a 1440-wide screen that row plus the dock column forced
@@ -807,6 +830,11 @@ class SolarEclipseView(QMainWindow, Observable):
         self.camera_dock.show()
         # Built after add_toolbar, so its toggle is added here rather than with
         # the others.  Placed before the mount's, matching the order they matter.
+        self.moments_dock_action = self.moments_dock.toggleViewAction()
+        self.moments_dock_action.setText("Contact times")
+        self.moments_dock_action.setStatusTip("Show the contact times and countdowns")
+        self.toolbar.insertAction(self.mount_dock_action, self.moments_dock_action)
+
         self.camera_dock_action = self.camera_dock.toggleViewAction()
         self.camera_dock_action.setText("Cameras")
         self.camera_dock_action.setStatusTip("Show the connected cameras")
@@ -888,7 +916,7 @@ class SolarEclipseView(QMainWindow, Observable):
         settings.sync()
 
         for dock in (self.geometry_dock, self.beads_dock, self.camera_dock,
-                     self.mount_dock):
+                     self.moments_dock, self.mount_dock):
             dock.setFloating(False)
             dock.show()
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.geometry_dock)
@@ -896,6 +924,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.splitDockWidget(self.geometry_dock, self.beads_dock,
                              Qt.Orientation.Vertical)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.camera_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.moments_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.mount_dock)
         self.resizeDocks([self.geometry_dock], [DOCK_COLUMN_WIDTH],
                          Qt.Orientation.Horizontal)
@@ -903,6 +932,8 @@ class SolarEclipseView(QMainWindow, Observable):
                          [1, 1], Qt.Orientation.Vertical)
         self.resizeDocks([self.camera_dock], [CAMERA_DOCK_HEIGHT],
                          Qt.Orientation.Vertical)
+        self.resizeDocks([self.moments_dock], [MOMENTS_DOCK_WIDTH],
+                         Qt.Orientation.Horizontal)
         self.mount_dock.hide()
         logging.info("Window layout reset to the default arrangement")
 
@@ -1181,6 +1212,8 @@ class SolarEclipseView(QMainWindow, Observable):
             c1_info: ReferenceMomentInfo = reference_moments["C1"]
             self.c1_time_utc_label.setText(format_time(c1_info.time_utc, self.time_format))
             self.c1_time_local_label.setText(format_time(c1_info.time_local, self.time_format))
+            self.c1_time_local_label.setToolTip(
+                f"{format_time(c1_info.time_utc, self.time_format)} UTC")
             self.c1_azimuth_label.setText(str(int(c1_info.azimuth)))
             self.c1_altitude_label.setText(str(int(c1_info.altitude)))
         else:
@@ -1199,6 +1232,8 @@ class SolarEclipseView(QMainWindow, Observable):
                 "C2_LIMB", reference_moments["C2"])
             self.c2_time_utc_label.setText(format_time(c2_info.time_utc, self.time_format))
             self.c2_time_local_label.setText(format_time(c2_info.time_local, self.time_format))
+            self.c2_time_local_label.setToolTip(
+                f"{format_time(c2_info.time_utc, self.time_format)} UTC")
             self.c2_azimuth_label.setText(str(int(c2_info.azimuth)))
             self.c2_altitude_label.setText(str(int(c2_info.altitude)))
         else:
@@ -1228,6 +1263,8 @@ class SolarEclipseView(QMainWindow, Observable):
             max_info: ReferenceMomentInfo = reference_moments["MAX"]
             self.max_time_utc_label.setText(format_time(max_info.time_utc, self.time_format))
             self.max_time_local_label.setText(format_time(max_info.time_local, self.time_format))
+            self.max_time_local_label.setToolTip(
+                f"{format_time(max_info.time_utc, self.time_format)} UTC")
             self.max_azimuth_label.setText(str(int(max_info.azimuth)))
             self.max_altitude_label.setText(str(int(max_info.altitude)))
         else:
@@ -1246,6 +1283,8 @@ class SolarEclipseView(QMainWindow, Observable):
                 "C3_LIMB", reference_moments["C3"])
             self.c3_time_utc_label.setText(format_time(c3_info.time_utc, self.time_format))
             self.c3_time_local_label.setText(format_time(c3_info.time_local, self.time_format))
+            self.c3_time_local_label.setToolTip(
+                f"{format_time(c3_info.time_utc, self.time_format)} UTC")
             self.c3_azimuth_label.setText(str(int(c3_info.azimuth)))
             self.c3_altitude_label.setText(str(int(c3_info.altitude)))
         else:
@@ -1260,6 +1299,8 @@ class SolarEclipseView(QMainWindow, Observable):
             c4_info: ReferenceMomentInfo = reference_moments["C4"]
             self.c4_time_utc_label.setText(format_time(c4_info.time_utc, self.time_format))
             self.c4_time_local_label.setText(format_time(c4_info.time_local, self.time_format))
+            self.c4_time_local_label.setToolTip(
+                f"{format_time(c4_info.time_utc, self.time_format)} UTC")
             self.c4_azimuth_label.setText(str(int(c4_info.azimuth)))
             self.c4_altitude_label.setText(str(int(c4_info.altitude)))
         else:
@@ -1550,6 +1591,7 @@ class SolarEclipseController(Observer):
             self.view.eclipse_visualization.set_location(longitude, latitude, altitude)
             self._refresh_beads_panel()
 
+            self._moments_if_ready()
             return
 
         elif isinstance(changed_object, EclipsePopup):
@@ -1561,6 +1603,7 @@ class SolarEclipseController(Observer):
 
             self.view.eclipse_date.setText(eclipse_date_str)
             self._refresh_beads_panel()
+            self._moments_if_ready()
             return
 
         elif isinstance(changed_object, SimulatorPopup):
@@ -2192,6 +2235,18 @@ class SolarEclipseController(Observer):
             return True
 
         return False
+
+    def _moments_if_ready(self):
+        """Work out the contact times as soon as both halves of the question exist.
+
+        The times depend on a place and a date and on nothing else, so once both
+        are known there is nothing left to ask for.  Only start-up did this, and
+        only when both had been saved from a previous run: choosing either from
+        the toolbar left the contact times blank, or worse, showing the previous
+        site's, until the reference-moments button was pressed as well.
+        """
+        if self.model.is_location_set and self.model.is_eclipse_date_set:
+            self.set_reference_moments()
 
     def set_reference_moments(self):
         """ Set the reference moments of the eclipse in the model and the view."""
