@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
-from PyQt6.QtGui import QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
+from PyQt6.QtGui import QFontDatabase, QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
 QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
 QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter, QDockWidget
@@ -764,9 +764,9 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(QLabel("Fourth contact (C4)"), 5, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunrise"), 6, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunset"), 7, 0)
-        reference_moments_grid_layout.addWidget(QLabel("Baily's beads (C2)"), 8, 0)
+        reference_moments_grid_layout.addWidget(QLabel("Beads window (C2)"), 8, 0)
         reference_moments_grid_layout.addWidget(self.beads_c2_label, 8, 1, 1, 2)
-        reference_moments_grid_layout.addWidget(QLabel("Baily's beads (C3)"), 9, 0)
+        reference_moments_grid_layout.addWidget(QLabel("Beads window (C3)"), 9, 0)
         reference_moments_grid_layout.addWidget(self.beads_c3_label, 9, 1, 1, 2)
 
         # The correction belongs with the numbers it changes: it moves C2 and C3
@@ -777,6 +777,28 @@ class SolarEclipseView(QMainWindow, Observable):
         # fill a full-height dock: ten rows spread seventy pixels apart and four
         # columns spread across five hundred, which is the "waaaay too much
         # space" - the panel was not big, it was inflated.
+        # Columns of digits want a fixed-width face: in a proportional one a
+        # countdown jitters sideways as it ticks and the times do not line up
+        # under each other.
+        numeric = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        for label in (self.c1_time_local_label, self.c2_time_local_label,
+                      self.max_time_local_label, self.c3_time_local_label,
+                      self.c4_time_local_label, self.sunrise_time_local_label,
+                      self.sunset_time_local_label,
+                      self.c1_countdown_label, self.c2_countdown_label,
+                      self.max_countdown_label, self.c3_countdown_label,
+                      self.c4_countdown_label, self.sunrise_countdown_label,
+                      self.sunset_countdown_label,
+                      self.c1_azimuth_label, self.c2_azimuth_label,
+                      self.max_azimuth_label, self.c3_azimuth_label,
+                      self.c4_azimuth_label,
+                      self.c1_altitude_label, self.c2_altitude_label,
+                      self.max_altitude_label, self.c3_altitude_label,
+                      self.c4_altitude_label,
+                      self.beads_c2_label, self.beads_c3_label,
+                      self.date_label_local, self.time_label_local):
+            label.setFont(numeric)
+
         reference_moments_grid_layout.setRowStretch(11, 1)
         reference_moments_grid_layout.setColumnStretch(6, 1)
 

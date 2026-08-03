@@ -356,3 +356,31 @@ def test_the_beads_toggle_reads_like_its_neighbours(view):
     # one.
     assert view.beads_action.text() == "Beads"
     assert view.beads_action.icon().isNull()
+
+
+def test_the_number_columns_use_a_fixed_width_face(view):
+    # A proportional font gives every digit a different width, so a countdown
+    # jitters sideways as it ticks and the times do not line up under each
+    # other.  Reported 4 August: "columns with numbers are kinda sloppy".
+    from PyQt6.QtGui import QFontDatabase
+    fixed = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
+
+    for label in (view.c2_time_local_label, view.c2_countdown_label,
+                  view.c2_azimuth_label, view.c2_altitude_label,
+                  view.beads_c2_label, view.time_label_local):
+        assert label.font().family() == fixed, label.objectName()
+
+
+def test_the_bead_rows_say_they_are_a_window(view):
+    # They hold a start and an end.  In a column of single times that read as
+    # two contacts rather than the span between them.
+    from PyQt6.QtWidgets import QLabel
+    texts = [w.text() for w in view.findChildren(QLabel)]
+    assert "Beads window (C2)" in texts
+    assert "Beads window (C3)" in texts
+
+
+def test_a_bead_window_reads_as_a_span_with_its_length(view):
+    _shown(view, True)
+    text = view.beads_c2_label.text()
+    assert "-" in text and text.strip().endswith("s)"), text
