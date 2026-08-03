@@ -562,6 +562,10 @@ class FujiCamera(BaseCamera):
             pass
         self._connected = False
 
+    def _remember(self, **kwargs: Any) -> None:
+        """Keep the last requested exposure, to restore after a reconnect."""
+        self._requested = {k: v for k, v in kwargs.items() if v is not None}
+
     def configure(self, **kwargs: Any) -> None:
         """Apply camera settings via SDK.
 
@@ -585,6 +589,7 @@ class FujiCamera(BaseCamera):
         setting.  Whatever has not gone on by then is reported as a failure and
         the frame is taken regardless.
         """
+        self._remember(**kwargs)
         failures: list = []
 
         def _apply(name: str, parse, setter, raw, deadline: float) -> None:
@@ -818,6 +823,21 @@ class FujiCamera(BaseCamera):
                 logging.warning('Fuji capture failed (%s), attempting reconnect...', first_err)
                 if not self._reconnect():
                     raise
+                # A reconnected body knows nothing of what the old session set,
+                # so put the exposure back before firing.  Reconnecting and then
+                # shooting at whatever the camera defaults to is not a recovery:
+                # the frame looks normal and is wrong.
+                requested = getattr(self, '_requested', None)
+                if requested:
+                    try:
+                        self.configure(**requested)
+                    except Exception as exc:
+                        hardware_problems.report(
+                            self.name,
+                            'Exposure could not be restored after reconnect; '
+                            'this frame may be at the wrong exposure',
+                            detail=str(exc),
+                        )
                 try:
                     self._sdk_cam.shoot_no_af()
                 except Exception:
