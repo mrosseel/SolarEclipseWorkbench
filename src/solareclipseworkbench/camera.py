@@ -1634,7 +1634,7 @@ def calculate_bracket_exposures(bracket_str: str, base_shutter_speed: str | floa
 
 
 @_serialised_on_camera
-def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) -> None:
+def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) -> Optional[int]:
     """ Take a bracketing of images with the selected camera.
 
     For Canon, the built-in AEB widget is used ('aeb') and 5 frames are fired.
@@ -1648,6 +1648,11 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
         - steps: Bracket half-width, e.g. '+/- 1 2/3' fires 5 shots at
                  base-2*1⅔, base-1⅔, base, base+1⅔, base+2*1⅔ stops.
                  Supported: '+/- 1/3' through '+/- 3'.
+
+    Returns the number of frames taken where the path counts them (Fuji), and
+    None where it does not.  A caller cannot recover the figure afterwards: the
+    Fuji path drains the transfer queue before it returns, so measuring the
+    queue from outside reports zero however much was shot.
     """
     vendor = getattr(camera, 'vendor', None)
     camera_name = getattr(camera, 'name', None)
@@ -1729,7 +1734,7 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
                 )
             else:
                 logging.info('%s: take_bracket took all %d frame(s)', camera_name, taken)
-            return
+            return taken
         try:
             for _ in range(3):
                 camera.capture()

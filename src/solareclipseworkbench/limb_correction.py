@@ -417,9 +417,14 @@ def bead_reference_moments(eclipse_date, latitude, longitude, elevation_m,
     at this place, the limb data is not installed, or the correction has been
     switched off.  The keys are the ones a script can schedule against:
 
-        C2_LIMB, C3_LIMB              the limb-corrected internal contacts
+        C2, C3                        the limb-corrected internal contacts,
+                                      replacing the mean-limb ones
+        C2_MEAN, C3_MEAN              the uncorrected times they replaced
         BEADS_C2, BEADS_C3            the middle of each bead window
         BEADS_C2_START / _END         its edges, and likewise for C3
+
+    A script written against C2 therefore gets the best time available, rather
+    than having to know to ask for a differently named one.
     """
     if not _enabled:
         return {}
@@ -429,8 +434,8 @@ def bead_reference_moments(eclipse_date, latitude, longitude, elevation_m,
     if solution is None:
         return {}
 
-    moments = {"C2_LIMB": solution.to_utc(solution.c2_limb),
-               "C3_LIMB": solution.to_utc(solution.c3_limb)}
+    moments = {"C2": solution.to_utc(solution.c2_limb),
+               "C3": solution.to_utc(solution.c3_limb)}
     for name in ("C2", "C3"):
         start, end = solution.windows[name]
         moments[f"BEADS_{name}_START"] = solution.to_utc(start)

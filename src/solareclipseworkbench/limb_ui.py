@@ -304,7 +304,7 @@ class BeadsPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
 
-        self.summary = QLabel("Limb correction \u2014 set a location and a date")
+        self.summary = QLabel("Corrections \u2014 set a location and a date")
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
 
@@ -381,13 +381,13 @@ class BeadsPanel(QWidget):
         mark = "\u2713" if is_enabled() else "\u2717"
 
         if self.solution is None:
-            self.summary.setText(f"{mark} Limb correction \u2014 no profile here")
+            self.summary.setText(f"{mark} Corrections \u2014 no limb profile here")
             self.view.update()
             return
 
         solution = self.solution
         change = ((solution.c3_limb - solution.c2_limb) - (solution.c3 - solution.c2)) * 3600.0
-        text = (f"{mark} Limb correction{'' if is_enabled() else ' (off)'}   "
+        text = (f"{mark} Corrections{'' if is_enabled() else ' (off)'}   limb "
                 f"C2 {solution.correction_seconds('C2'):+.1f}s   "
                 f"C3 {solution.correction_seconds('C3'):+.1f}s   "
                 f"beads {solution.window_seconds('C2'):.1f}/{solution.window_seconds('C3'):.1f}s   "

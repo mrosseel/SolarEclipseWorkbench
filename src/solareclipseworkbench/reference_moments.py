@@ -172,6 +172,7 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
             timings["C3"] = c3
 
             timings["duration"] = timedelta(hours=(result['ut_third_contact'] - result['ut_second_contact']))
+            mean_duration = timings["duration"]
 
             # Limb-corrected contacts and the bead windows around them, so a
             # burst can be scheduled on the diamond ring rather than on a
@@ -186,11 +187,23 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
                                 "falling back to mean-limb contacts: %s", exc)
                 bead_moments = {}
 
+            # The corrected contacts take over the C2 and C3 names, and the
+            # mean-limb ones keep theirs with _MEAN, so an existing script
+            # benefits without being rewritten.
+            for contact in ("C2", "C3"):
+                if contact in bead_moments and contact in timings:
+                    timings[f"{contact}_MEAN"] = timings[contact]
+
             for name, moment in bead_moments.items():
                 near_c2 = "C2" in name
                 azimuth = second_contact_az if near_c2 else third_contact_az
                 altitude = second_contact_alt if near_c2 else third_contact_alt
                 timings[name] = ReferenceMomentInfo(moment, azimuth, altitude.degrees, timezone)
+
+            # Totality follows the contacts it is measured between.
+            if "C2" in timings and "C3" in timings:
+                timings["duration"] = timings["C3"].time_utc - timings["C2"].time_utc
+                timings["duration_mean"] = mean_duration
 
         sc_h, sc_m, sc_s = ut_to_hms(result['ut_last_contact'])
         sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
