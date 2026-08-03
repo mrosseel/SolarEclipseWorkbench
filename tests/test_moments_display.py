@@ -8,6 +8,7 @@ The site constants below are the production site, chosen because the correction
 is worth whole seconds there and the assertions have something to bite on.
 """
 
+import datetime
 import os
 
 import pytest
@@ -99,12 +100,20 @@ def test_the_relay_button_sits_next_to_the_cameras(view):
 
 
 def _controller(view, cameras, scheduler=None):
+    """A stand-in controller.  The real methods under test are called unbound
+    with this as self, so anything they call on self has to be attached here."""
     from types import SimpleNamespace
-    return SimpleNamespace(
+    from solareclipseworkbench import gui as gui_mod
+    c = SimpleNamespace(
         view=view, scheduler=scheduler, _live_view_window=None,
+        _live_view_yield_timer=None, _live_view_yielded=False,
         model=SimpleNamespace(camera_overview=SimpleNamespace(
             camera_overview_dict=cameras)),
     )
+    c._seconds_to_next_frame = lambda: gui_mod.SolarEclipseController._seconds_to_next_frame(c)
+    c._yield_live_view_for_frames = lambda: gui_mod.SolarEclipseController._yield_live_view_for_frames(c)
+    c._stop_live_view_yielding = lambda: gui_mod.SolarEclipseController._stop_live_view_yielding(c)
+    return c
 
 
 def test_live_view_opens_for_a_fuji_over_the_sdk(view, monkeypatch):
@@ -127,22 +136,87 @@ def test_live_view_opens_for_a_fuji_over_the_sdk(view, monkeypatch):
     assert opened["camera"] is fuji
 
 
-def test_live_view_is_refused_while_the_schedule_is_armed(view, monkeypatch):
-    # It opens a video stream on the connection the schedule shoots through and
-    # takes priority over it.  Not a thing to discover during totality.
+def _scheduler_with_next_frame_in(seconds):
+    from types import SimpleNamespace
+    when = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=seconds)
+    return SimpleNamespace(get_jobs=lambda: [SimpleNamespace(next_run_time=when)])
+
+
+def test_live_view_waits_when_a_frame_is_seconds_away(view, monkeypatch):
+    # It holds the camera and takes PC priority, so it must not be streaming
+    # when a frame is due.
     from types import SimpleNamespace
     from solareclipseworkbench import gui as gui_mod
 
     shown = {}
     monkeypatch.setattr(gui_mod.QMessageBox, "warning",
                         lambda *a, **k: shown.update(title=a[1], body=a[2]))
-    armed = SimpleNamespace(get_jobs=lambda: ["a scheduled frame"])
     fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
+    controller = _controller(view, {"X-T4": fuji}, scheduler=_scheduler_with_next_frame_in(3))
 
-    gui_mod.SolarEclipseController._open_fuji_live_view(
-        _controller(view, {"X-T4": fuji}, scheduler=armed), fuji)
+    gui_mod.SolarEclipseController._open_fuji_live_view(controller, fuji)
 
-    assert "armed" in shown["title"].lower()
+    assert "next frame" in shown["title"].lower()
+
+
+def test_live_view_opens_during_the_partials_with_a_script_loaded(view, monkeypatch):
+    # Partial frames are minutes apart and the script is loaded from twenty
+    # minutes before first contact.  Refusing for the whole run would mean no
+    # focus check at all on the day - and focus drifts as the tube cools.
+    from types import SimpleNamespace
+    from solareclipseworkbench import gui as gui_mod
+
+    monkeypatch.setattr(gui_mod.QMessageBox, "warning",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("must not refuse three minutes out")))
+    opened = {}
+    from PyQt6.QtWidgets import QDockWidget
+
+    class _Win(QDockWidget):
+        """A real dock, so addDockWidget accepts it; the SDK stream is not started."""
+        _thread = None
+
+        def __init__(self, sdk, parent):
+            super().__init__("Live View", parent)
+            opened["sdk"] = sdk
+
+    import solareclipseworkbench.liveview as lv
+    monkeypatch.setattr(lv, "LiveViewWindow", _Win)
+
+    fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
+    controller = _controller(view, {"X-T4": fuji}, scheduler=_scheduler_with_next_frame_in(180))
+    controller.view = view
+
+    gui_mod.SolarEclipseController._open_fuji_live_view(controller, fuji)
+
+    assert opened["sdk"] is fuji._sdk_cam
+
+
+def test_live_view_stands_aside_for_a_frame_and_comes_back(view):
+    # Taking turns is what makes focusing possible right up to the last partial
+    # before second contact, instead of the window being refused outright.
+    from types import SimpleNamespace
+    from solareclipseworkbench import gui as gui_mod
+
+    events = []
+    class _Win:
+        _thread = object()
+        def isVisible(self): return True
+        def stop_stream(self): events.append("stop"); type(self)._thread = None
+        def start_stream(self): events.append("start"); type(self)._thread = object()
+    window = _Win()
+
+    controller = _controller(view, {})
+    controller._live_view_window = window
+    controller._live_view_yield_timer = None
+    controller._stop_live_view_yielding = lambda: None
+    controller._seconds_to_next_frame = lambda: 4          # a frame is imminent
+    gui_mod.SolarEclipseController._yield_live_view_for_frames(controller)
+
+    controller._seconds_to_next_frame = lambda: 175        # the gap after it
+    gui_mod.SolarEclipseController._yield_live_view_for_frames(controller)
+
+    assert events == ["stop", "start"]
 
 
 def test_live_view_still_says_so_when_nothing_is_connected(view, monkeypatch):
