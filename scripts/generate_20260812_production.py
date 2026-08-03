@@ -253,6 +253,8 @@ deeper = shutter(totality_exposure("corona_outer_8R", alt_max, ISO_DEEP) * 2)
 cor_low = totality_exposure("corona_lower", alt_max, ISO_CORONA)
 cor_out = totality_exposure("corona_outer_8R", alt_max, ISO_CORONA)
 hdr_start = shutter(cor_low / 2, EOS_MAX_SHUTTER)
+# take_hdr on the 800D is what this bound is for; the X-T4's ladder is written
+# out speed by speed and is bounded by the corona, not by the Canon.
 hdr_stops = min(8, int(round(math.log2(cor_out / (cor_low / 2)))))
 
 # The corona spans some twelve stops from the inner edge to the outer streamers.
@@ -269,7 +271,32 @@ def corona_ladder(start_s: float, stops: int, step_ev: int = 2) -> tuple:
     return ";".join(rungs), len(rungs)
 
 
-CORONA_LADDER, CORONA_FRAMES = corona_ladder(cor_low / 2, hdr_stops)
+# ISO 1600 rather than 400 buys two stops of shutter for two stops of gain, and
+# the faintest corona is where the clock hurts and the noise does not: a rung at
+# 1/2" reaches what 2" reached at ISO 400, in a quarter of the time.  That is
+# what lets one ladder span the whole corona and still run six times.
+ISO_LADDER = 1600
+_gain = ISO_LADDER / ISO_CORONA
+
+# The ladder has to reach as faint as the separate deep frames it replaced, or
+# merging them in would quietly cost the outer streamers.  `deeper` is the
+# faintest thing the schedule ever asked for, so the ladder runs from the inner
+# edge to that, both expressed at the ladder's own ISO.
+_ladder_start = cor_low / 2 / _gain
+_ladder_end = totality_exposure("corona_outer_8R", alt_max, ISO_CORONA) * 2 / _gain
+XT4_LADDER_STOPS = int(math.ceil(math.log2(_ladder_end / _ladder_start)))
+CORONA_LADDER, CORONA_FRAMES = corona_ladder(_ladder_start, XT4_LADDER_STOPS)
+
+sys.stderr.write(
+    "ladder  %s  @ISO%d  (%d rungs, %d stops)\n"
+    % (CORONA_LADDER, ISO_LADDER, CORONA_FRAMES, XT4_LADDER_STOPS))
+# The rungs step 2 EV at a time, so the last one lands at or below the target -
+# report the rung, not the span, or this reads as more reach than it has.
+_last = _ladder_start * 2 ** (2 * (CORONA_FRAMES - 1))
+sys.stderr.write(
+    "  faintest rung %.3fs @ISO%d = %.2fs at ISO%d; the singles it replaces reached %.2fs\n"
+    % (_last, ISO_LADDER, _last * _gain, ISO_CORONA,
+       totality_exposure("corona_outer_8R", alt_max, ISO_CORONA) * 2))
 
 # The hold is bounded by the transfer queue, not by the card: every frame taken
 # with the SDK session open holds one of 32 slots until the drain that follows
@@ -514,35 +541,32 @@ relay_release("BEADS_C2_END", "+", 1.5, "Open every contact after the C2 burst")
 announce("C2", "-", 0, "C2", "Second contact - filters off, totality has begun")
 picture(EOS, "C2", "+", 4.0, chromo, ISO_BEADS, "Chromosphere")
 picture(EOS, "C2", "+", 5.5, prom, ISO_BEADS, "Prominences")
-bracket(XT4, "C2", "+", 6.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+bracket(XT4, "C2", "+", 6.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
         CORONA_LADDER, CORONA_FRAMES, "Corona ladder A1, inner edge to outer streamers")
 hdr(EOS, "C2", "+", 7.0, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder A")
-bracket(XT4, "C2", "+", 18.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+bracket(XT4, "C2", "+", 18.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
         CORONA_LADDER, CORONA_FRAMES, "Corona ladder A2, inner edge to outer streamers")
-bracket(XT4, "C2", "+", 30.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+bracket(XT4, "C2", "+", 30.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
         CORONA_LADDER, CORONA_FRAMES, "Corona ladder A3, inner edge to outer streamers")
 hdr(EOS, "C2", "+", 26.0, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder B")
 announce("C2", "+", 30, "C2_PLUS_30_SECONDS", "Thirty seconds into totality")
 picture(EOS, "C2", "+", 45.0, deep, ISO_DEEP, "Deep outer corona")
-picture(XT4, "C2", "+", 46.0, deep, ISO_DEEP, "Deep outer corona")
 picture(EOS, "C2", "+", 47.5, deeper, ISO_DEEP, "Deepest outer corona / earthshine")
 announce("MAX", "-", 10, "MAX_IN_10_SECONDS", "Ten seconds to maximum eclipse")
 for n, name in ((5, "MAX_IN_5_SECONDS"), (4, "MAX_IN_4_SECONDS"), (3, "MAX_IN_3_SECONDS"),
                 (2, "MAX_IN_2_SECONDS"), (1, "MAX_IN_1_SECOND")):
     announce("MAX", "-", n, name, "%d to maximum eclipse" % n)
-picture(XT4, "C2", "+", 49.5, deeper, ISO_DEEP, "Deepest outer corona / earthshine")
 picture(EOS, "C2", "+", 50.5, inner, ISO_CORONA, "Inner corona at maximum eclipse")
 announce("MAX", "-", 0, "MAX", "Maximum eclipse")
-picture(XT4, "C2", "+", 52.0, inner, ISO_CORONA, "Inner corona at maximum eclipse")
 picture(EOS, "C2", "+", 53.0, deeper, ISO_DEEP, "Deepest outer corona / earthshine")
 picture(EOS, "C2", "+", 55.5, deep, ISO_DEEP, "Deep outer corona")
 announce("C3", "-", 45, "C3_IN_45_SECONDS", "Forty-five seconds of totality left")
-bracket(XT4, "C2", "+", 56.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+bracket(XT4, "C2", "+", 56.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
         CORONA_LADDER, CORONA_FRAMES, "Corona ladder B1, inner edge to outer streamers")
 hdr(EOS, "C2", "+", 58.5, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder C")
-bracket(XT4, "C2", "+", 68.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+bracket(XT4, "C2", "+", 68.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
         CORONA_LADDER, CORONA_FRAMES, "Corona ladder B2, inner edge to outer streamers")
-bracket(XT4, "C2", "+", 80.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+bracket(XT4, "C2", "+", 80.0, CORONA_LADDER.split(";")[0], ISO_LADDER,
         CORONA_LADDER, CORONA_FRAMES, "Corona ladder B3, inner edge to outer streamers")
 picture(EOS, "C3", "-", 23.0, deep, ISO_DEEP, "Deep outer corona")
 picture(EOS, "C3", "-", 20.5, inner, ISO_CORONA, "Inner corona")
