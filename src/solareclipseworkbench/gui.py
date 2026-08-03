@@ -85,10 +85,10 @@ DOCK_COLUMN_WIDTH = 340
 #: a few bodies; the schedule above it wants the rest.
 CAMERA_DOCK_HEIGHT = 150
 
-#: Starting width of the contact-times column: what its four columns measure,
-#: plus room for a scrollbar.  Below this the Altitude header clips to "Alt".
-#: It scrolls if given less, so this is where it starts and not a floor.
-MOMENTS_DOCK_WIDTH = 510
+#: Starting height of the contact-times strip: what its ten rows measure, plus
+#: the group box's own margins.  It scrolls if given less, so this is where it
+#: starts and not a floor.
+MOMENTS_DOCK_HEIGHT = 240
 
 ICON_PATH = Path(__file__).parent.resolve() / "img"
 
@@ -466,7 +466,6 @@ class SolarEclipseView(QMainWindow, Observable):
         self.toolbar = None
         self.location_action = QAction("Location", self)
         self.date_action = QAction("Date", self)
-        self.reference_moments_action = QAction("Reference moments", self)
         self.camera_action = QAction("Camera(s)", self)
         self.simulator_action = QAction("Simulator", self)
         self.file_action = QAction("File", self)
@@ -479,7 +478,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.place_time_frame = QFrame()
 
         self.eclipse_date_widget = QWidget()
-        self.eclipse_date_label = QLabel(f"Eclipse date [{self.date_format}]")
+        self.eclipse_date_label = QLabel("Eclipse date")
         self.eclipse_date = QLabel("")
 
         self.reference_moments_widget = QWidget()
@@ -564,7 +563,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.c4_altitude_label = QLabel()
         self.c4_altitude_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        self.date_label = QLabel(f"Date [{self.date_format}]")
+        self.date_label = QLabel("Date")
         self.date_label_local = QLabel()
         self.date_label_local.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.time_label_local = QLabel()
@@ -686,15 +685,13 @@ class SolarEclipseView(QMainWindow, Observable):
         place_time_grid_layout = QGridLayout()
 
         place_time_grid_layout.addWidget(QLabel("Local", alignment=Qt.AlignmentFlag.AlignRight), 0, 1)
-        place_time_grid_layout.addWidget(QLabel("UTC", alignment=Qt.AlignmentFlag.AlignRight), 0, 2)
+        # No UTC column here either - it is on the local value as a tooltip.
 
         place_time_grid_layout.addWidget(self.date_label, 1, 0)
         place_time_grid_layout.addWidget(self.date_label_local, 1, 1)
-        place_time_grid_layout.addWidget(self.date_label_utc, 1, 2)
 
         place_time_grid_layout.addWidget(QLabel("Time"), 2, 0)
         place_time_grid_layout.addWidget(self.time_label_local, 2, 1)
-        place_time_grid_layout.addWidget(self.time_label_utc, 2, 2)
 
         place_time_group_box.setLayout(place_time_grid_layout)
         place_time_group_box.setMinimumWidth(250)
@@ -801,10 +798,13 @@ class SolarEclipseView(QMainWindow, Observable):
         self.moments_dock = QDockWidget("Contact times", self)
         self.moments_dock.setObjectName("moments_dock")
         self.moments_dock.setWidget(moments_scroller)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.moments_dock)
+        # Beside the cameras along the bottom.  A dock fills whatever area it is
+        # alone in - down the right it left six hundred pixels of nothing beside
+        # ten numbers, along the top it left two thirds of the width empty - so
+        # it is given a neighbour instead, and the two short panels share one
+        # strip while the schedule keeps the middle of the window.
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.moments_dock)
         self.moments_dock.show()
-        self.resizeDocks([self.moments_dock], [MOMENTS_DOCK_WIDTH],
-                         Qt.Orientation.Horizontal)
 
         input_hbox = QHBoxLayout()
         input_hbox.addLayout(vbox_left, 0)
@@ -834,6 +834,17 @@ class SolarEclipseView(QMainWindow, Observable):
         self.moments_dock_action.setText("Contact times")
         self.moments_dock_action.setStatusTip("Show the contact times and countdowns")
         self.toolbar.insertAction(self.mount_dock_action, self.moments_dock_action)
+
+        # Both are short panels, and a dock alone in an area fills it: down the
+        # right that left six hundred pixels of nothing beside ten numbers,
+        # along the top two thirds of the width.  Sharing one strip, neither
+        # does, and the schedule keeps the middle of the window.
+        self.splitDockWidget(self.camera_dock, self.moments_dock,
+                             Qt.Orientation.Horizontal)
+        self.resizeDocks([self.camera_dock, self.moments_dock], [3, 4],
+                         Qt.Orientation.Horizontal)
+        self.resizeDocks([self.moments_dock], [MOMENTS_DOCK_HEIGHT],
+                         Qt.Orientation.Vertical)
 
         self.camera_dock_action = self.camera_dock.toggleViewAction()
         self.camera_dock_action.setText("Cameras")
@@ -924,7 +935,9 @@ class SolarEclipseView(QMainWindow, Observable):
         self.splitDockWidget(self.geometry_dock, self.beads_dock,
                              Qt.Orientation.Vertical)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.camera_dock)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.moments_dock)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.moments_dock)
+        self.splitDockWidget(self.camera_dock, self.moments_dock,
+                             Qt.Orientation.Horizontal)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.mount_dock)
         self.resizeDocks([self.geometry_dock], [DOCK_COLUMN_WIDTH],
                          Qt.Orientation.Horizontal)
@@ -932,8 +945,8 @@ class SolarEclipseView(QMainWindow, Observable):
                          [1, 1], Qt.Orientation.Vertical)
         self.resizeDocks([self.camera_dock], [CAMERA_DOCK_HEIGHT],
                          Qt.Orientation.Vertical)
-        self.resizeDocks([self.moments_dock], [MOMENTS_DOCK_WIDTH],
-                         Qt.Orientation.Horizontal)
+        self.resizeDocks([self.moments_dock], [MOMENTS_DOCK_HEIGHT],
+                         Qt.Orientation.Vertical)
         self.mount_dock.hide()
         logging.info("Window layout reset to the default arrangement")
 
@@ -976,10 +989,6 @@ class SolarEclipseView(QMainWindow, Observable):
 
         # Reference moments
 
-        self.reference_moments_action.setStatusTip("Reference moments")
-        self.reference_moments_action.setIcon(QIcon(str(ICON_PATH / "clock.png")))
-        self.reference_moments_action.triggered.connect(self.on_toolbar_button_click)
-        self.toolbar.addAction(self.reference_moments_action)
 
         # Camera(s)
 
@@ -1133,14 +1142,19 @@ class SolarEclipseView(QMainWindow, Observable):
             - countdown_sunset: Countdown clock to sunset
         """
 
-        self.eclipse_date_label.setText(f"Eclipse date [{self.date_format}]")
+        self.eclipse_date_label.setText("Eclipse date")
 
-        self.date_label.setText(f"Date [{self.date_format}]")
+        self.date_label.setText("Date")
         self.date_label_local.setText(datetime.datetime.strftime(current_time_local, DATE_FORMATS[self.date_format]))
         self.date_label_utc.setText(datetime.datetime.strftime(current_time_utc, DATE_FORMATS[self.date_format]))
 
         self.time_label_local.setText(format_time(current_time_local, self.time_format))
         self.time_label_utc.setText(format_time(current_time_utc, self.time_format))
+        # Still updated, still read by the settings dialog - just shown on hover.
+        self.date_label_local.setToolTip(
+            f"{datetime.datetime.strftime(current_time_utc, DATE_FORMATS[self.date_format])} UTC")
+        self.time_label_local.setToolTip(
+            f"{format_time(current_time_utc, self.time_format)} UTC")
 
         if not countdown_c1 or countdown_c1.total_seconds() <= 0:
             label_text = "-"
@@ -1253,9 +1267,11 @@ class SolarEclipseView(QMainWindow, Observable):
                               else "no limb profile")
                 continue
             seconds = (end.time_utc - start.time_utc).total_seconds()
-            label.setText("%s - %s  (%.2f s)" % (format_time(start.time_utc, self.time_format),
-                                                 format_time(end.time_utc, self.time_format),
+            label.setText("%s - %s  (%.2f s)" % (format_time(start.time_local, self.time_format),
+                                                 format_time(end.time_local, self.time_format),
                                                  seconds))
+            label.setToolTip("%s - %s UTC" % (format_time(start.time_utc, self.time_format),
+                                              format_time(end.time_utc, self.time_format)))
 
         # Maximum eclipse
 
@@ -1692,95 +1708,6 @@ class SolarEclipseController(Observer):
         elif text == "Date":
             self.eclipse_popup = EclipsePopup(self)
             self.eclipse_popup.show()
-
-        elif text == "Reference moments":
-            if self.model.is_location_set and self.model.is_eclipse_date_set:
-                # Run reference moments calculation in a background thread and show a
-                # modal dialog with progress and a live log view while ephemeris files
-                # (de440s/de421) are downloaded. Capture stdout/stderr into the dialog
-                # so the user sees progress in the GUI instead of the terminal.
-                dialog = QDialog(self.view)
-                dialog.setWindowTitle("Downloading")
-                dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
-                dlg_layout = QVBoxLayout(dialog)
-
-                # Compact dialog: label + indeterminate progress bar
-                progress_bar = QProgressBar()
-                progress_bar.setRange(0, 0)  # indeterminate
-                dlg_layout.addWidget(progress_bar)
-
-                label = QLabel("Loading helper files...")
-                dlg_layout.addWidget(label)
-
-                dialog.setLayout(dlg_layout)
-
-                result_container = {}
-
-                class _DevNull:
-                    def write(self, s):
-                        return
-
-                    def flush(self):
-                        return
-
-                def worker():
-                    old_out = sys.stdout
-                    old_err = sys.stderr
-                    sys.stdout = _DevNull()
-                    sys.stderr = _DevNull()
-                    import logging
-                    root_logger = logging.getLogger()
-                    old_handlers = list(root_logger.handlers)
-                    old_level = root_logger.level
-                    try:
-                        root_logger.handlers = []
-                        rm, mag, typ = self.model.get_reference_moments()
-                        result_container["result"] = (rm, mag, typ)
-                    except Exception:
-                        import traceback
-
-                        result_container["error"] = traceback.format_exc()
-                    finally:
-                        sys.stdout = old_out
-                        sys.stderr = old_err
-                        root_logger.handlers = old_handlers
-                        root_logger.setLevel(old_level)
-
-                th = threading.Thread(target=worker, daemon=True)
-
-                # Show dialog immediately so it is visible before downloads start.
-                try:
-                    dialog.show()
-                    QApplication.processEvents()
-                except Exception:
-                    pass
-
-                logging.getLogger(__name__).debug("Starting GUI reference-moments worker thread")
-
-                th.start()
-
-                timer = QTimer(dialog)
-
-                def pump_logs_and_check():
-                    if not th.is_alive():
-                        timer.stop()
-                        dialog.accept()
-
-                timer.timeout.connect(pump_logs_and_check)
-                timer.start(100)
-
-                dialog.exec()
-
-                if "error" in result_container:
-                    LOGGER.exception("Error while calculating reference moments")
-                    QMessageBox.critical(
-                        self.view,
-                        "Reference moments failed",
-                        f"Error calculating reference moments:\n{result_container['error']}"
-                    )
-                else:
-                    rm, mag, typ = result_container["result"]
-                    self.view.show_reference_moments(rm, mag, typ)
 
         elif text == "Camera(s)":
             logging.debug('User requested Camera(s) update')
