@@ -138,13 +138,13 @@ def _on_job_problem(event) -> None:
     wrong.  Routing them into hardware_problems puts them where every other
     hardware fault already appears.
     """
-    name = getattr(event, "job_id", "?")
-    job = None
-    try:
-        job = event.job          # present on some APScheduler versions
-    except AttributeError:
-        pass
-    description = getattr(job, "name", None) or name
+    # A missed-job event carries only the id, and the job itself is already gone
+    # from the store by the time this runs, so the name has to have been kept
+    # when it was scheduled.  Without it the warning reads
+    # "40bb5744305c41128aa6be17d88cc20e was missed", which tells nobody anything.
+    job_id = getattr(event, "job_id", "?")
+    description = _JOB_NAMES.get(job_id) or getattr(getattr(event, "job", None),
+                                                    "name", None) or job_id
 
     if getattr(event, "exception", None) is not None:
         logging.exception('Scheduled command "%s" raised: %s', description, event.exception)
@@ -161,6 +161,11 @@ def _on_job_problem(event) -> None:
             severity="warning",
         )
         frame_log.record("missed")
+
+
+#: What each scheduled job was called, by id.  APScheduler drops the job before
+#: the missed-job listener sees it, taking the name with it.
+_JOB_NAMES: dict = {}
 
 
 def _timed(func, intended: datetime, description: str):
@@ -376,8 +381,9 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
 
         trigger = DateTrigger(run_date=execution_time, timezone=pytz.utc)
 
-        scheduler.add_job(_timed(func, execution_time, description),
-                          trigger=trigger, args=args, name=description)
+        job = scheduler.add_job(_timed(func, execution_time, description),
+                                trigger=trigger, args=args, name=description)
+        _JOB_NAMES[job.id] = description
     except KeyError as missing:
         # A line naming a moment the calculation did not produce.  Usually a
         # limb-corrected moment — BEADS_C2 and friends only exist when the

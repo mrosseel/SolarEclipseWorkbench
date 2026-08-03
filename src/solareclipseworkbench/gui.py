@@ -62,6 +62,12 @@ from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
 from solareclipseworkbench.constants import SUN_RADIUS, MOON_RADIUS
 from solareclipseworkbench import configuration
 
+#: Where the window layout and formats are remembered.  Module level so a test
+#: can point it at a temporary file rather than the user's own settings - a test
+#: that reads those fails or passes according to where someone last dragged a
+#: pane, which is not a property of the code.
+SETTINGS_PATH = Path.home() / ".SolarEclipseWorkbench.ini"
+
 ICON_PATH = Path(__file__).parent.resolve() / "img"
 
 TIME_FORMATS = {
@@ -596,10 +602,12 @@ class SolarEclipseView(QMainWindow, Observable):
         app_frame = QFrame()
         app_frame.setObjectName("AppFrame")
 
-        # Geometry and beads are two pictures of the same moment, so they share
-        # one tabbed slot.  Either can be closed, floated onto a second screen for
-        # totality, or dragged to another edge; Qt tracks that through
-        # toggleViewAction and saveState.
+        # Geometry above, beads below, the schedule beside them spanning both:
+        # they are two pictures of the same moment and both are worth watching at
+        # once, so they get a row each rather than sharing one tabbed slot.  Any
+        # of them can be dragged to another edge, tabbed onto another by dropping
+        # it on top, floated onto a second screen for totality, or closed; Qt
+        # tracks whatever you end up with through toggleViewAction and saveState.
         self.geometry_dock = QDockWidget("Eclipse geometry", self)
         self.geometry_dock.setObjectName("geometry_dock")
         self.geometry_dock.setWidget(self.eclipse_visualization)
@@ -609,8 +617,13 @@ class SolarEclipseView(QMainWindow, Observable):
         self.beads_dock.setObjectName("beads_dock")
         self.beads_dock.setWidget(self.beads_panel)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.beads_dock)
-        self.tabifyDockWidget(self.geometry_dock, self.beads_dock)
-        self.geometry_dock.raise_()
+        self.splitDockWidget(self.geometry_dock, self.beads_dock,
+                             Qt.Orientation.Vertical)
+
+        # A floor under each, so neither can be dragged down to a sliver that is
+        # then remembered.  Small enough to still get out of the way.
+        self.eclipse_visualization.setMinimumHeight(160)
+        self.beads_panel.setMinimumHeight(120)
 
         # The mount is watchable for the whole run, and closing it must not
         # disturb the rest of the window.  All three docks are built before the
@@ -750,18 +763,42 @@ class SolarEclipseView(QMainWindow, Observable):
 
     def restore_splitter_state(self):
         """Put the docks back where the user left them."""
-        settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
-                             QSettings.Format.IniFormat)
+        settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
         # Docks are keyed by object name, so a layout saved before one of them
         # existed leaves that dock where the code put it.
         dock_state = settings.value("layout/docks")
         if dock_state is not None:
             self.restoreState(dock_state)
 
+    def reset_layout(self):
+        """Put every pane back where the code puts it.
+
+        A saved layout overrides the defaults completely, so a pane dragged down
+        to a few pixels stays that way across restarts and there is no way back
+        to a working window short of editing an ini file by hand.  This is that
+        way back.
+        """
+        settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
+        settings.remove("layout/docks")
+        # Written before the panes were docks and read by nothing since.
+        settings.remove("layout/output_splitter")
+        settings.sync()
+
+        for dock in (self.geometry_dock, self.beads_dock, self.mount_dock):
+            dock.setFloating(False)
+            dock.show()
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.geometry_dock)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.beads_dock)
+        self.splitDockWidget(self.geometry_dock, self.beads_dock,
+                             Qt.Orientation.Vertical)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.mount_dock)
+        self.resizeDocks([self.geometry_dock, self.beads_dock],
+                         [3, 2], Qt.Orientation.Vertical)
+        logging.info("Window layout reset to the default arrangement")
+
     def save_splitter_state(self):
         """Remember where the docks were left."""
-        settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
-                             QSettings.Format.IniFormat)
+        settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
         settings.setValue("layout/docks", self.saveState())
 
     def add_toolbar(self):
@@ -888,6 +925,16 @@ class SolarEclipseView(QMainWindow, Observable):
         self.mount_dock_action.setText("Mount")
         self.mount_dock_action.setStatusTip("Show the mount controls")
         self.toolbar.addAction(self.mount_dock_action)
+
+        # A saved layout overrides the defaults completely, so a pane dragged to
+        # a few pixels stays that way across restarts.  Without this the only way
+        # back is editing an ini by hand, which is not a thing to discover on
+        # eclipse morning.
+        self.reset_layout_action = QAction("Reset layout", self)
+        self.reset_layout_action.setStatusTip(
+            "Put the panes back where they started")
+        self.reset_layout_action.triggered.connect(self.reset_layout)
+        self.toolbar.addAction(self.reset_layout_action)
 
     def on_toolbar_button_click(self):
         """ Action triggered when a toolbar button is clicked."""
@@ -1570,8 +1617,7 @@ class SolarEclipseController(Observer):
         elif text == "File":
             # Start in the directory the user picked last time, falling back to their own
             # scripts directory (seeded with the bundled examples on first run).
-            settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"),
-                                 QSettings.Format.IniFormat)
+            settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
             start_dir = settings.value("last_script_dir", "")
             if not start_dir or not os.path.isdir(start_dir):
                 start_dir = str(get_scripts_dir())
@@ -1803,7 +1849,7 @@ class SolarEclipseController(Observer):
         automatically.
         """
 
-        self.view.settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"), QSettings.Format.IniFormat)
+        self.view.settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
 
         # Date & time format
         # TODO Requires Python 3.7
@@ -2615,7 +2661,7 @@ class RelayPopup(QWidget, Observable):
         self.add_observer(observer)
         self.controller = observer
 
-        settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"), QSettings.Format.IniFormat)
+        settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
 
         layout = QVBoxLayout()
 
@@ -2739,7 +2785,7 @@ class RelayPopup(QWidget, Observable):
         self.controller.relay_trigger = trigger
         register_hardware('relay', trigger)
 
-        settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"), QSettings.Format.IniFormat)
+        settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
         settings.setValue("relay/backend", kind)
         settings.setValue("relay/port", port or "")
         settings.setValue("relay/s2_channel", str(s2))

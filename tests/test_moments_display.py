@@ -17,7 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from astropy.time import Time
 from PyQt6.QtWidgets import QApplication
 
-from solareclipseworkbench import limb_correction
+from solareclipseworkbench import gui, limb_correction
 from solareclipseworkbench.gui import SolarEclipseView
 from solareclipseworkbench.reference_moments import calculate_reference_moments
 
@@ -29,6 +29,17 @@ ECLIPSE = Time("2026-08-12 00:00:00")
 @pytest.fixture(scope="module")
 def app():
     return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture(autouse=True)
+def _own_settings(tmp_path, monkeypatch):
+    """Keep the window out of the user's real settings file.
+
+    The view restores its dock layout from disk on construction, so without this
+    the docks test passes or fails according to where someone last dragged a
+    pane in the real application - which is not a property of the code.
+    """
+    monkeypatch.setattr(gui, "SETTINGS_PATH", tmp_path / "settings.ini")
 
 
 @pytest.fixture

@@ -255,15 +255,21 @@ cor_out = totality_exposure("corona_outer_8R", alt_max, ISO_CORONA)
 hdr_start = shutter(cor_low / 2, EOS_MAX_SHUTTER)
 hdr_stops = min(8, int(round(math.log2(cor_out / (cor_low / 2)))))
 
-# take_bracket "+/- 2" is 13 frames at 1/3 stops spanning +/-2 EV around the set
-# speed, so three centres are needed to span what one take_hdr ladder covers.
-BRACKET_STEPS = "+/- 2"
-BRACKET_FRAMES = 13
-bracket_centres = [
-    (shutter(totality_exposure("corona_lower", alt_max, ISO_CORONA) * 4), "inner corona"),
-    (shutter(totality_exposure("corona_inner_0.5R", alt_max, ISO_CORONA) * 2), "middle corona"),
-    (shutter(totality_exposure("corona_upper", alt_max, ISO_CORONA) * 2), "outer corona"),
-]
+# The corona spans some twelve stops from the inner edge to the outer streamers.
+# "+/- 2" is thirteen frames a third of a stop apart covering four of them, so it
+# took three of them - three separate commands, 18s of shutter each - to cover
+# what one ladder can, and on 3 August the middle one of each group was dropped
+# because the one before it still had the camera.  take_bracket also accepts the
+# speeds written out, which is how the whole range fits in one command of seven
+# frames and about ten seconds.
+def corona_ladder(start_s: float, stops: int, step_ev: int = 2) -> tuple:
+    """A semicolon ladder from `start_s`, in `step_ev` jumps, and its frame count."""
+    rungs = [shutter(start_s * (2 ** ev)) for ev in range(0, stops + 1, step_ev)]
+    # Written out rather than centred, so nothing depends on what the body holds.
+    return ";".join(rungs), len(rungs)
+
+
+CORONA_LADDER, CORONA_FRAMES = corona_ladder(cor_low / 2, hdr_stops)
 
 # The hold is bounded by the transfer queue, not by the card: every frame taken
 # with the SDK session open holds one of 32 slots until the drain that follows
@@ -408,7 +414,7 @@ for mins, cam, label in ((18, XT4, "Focus check"), (17, EOS, "Focus check"),
     filtered_shot(cam, "C1", "-", mins * 60, "%s, uneclipsed disc" % label)
 alt3 = sun_altitude(moment_time("C1", "-", 180))
 bracket(XT4, "C1", "-", 200, shutter(partial_exposure(alt3, ISO_PARTIAL)), ISO_PARTIAL,
-        BRACKET_STEPS, BRACKET_FRAMES, "Exposure-check bracket")
+        "+/- 2", 13, "Exposure-check bracket")
 hdr(EOS, "C1", "-", 180, shutter(partial_exposure(alt3, ISO_PARTIAL) / 4, EOS_MAX_SHUTTER),
     ISO_PARTIAL, 4, "Exposure-check bracket")
 relay_shoot("C1", "-", 150, "Relay smoke test - confirm the trigger fires the X-T4")
@@ -508,13 +514,13 @@ relay_release("BEADS_C2_END", "+", 1.5, "Open every contact after the C2 burst")
 announce("C2", "-", 0, "C2", "Second contact - filters off, totality has begun")
 picture(EOS, "C2", "+", 4.0, chromo, ISO_BEADS, "Chromosphere")
 picture(EOS, "C2", "+", 5.5, prom, ISO_BEADS, "Prominences")
-bracket(XT4, "C2", "+", 6.0, bracket_centres[0][0], ISO_CORONA, BRACKET_STEPS, BRACKET_FRAMES,
-        "Corona bracket A1, %s" % bracket_centres[0][1])
+bracket(XT4, "C2", "+", 6.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+        CORONA_LADDER, CORONA_FRAMES, "Corona ladder A1, inner edge to outer streamers")
 hdr(EOS, "C2", "+", 7.0, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder A")
-bracket(XT4, "C2", "+", 16.0, bracket_centres[1][0], ISO_CORONA, BRACKET_STEPS, BRACKET_FRAMES,
-        "Corona bracket A2, %s" % bracket_centres[1][1])
-bracket(XT4, "C2", "+", 27.0, bracket_centres[2][0], ISO_CORONA, BRACKET_STEPS, BRACKET_FRAMES,
-        "Corona bracket A3, %s" % bracket_centres[2][1])
+bracket(XT4, "C2", "+", 18.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+        CORONA_LADDER, CORONA_FRAMES, "Corona ladder A2, inner edge to outer streamers")
+bracket(XT4, "C2", "+", 30.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+        CORONA_LADDER, CORONA_FRAMES, "Corona ladder A3, inner edge to outer streamers")
 hdr(EOS, "C2", "+", 26.0, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder B")
 announce("C2", "+", 30, "C2_PLUS_30_SECONDS", "Thirty seconds into totality")
 picture(EOS, "C2", "+", 45.0, deep, ISO_DEEP, "Deep outer corona")
@@ -531,13 +537,13 @@ picture(XT4, "C2", "+", 52.0, inner, ISO_CORONA, "Inner corona at maximum eclips
 picture(EOS, "C2", "+", 53.0, deeper, ISO_DEEP, "Deepest outer corona / earthshine")
 picture(EOS, "C2", "+", 55.5, deep, ISO_DEEP, "Deep outer corona")
 announce("C3", "-", 45, "C3_IN_45_SECONDS", "Forty-five seconds of totality left")
-bracket(XT4, "C2", "+", 56.0, bracket_centres[0][0], ISO_CORONA, BRACKET_STEPS, BRACKET_FRAMES,
-        "Corona bracket B1, %s" % bracket_centres[0][1])
+bracket(XT4, "C2", "+", 56.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+        CORONA_LADDER, CORONA_FRAMES, "Corona ladder B1, inner edge to outer streamers")
 hdr(EOS, "C2", "+", 58.5, hdr_start, ISO_CORONA, hdr_stops, "Corona ladder C")
-bracket(XT4, "C2", "+", 66.0, bracket_centres[1][0], ISO_CORONA, BRACKET_STEPS, BRACKET_FRAMES,
-        "Corona bracket B2, %s" % bracket_centres[1][1])
-bracket(XT4, "C2", "+", 75.0, bracket_centres[2][0], ISO_CORONA, BRACKET_STEPS, BRACKET_FRAMES,
-        "Corona bracket B3, %s" % bracket_centres[2][1])
+bracket(XT4, "C2", "+", 68.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+        CORONA_LADDER, CORONA_FRAMES, "Corona ladder B2, inner edge to outer streamers")
+bracket(XT4, "C2", "+", 80.0, CORONA_LADDER.split(";")[0], ISO_CORONA,
+        CORONA_LADDER, CORONA_FRAMES, "Corona ladder B3, inner edge to outer streamers")
 picture(EOS, "C3", "-", 23.0, deep, ISO_DEEP, "Deep outer corona")
 picture(EOS, "C3", "-", 20.5, inner, ISO_CORONA, "Inner corona")
 announce("C3", "-", 20, "C3_IN_20_SECONDS", "Twenty seconds to third contact")
@@ -591,7 +597,7 @@ while True:
     label = "Low-sun bracket"
     extra = ", X=%.0f, centre %s" % (airmass(alt), shutter(centre))
     if k % 2 == 0:
-        bracket(XT4, "C3", "+", after, shutter(centre), iso, BRACKET_STEPS, BRACKET_FRAMES,
+        bracket(XT4, "C3", "+", after, shutter(centre), iso, "+/- 2", 13,
                 label, extra)
     else:
         stops = 4 if alt > 2.0 else 6
