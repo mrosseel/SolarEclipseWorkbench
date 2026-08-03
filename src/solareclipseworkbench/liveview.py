@@ -14,6 +14,8 @@ does not apply here.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 
 import numpy as np
 from PyQt6.QtCore import QObject, QPointF, QRect, QRectF, QThread, pyqtSignal, pyqtSlot, QTimer, Qt
@@ -32,7 +34,7 @@ from fujixsdk._constants import (
     LIVEVIEW_SIZE_XGA,
     PRIORITY_PC,
 )
-from fujixsdk._errors import XSDKError
+from fujixsdk._errors import BusyError, XSDKError
 from fujixsdk.camera import Camera
 
 log = logging.getLogger(__name__)
@@ -48,6 +50,10 @@ _SHUTTER_MAX_US = 30 * 1_000_000
 # from a different sensor gain and are not what a corona wants.
 _ISO_FALLBACK = [160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600,
                  2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800]
+
+# How long to keep trying an exposure write while the body says it is busy.  The
+# frame that was already in flight when the stream paused has to land first.
+_EXPOSURE_WRITE_BUDGET_S = 2.0
 
 # Focus peaking: edge threshold and overlay colour
 _PEAKING_THRESHOLD = 30
@@ -354,12 +360,25 @@ class _FrameWorker(QObject):
         super().__init__()
         self._stream = stream
         self._running = False
+        # Set while something else needs the camera.  Reading frames leaves a
+        # 5 ms gap, so a setting written while this loop runs is answered 0x1006
+        # almost every time - the body really is busy, with us.
+        self._paused = threading.Event()
+
+    def pause(self):
+        self._paused.set()
+
+    def resume(self):
+        self._paused.clear()
 
     @pyqtSlot()
     def run(self):
         self._running = True
         idle_count = 0
         while self._running:
+            if self._paused.is_set():
+                QThread.msleep(20)
+                continue
             try:
                 data = self._stream.read_frame()
             except Exception as e:
@@ -795,30 +814,53 @@ class LiveViewWindow(QDockWidget):
                 combo.setCurrentIndex(index)
                 combo.blockSignals(False)
 
+    def _write_exposure(self, action, what: str, dial_hint: str) -> bool:
+        """Write one exposure setting, with the stream out of the way.
+
+        Reading frames leaves a 5 ms gap, so a write issued while the loop runs
+        is answered "camera is busy" almost every time - the body is busy with
+        us.  The worker is held for the write and released straight after; the
+        preview freezes for a fraction of a second and nothing restarts.
+
+        Busy is still waited out afterwards, because the frame in flight when
+        the pause landed has to finish first.
+        """
+        worker = self._worker
+        if worker is not None:
+            worker.pause()
+        try:
+            deadline = time.monotonic() + _EXPOSURE_WRITE_BUDGET_S
+            while True:
+                try:
+                    action()
+                    return True
+                except BusyError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.05)
+        except XSDKError as exc:
+            log.warning("Could not set the %s: %s", what, exc)
+            self._status_bar.showMessage(
+                f"{what.capitalize()} refused ({exc}) - {dial_hint}", 6000)
+            return False
+        finally:
+            if worker is not None:
+                worker.resume()
+            self._refresh_exposure()
+
     def _on_shutter_changed(self, index: int):
         value = self._shutter_combo.currentData()
         if value is None:
             return
-        try:
-            self._camera.set_shutter_speed(value)
-        except XSDKError as exc:
-            # 0x1006 here usually means the shutter dial is not on T.
-            log.warning("Could not set the shutter speed: %s", exc)
-            self._status_bar.showMessage(
-                f"Shutter speed refused ({exc}) - is the shutter dial on T?", 6000)
-        self._refresh_exposure()
+        self._write_exposure(lambda: self._camera.set_shutter_speed(value),
+                             "shutter speed", "is the shutter dial on T?")
 
     def _on_iso_changed(self, index: int):
         value = self._iso_combo.currentData()
         if value is None:
             return
-        try:
-            self._camera.set_iso(value)
-        except XSDKError as exc:
-            log.warning("Could not set the ISO: %s", exc)
-            self._status_bar.showMessage(
-                f"ISO refused ({exc}) - is the ISO dial on C?", 6000)
-        self._refresh_exposure()
+        self._write_exposure(lambda: self._camera.set_iso(value),
+                             "ISO", "is the ISO dial on C?")
 
     def is_streaming(self) -> bool:
         """True when frames are actually being fetched.

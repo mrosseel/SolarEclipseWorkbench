@@ -1026,9 +1026,11 @@ class SolarEclipseView(QMainWindow, Observable):
         self.toolbar.addAction(self.geometry_dock_action)
 
         self.beads_action = self.beads_dock.toggleViewAction()
-        self.beads_action.setText("Baily's beads")
+        # Text, like every other toggle beside it.  With an icon set, this was
+        # the only one Qt drew as a picture, which read as a different kind of
+        # control rather than the same one.
+        self.beads_action.setText("Beads")
         self.beads_action.setStatusTip("Show the Baily's beads graphic")
-        self.beads_action.setIcon(beads_icon())
         self.toolbar.addAction(self.beads_action)
 
         self.mount_dock_action = self.mount_dock.toggleViewAction()
@@ -2686,7 +2688,15 @@ class MountDock(QDockWidget):
         layout.addWidget(self.move_box)
         layout.addStretch(1)
 
-        self.setWidget(body)
+        # Three stacked group boxes want 362x474 between them, and a dock that
+        # cannot be smaller than its contents forces the window wider than the
+        # screen the moment it opens.  Scrolling lets it be any size; the
+        # controls are reached by scrolling rather than by resizing the display.
+        scroller = QScrollArea()
+        scroller.setWidget(body)
+        scroller.setWidgetResizable(True)
+        scroller.setFrameShape(QFrame.Shape.NoFrame)
+        self.setWidget(scroller)
         self.connected.connect(self._on_connected)
 
         self._timer = QTimer(self)

@@ -310,3 +310,32 @@ def test_both_live_view_windows_answer_the_same_contract():
         for window in (GPhotoLiveView, FujiLiveView):
             assert callable(getattr(window, name, None)), \
                 f"{window.__module__}.{window.__name__} is missing {name}()"
+
+
+def test_opening_the_mount_does_not_push_the_window_off_the_screen(view):
+    # Docked in the right column its controls wanted 362x496, which took the
+    # window's minimum from 1215 to 1578 - wider than the laptop - so opening it
+    # sent the window off the display and the panel out of reach.  Reported
+    # 4 August: "when fullscreening the mount it out of view".
+    view.show()
+    QApplication.processEvents()
+    before = view.minimumWidth()
+
+    view.mount_dock.show()
+    QApplication.processEvents()
+
+    # Opening it costs some width, but a bounded amount: its contents want
+    # 362x474 and before this it charged all of that, taking the window's
+    # minimum from 1215 to 1578 on a 1440 laptop.  The panel scrolls now, so it
+    # is charged what a scroll area needs rather than what its contents want.
+    assert view.minimumWidth() - before < 150, "the mount must not widen the window by its full contents"
+    assert view.mount_dock.minimumSizeHint().width() < 200, \
+        "a dock that cannot be smaller than its contents pushes the window off screen"
+
+
+def test_the_beads_toggle_reads_like_its_neighbours(view):
+    # It was the only toolbar toggle with an icon, so Qt drew it as a picture
+    # among words - it read as a different kind of control rather than the same
+    # one.
+    assert view.beads_action.text() == "Beads"
+    assert view.beads_action.icon().isNull()
