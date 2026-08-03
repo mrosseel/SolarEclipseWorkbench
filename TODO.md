@@ -349,8 +349,18 @@ Assessment: real, one-signed, and second-order.  It is below our limb-correction
 scatter of about 1 s, and well below the 2 to 8 s bead window, so it does not
 affect burst centring.  It would matter to a sub-second contact-time claim.
 
-- [ ] Only implement this if sub-second contacts become the goal.  Note the
-      treatment above is first order: it takes the linear refraction gradient
-      across the centre separation and ignores that refraction also flattens
-      both discs, which enters at about the same order.  A correct
-      implementation refracts the limbs rather than scaling a separation.
+- [x] Resolved, and the answer is that there is nothing to apply.  Refraction maps
+      h to h + R(h), which locally is an affine map -- a uniform vertical scaling
+      by 1 + dR/dh -- and affine maps preserve tangency.  Squash both discs and
+      the separation between their centres by the same factor and the instant the
+      limbs touch does not move.  The 0.30 s and 0.22 s measured above came from
+      squashing the separation while leaving the discs round, which is not a
+      physical model.  What survives is second order, through the variation of
+      dR/dh across the half-arcminute between the centres, and is negligible.
+      Documented in limb_correction.py so it is not re-added.
+- [x] The wizard's sun altitudes are now refracted (`calculate_sun_altitude_at_time`).
+      They key the extinction table, and near the horizon geometric and apparent
+      altitude diverge sharply -- at 0.5 deg geometric the Sun is really about a
+      degree up, most of a stop of airmass -- and they also decide whether a
+      low-sun shot is worth taking.  For 2026-08-12 in Spain the last brackets now
+      read 2.23, 0.62 and -0.28 deg.

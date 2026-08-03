@@ -119,6 +119,18 @@ class LunarLimb:
         return radius_km - K2 * EARTH_RADIUS_KM
 
 
+# Refraction is deliberately not applied to the contact geometry.  It maps
+# altitude h to h + R(h), which locally is an affine map -- a uniform vertical
+# scaling by 1 + dR/dh -- and affine maps preserve tangency.  Both discs and the
+# separation between their centres are squashed by the same factor, so the
+# instant at which the limbs touch is unchanged.  What survives is second order,
+# through the variation of dR/dh across the half-arcminute between the centres,
+# and is far below the accuracy of anything else here.
+#
+# Squashing the separation without also flattening the discs invents a shift of
+# a couple of tenths of a second that is not real; an earlier version did that.
+
+
 def contact_position_angle(elements):
     """Sky position angle of an internal contact, from north through east.
 
@@ -137,46 +149,7 @@ def contact_position_angle(elements):
     return np.degrees(np.arctan2(-elements["u"], -elements["v"])) % 360.0
 
 
-def bennett_refraction_arcsec(altitude_deg):
-    """Bennett's refraction formula, in arcseconds."""
-    return 60.0 / math.tan(math.radians(altitude_deg + 7.31 / (altitude_deg + 4.4)))
-
-
-def refraction_factors(limb, t, latitude, longitude, elevation_m):
-    """Vertical compression of the sky, and the direction it acts in.
-
-    Refraction lifts both limbs, but not by the same amount: the lower one is
-    lifted more, so the sky is compressed vertically by 1 + dR/dh.  Over the
-    half-arcminute between the Sun's and Moon's centres at an internal contact
-    that is a fraction of an arcsecond, which at their closing rate is a few
-    tenths of a second of time -- small, but one-signed, and it grows quickly as
-    the Sun gets low.
-
-    Returns (compression, vertical_position_angle), the latter being the
-    parallactic angle: the direction of the zenith on the sky.
-    """
-    site = limb.ephemeris["earth"] + wgs84.latlon(latitude, longitude,
-                                                  elevation_m=elevation_m)
-    apparent = site.at(t).observe(limb.ephemeris["sun"]).apparent()
-    altitude, _azimuth, _distance = apparent.altaz()
-    right_ascension, declination, _ = apparent.radec()
-
-    step = 0.01
-    gradient = ((bennett_refraction_arcsec(altitude.degrees + step)
-                 - bennett_refraction_arcsec(altitude.degrees - step))
-                / (2.0 * step) / 3600.0)
-
-    hour_angle = math.radians(t.gast * 15.0 + longitude - right_ascension._degrees)
-    dec = math.radians(declination.degrees)
-    parallactic = math.degrees(math.atan2(
-        math.sin(hour_angle),
-        math.tan(math.radians(latitude)) * math.cos(dec)
-        - math.sin(dec) * math.cos(hour_angle)))
-
-    return 1.0 + gradient, parallactic % 360.0
-
-
-def solar_limb_reach(elements, position_angles, refraction=None):
+def solar_limb_reach(elements, position_angles):
     """How far the Sun's limb reaches from the Moon's centre, per position angle.
 
     Everything is in fundamental-plane units, where the Moon's mean radius is
@@ -195,31 +168,23 @@ def solar_limb_reach(elements, position_angles, refraction=None):
     q = contact_position_angle(elements)
     r_sun = K2 + elements["L2p"]
 
-    if refraction is not None:
-        # Squash the centre separation towards the horizon before using it.
-        compression, vertical = refraction
-        tilt = math.radians(q - vertical)
-        across, along = rho * math.sin(tilt), rho * math.cos(tilt) * compression
-        rho = math.hypot(across, along)
-        q = vertical + math.degrees(math.atan2(across, along))
-
     offset = np.radians(np.asarray(position_angles, dtype=np.float64) - q)
     under_root = r_sun * r_sun - (rho * np.sin(offset)) ** 2
     return rho * np.cos(offset) + np.sqrt(np.clip(under_root, 0.0, None))
 
 
-def sunlight_margin(elements, position_angles, heights_km, refraction=None):
+def sunlight_margin(elements, position_angles, heights_km):
     """Positive where the Sun still shows past the true limb, per position angle.
 
     Totality is exactly the state where this is negative everywhere; the arcs
     where it is positive are the Baily's beads.
     """
     true_radius = K2 + np.asarray(heights_km, dtype=np.float64) / EARTH_RADIUS_KM
-    return solar_limb_reach(elements, position_angles, refraction) - true_radius
+    return solar_limb_reach(elements, position_angles) - true_radius
 
 
 def solve_limb_contact(elements, evaluate, start_hours, entering,
-                       position_angles, heights_km, refraction=None,
+                       position_angles, heights_km,
                        search_hours=40.0 / 3600.0, step_hours=0.25 / 3600.0):
     """Find C2 or C3 as the moment the last, or first, bead is on the limb.
 
@@ -234,8 +199,7 @@ def solve_limb_contact(elements, evaluate, start_hours, entering,
     squared, so a 1 km valley 9 degrees away still governs the contact.
     """
     def worst(when):
-        return sunlight_margin(evaluate(when), position_angles, heights_km,
-                               refraction).max()
+        return sunlight_margin(evaluate(when), position_angles, heights_km).max()
 
     # Totality is margin < 0.  Step outwards from the uncorrected contact until
     # the sign flips, then bisect.  Stepping away from totality means going
@@ -267,15 +231,14 @@ def solve_limb_contact(elements, evaluate, start_hours, entering,
     return 0.5 * (inside + outside)
 
 
-def lit_arc_degrees(elements, position_angles, heights_km, refraction=None):
+def lit_arc_degrees(elements, position_angles, heights_km):
     """Total extent of limb, in degrees, that still has sunlight past it."""
-    lit = sunlight_margin(elements, position_angles, heights_km, refraction) > 0.0
+    lit = sunlight_margin(elements, position_angles, heights_km) > 0.0
     return float(lit.sum()) * (360.0 / len(position_angles))
 
 
 def bead_window(evaluate, contact_hours, entering, position_angles, heights_km,
-                refraction=None, max_arc_deg=20.0,
-                step_hours=0.05 / 3600.0, limit_hours=60.0 / 3600.0):
+                max_arc_deg=20.0, step_hours=0.05 / 3600.0, limit_hours=60.0 / 3600.0):
     """When the Sun is reduced to beads around a contact, as (start, end) in hours.
 
     This is what a burst wants to be centred on.  Rather than guessing a fixed
@@ -291,8 +254,7 @@ def bead_window(evaluate, contact_hours, entering, position_angles, heights_km,
     edge = contact_hours
     for _ in range(int(limit_hours / step_hours)):
         stepped = edge + direction * step_hours
-        if lit_arc_degrees(evaluate(stepped), position_angles, heights_km,
-                           refraction) > max_arc_deg:
+        if lit_arc_degrees(evaluate(stepped), position_angles, heights_km) > max_arc_deg:
             break
         edge = stepped
 
@@ -369,7 +331,7 @@ class LimbSolution:
     """Everything a limb-corrected eclipse needs, for scheduling or for drawing."""
 
     def __init__(self, elements, evaluate, to_utc, from_utc, angles, heights_km,
-                 c2, c3, c2_limb, c3_limb, windows, refraction=None):
+                 c2, c3, c2_limb, c3_limb, windows):
         self.elements = elements
         self.evaluate = evaluate
         self.to_utc = to_utc
@@ -381,7 +343,6 @@ class LimbSolution:
         self.c2_limb = c2_limb
         self.c3_limb = c3_limb
         self.windows = windows          # {"C2": (start, end), "C3": (start, end)}
-        self.refraction = refraction
 
     def correction_seconds(self, name):
         contact, corrected = ((self.c2, self.c2_limb) if name == "C2"
@@ -394,13 +355,11 @@ class LimbSolution:
 
     def margin_at(self, hours):
         """Sunlight margin per position angle at a moment, for drawing."""
-        return sunlight_margin(self.evaluate(hours), self.angles, self.heights_km,
-                               self.refraction)
+        return sunlight_margin(self.evaluate(hours), self.angles, self.heights_km)
 
 
 def solve_limb(eclipse_date, latitude, longitude, elevation_m,
-               limb=None, arc_degrees=20.0, profile_step_deg=0.01,
-               apply_refraction=True):
+               limb=None, arc_degrees=20.0, profile_step_deg=0.01):
     """Solve the limb-corrected contacts and bead windows, or None.
 
     Returns None when there is no totality here or the limb data is not
@@ -451,20 +410,15 @@ def solve_limb(eclipse_date, latitude, longitude, elevation_m,
     angles = np.arange(0.0, 360.0, profile_step_deg)
     heights_km = limb.height_above_k2(moment, latitude, longitude, elevation_m, angles)
 
-    refraction = (refraction_factors(limb, moment, latitude, longitude, elevation_m)
-                  if apply_refraction else None)
-
-    c2_limb = solve_limb_contact(elements, evaluate, c2, True, angles, heights_km, refraction)
-    c3_limb = solve_limb_contact(elements, evaluate, c3, False, angles, heights_km, refraction)
+    c2_limb = solve_limb_contact(elements, evaluate, c2, True, angles, heights_km)
+    c3_limb = solve_limb_contact(elements, evaluate, c3, False, angles, heights_km)
 
     windows = {
-        "C2": bead_window(evaluate, c2_limb, True, angles, heights_km,
-                          refraction, max_arc_deg=arc_degrees),
-        "C3": bead_window(evaluate, c3_limb, False, angles, heights_km,
-                          refraction, max_arc_deg=arc_degrees),
+        "C2": bead_window(evaluate, c2_limb, True, angles, heights_km, max_arc_deg=arc_degrees),
+        "C3": bead_window(evaluate, c3_limb, False, angles, heights_km, max_arc_deg=arc_degrees),
     }
     return LimbSolution(elements, evaluate, to_utc, from_utc, angles, heights_km,
-                        c2, c3, c2_limb, c3_limb, windows, refraction)
+                        c2, c3, c2_limb, c3_limb, windows)
 
 
 def bead_reference_moments(eclipse_date, latitude, longitude, elevation_m,

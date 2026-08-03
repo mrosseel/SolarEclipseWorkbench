@@ -471,8 +471,13 @@ def calculate_sun_altitude_at_time(
                target_time.hour, target_time.minute, target_time.second)
     astro = (earth + place).at(t).observe(sun_ephem)
     app = astro.apparent()
-    alt, az, distance = app.altaz()
-    
+
+    # Refracted altitude, not geometric.  This value keys the extinction table,
+    # and near the horizon the two diverge sharply: at half a degree geometric
+    # the Sun is really about a degree up, which is most of a stop of airmass.
+    # It is also what decides whether a low-sun shot is worth taking at all.
+    alt, az, distance = app.altaz(temperature_C='standard', pressure_mbar='standard')
+
     return alt.degrees
 
 

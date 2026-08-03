@@ -387,7 +387,7 @@ class BeadsPanel(QWidget):
 
         solution = self.solution
         change = ((solution.c3_limb - solution.c2_limb) - (solution.c3 - solution.c2)) * 3600.0
-        text = (f"{mark} Corrections{'' if is_enabled() else ' (off)'}   limb+refraction "
+        text = (f"{mark} Corrections{'' if is_enabled() else ' (off)'}   limb "
                 f"C2 {solution.correction_seconds('C2'):+.1f}s   "
                 f"C3 {solution.correction_seconds('C3'):+.1f}s   "
                 f"beads {solution.window_seconds('C2'):.1f}/{solution.window_seconds('C3'):.1f}s   "
