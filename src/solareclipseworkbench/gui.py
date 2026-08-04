@@ -49,6 +49,7 @@ from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get
     get_sony_save_destination, get_sony_image_quality
 from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
 from solareclipseworkbench import exposure_trim, hardware_problems
+from solareclipseworkbench.coverage_ui import CoverageDock
 from solareclipseworkbench.hardware_registry import (register_hardware,
                                                      seconds_to_next_camera_job)
 from solareclipseworkbench.observer import Observer, Observable
@@ -686,6 +687,14 @@ class SolarEclipseView(QMainWindow, Observable):
         # What the body has to have set, and every warning the run produces.
         # Both were previously only in the log, which nobody reads while an
         # eclipse is happening.
+        # What the loaded script will actually photograph.  A script read as
+        # text does not show that an hour of partials is one frame every three
+        # minutes while totality is everything at once - or that a gap somebody
+        # meant to fill is still there.
+        self.coverage_dock = CoverageDock(self)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.coverage_dock)
+        self.coverage_dock.hide()
+
         self.problems_dock = ProblemsDock(self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.problems_dock)
         # Closed by default: a mount is the exception, not the rule, and an empty
@@ -864,6 +873,12 @@ class SolarEclipseView(QMainWindow, Observable):
         # The error log is worth a button of its own with the count on it: the
         # whole point of the dock is that a problem which only reaches a file is
         # a problem nobody sees until afterwards, and a closed dock is a file.
+        self.coverage_dock_action = self.coverage_dock.toggleViewAction()
+        self.coverage_dock_action.setText("Coverage")
+        self.coverage_dock_action.setStatusTip(
+            "Show what the loaded script photographs, on a timeline")
+        self.toolbar.insertAction(self.mount_dock_action, self.coverage_dock_action)
+
         self.problems_dock_action = self.problems_dock.toggleViewAction()
         self.problems_dock_action.setText("Error Log")
         self.problems_dock_action.setStatusTip(
@@ -1906,6 +1921,13 @@ class SolarEclipseController(Observer):
                 except Exception:
                     logging.debug("Could not put the bead panel on the clock",
                                   exc_info=True)
+
+                try:
+                    self.view.coverage_dock.set_schedule(
+                        self.scheduler, self.model.reference_moments)
+                    self.view.coverage_dock.show()
+                except Exception:
+                    logging.debug("Could not draw the coverage", exc_info=True)
 
                 self.jobs_model = JobsTableModel(self.scheduler, self)
                 self.view.jobs_table.setModel(self.jobs_model)
