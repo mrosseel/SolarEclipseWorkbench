@@ -693,9 +693,11 @@ class SolarEclipseView(QMainWindow, Observable):
         # meant to fill is still there.
         self.coverage_dock = CoverageDock(self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.coverage_dock)
-        # Open, with "load a script" in it, rather than hidden until one is
-        # loaded: a panel nobody can find is a panel nobody uses, and it says
-        # what it is waiting for.
+        # Closed to begin with - it is worth looking at when a script is loaded
+        # and empty before that.  Findable regardless: it has an entry in the
+        # Panels menu whether it is open or not, which is what was missing when
+        # it could not be found at all.
+        self.coverage_dock.hide()
 
         self.problems_dock = ProblemsDock(self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.problems_dock)
