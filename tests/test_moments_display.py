@@ -533,3 +533,26 @@ def test_the_moments_show_totality_and_which_script_fits_it():
         # still exposing when the sun comes back.
         assert int(round(total) // 10) * 10 == expected, \
             "%.1f s totality should load the %d s script" % (total, expected)
+
+
+def test_stop_closes_the_live_view_too(view, monkeypatch):
+    """STOP is the make-everything-safe button.
+
+    A stream left holding the camera and PC priority after the schedule is
+    gone is exactly the state that has cost sessions all week - and whoever
+    pressed STOP wants the camera back, not a preview.
+    """
+    from types import SimpleNamespace
+    from solareclipseworkbench import gui as gui_mod
+
+    closed = []
+    fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
+    controller = _controller(view, {"X-T4": fuji}, scheduler=None)
+    controller.scheduler = None
+    controller._live_view_window = SimpleNamespace(close=lambda: closed.append(True))
+    controller.jobs_model = SimpleNamespace(clear_jobs_overview=lambda: None)
+
+    gui_mod.SolarEclipseController._shutdown_scheduler(controller)
+
+    assert closed == [True], "STOP left the stream holding the camera"
+    assert controller._live_view_window is None

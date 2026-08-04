@@ -2596,7 +2596,15 @@ class SolarEclipseController(Observer):
             self.view.show_reference_moments(reference_moments, magnitude, eclipse_type)
 
     def _shutdown_scheduler(self):
-        """Safely shut down the scheduler and update UI."""
+        """Safely shut down the scheduler and update UI.
+
+        STOP is the make-everything-safe button, so it closes live view too:
+        a stream left holding the camera and PC priority after the schedule is
+        gone is exactly the state that has cost sessions all week - and
+        whoever pressed STOP wants the camera back, not a preview.  This also
+        clears a blocking override, which must not outlive the schedule it was
+        overriding.
+        """
         try:
             if self.scheduler:
                 # Not wait=True: that blocks until the job in flight finishes,
@@ -2609,6 +2617,15 @@ class SolarEclipseController(Observer):
             pass  # already stopped
         except Exception:
             logging.exception("Error while shutting down scheduler")
+
+        window = getattr(self, '_live_view_window', None)
+        if window is not None:
+            try:
+                LOGGER.info("Closing live view with the schedule")
+                window.close()
+            except Exception:
+                logging.exception("Could not close live view on stop")
+            self._live_view_window = None
 
 
 class LocationPopup(QWidget, Observable):
