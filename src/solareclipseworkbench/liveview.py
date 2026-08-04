@@ -61,11 +61,12 @@ _EXPOSURE_WRITE_BUDGET_S = 2.0
 # enough that the window answers rather than hanging.
 _STREAM_SETUP_WAIT_S = 3.0
 
-#: How long to wait for a frame read already in flight.  read_frame blocks for
-#: as long as the body takes to answer, and holds the camera lock throughout;
-#: one took over three seconds on 4 August and failed two ISO changes and a
-#: stop.  Longer than the lock wait on purpose - this is the wait that has a
-#: chance of succeeding, and past it the link is stalled rather than slow.
+#: How long to wait for a frame read already in flight before calling the link
+#: stalled.  Measured on the X-T4, 80 reads: the frame wait is 13.6 ms median,
+#: 63 ms at the 90th percentile and 95 ms at worst, and fetching the JPEG is
+#: another 24 ms.  Nothing came near a second.  Six seconds is therefore not a
+#: budget for a slow read - it is far beyond any healthy one, so reaching it
+#: means the read is not coming back at all.
 _FRAME_READ_WAIT_S = 6.0
 
 # Focus peaking: edge threshold and overlay colour
@@ -378,10 +379,14 @@ class _FrameWorker(QObject):
         # 5 ms gap, so a setting written while this loop runs is answered 0x1006
         # almost every time - the body really is busy, with us.
         self._paused = threading.Event()
-        # Clear while a frame read is in flight.  read_frame is a blocking USB
-        # call of unbounded length - measured over three seconds on 4 August -
-        # and it holds the camera lock for its whole duration.  Anything that
-        # needs the camera waits on this rather than racing the lock.
+        # Clear while a frame read is in flight.  read_frame holds the camera
+        # lock for its whole duration, so anything else that needs the camera
+        # waits on this rather than racing the lock - and racing is what failed:
+        # a read is 14 ms and never over 95 ms (measured, 80 reads), yet an ISO
+        # change still gave up after three seconds.  The loop releases the lock
+        # and takes it again immediately, Python locks are not fair, and the
+        # waiting thread simply kept losing.  Pausing the loop is what makes the
+        # lock reachable; waiting for idle is what makes it safe.
         self._idle = threading.Event()
         self._idle.set()
 
@@ -924,11 +929,18 @@ class LiveViewWindow(QDockWidget):
     def _write_exposure(self, action, what: str, dial_hint: str) -> bool:
         """Write one exposure setting, with live view actually stopped.
 
-        Pausing the frame loop is not enough.  The body answers 0x1006 for as
-        long as it is in live view at all, not merely while a frame is in
-        flight - measured: with the worker paused and the lock held, every
-        retry across a two second budget was refused.  It is a mode, not a
-        transient, so waiting it out cannot work however long the budget.
+        Two separate things had to be dealt with here.
+
+        The body answers 0x1006 for as long as it is in live view at all, not
+        merely while a frame is in flight - measured: with the worker paused and
+        the lock held, every retry across a two second budget was refused.  It
+        is a mode, not a transient, so no budget waits it out.  Hence stopping
+        the stream rather than pausing the loop.
+
+        And the loop must be paused before the lock is asked for.  Reads are
+        14 ms and never over 95 ms, so the three second lock timeouts in the log
+        were not one slow read - they were the loop taking the lock again the
+        moment it dropped it, with the waiting thread losing every race.
 
         So the stream is stopped for the write and started again after.  The
         preview drops for about a second, which is the price of the setting
@@ -938,11 +950,11 @@ class LiveViewWindow(QDockWidget):
         worker = self._worker
         if worker is not None:
             worker.pause()
-            # Wait for the frame already in flight before going for the lock.
-            # Racing it just burns the whole lock timeout: the worker holds the
-            # lock for as long as read_frame blocks, so both waits were the same
-            # wait, and an ISO change during a slow read failed for no better
-            # reason than that.
+            # Paused above, so the loop will not take the lock again; this
+            # waits out the one read still in flight.  Racing it instead is what
+            # burned the whole three second timeout - not because a read is
+            # slow, but because the loop reacquires immediately and the waiter
+            # never wins.
             if not worker.wait_idle(_FRAME_READ_WAIT_S):
                 log.warning("A frame read has not returned after %.0fs; the USB "
                             "link is stalled", _FRAME_READ_WAIT_S)
