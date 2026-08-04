@@ -1578,6 +1578,10 @@ LIVE_VIEW_MIN_GAP_S = 30.0
 #: is unambiguously free when the frame is due.
 LIVE_VIEW_CLEAR_BEFORE_S = 8.0
 
+#: Clearance for an exposure write from the live view controls: the write
+#: stops the stream, lands, restarts - a few seconds, not the stream's eight.
+EXPOSURE_WRITE_CLEAR_S = 4.0
+
 
 class SolarEclipseController(Observer):
     """ Controller for the Solar Eclipse Workbench UI in the MVC pattern. """
@@ -1769,18 +1773,20 @@ class SolarEclipseController(Observer):
             )
             gap = self._seconds_to_next_frame()
             frame_imminent = gap is not None and gap < LIVE_VIEW_CLEAR_BEFORE_S
-            if getattr(self._live_view_window, 'user_accepts_blocking', False):
+            accepts = getattr(self._live_view_window, 'user_accepts_blocking', False)
+            if accepts:
                 pass          # their eclipse, their call - see _open_fuji_live_view
             else:
                 self._live_view_window.set_totality_paused(in_totality or frame_imminent)
-            # Only while a frame is close.  Greying the controls out for the
-            # whole run was the same mistake as refusing to open live view for
-            # the whole run: it blocks the case it exists for, which is looking
-            # at the exposure between frames.  A write stops and restarts the
-            # stream, so it must not land on a camera that is about to shoot -
-            # and that is a question about the next few seconds, not about
-            # whether a script is loaded at all.
-            owns = frame_imminent or in_totality
+            # The controls lock on a tighter clock than the stream: a write
+            # takes a few seconds, so it needs a few seconds of clearance.
+            # Borrowing the stream's 8 s window meant the approach ramp - a
+            # frame every twelve to fifteen seconds - left the dropdowns grey
+            # in slivers, which read as broken rather than as a rhythm.  And
+            # consent covers the controls too: overriding the pause while
+            # being refused the dropdowns is half a permission.
+            write_close = gap is not None and gap < EXPOSURE_WRITE_CLEAR_S
+            owns = (write_close or in_totality) and not accepts
             setter = getattr(self._live_view_window, 'set_schedule_owns_exposure', None)
             if setter is not None:
                 setter(owns)

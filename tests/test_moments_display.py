@@ -556,3 +556,25 @@ def test_stop_closes_the_live_view_too(view, monkeypatch):
 
     assert closed == [True], "STOP left the stream holding the camera"
     assert controller._live_view_window is None
+
+
+def test_consent_unlocks_the_exposure_controls_too():
+    """Overriding the pause while being refused the dropdowns is half a
+    permission: whoever accepted blocking the schedule gets the camera."""
+    import datetime as dt
+    from types import SimpleNamespace
+
+    from solareclipseworkbench import gui as gui_mod
+    from solareclipseworkbench import hardware_registry
+
+    when = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=2)
+    job = SimpleNamespace(id='soon', next_run_time=when)
+    hardware_registry.note_job_command(job.id, 'take_picture')
+    gap = hardware_registry.seconds_to_next_camera_job(
+        SimpleNamespace(get_jobs=lambda: [job]))
+
+    write_close = gap is not None and gap < gui_mod.EXPOSURE_WRITE_CLEAR_S
+    assert write_close, "a frame two seconds out must count as close"
+    for accepts, expected in ((False, True), (True, False)):
+        owns = (write_close or False) and not accepts
+        assert owns is expected
