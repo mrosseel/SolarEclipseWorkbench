@@ -350,7 +350,9 @@ def test_closing_the_last_camera_does_not_exit_the_sdk():
     from fujixsdk.camera import Camera
 
     source = inspect.getsource(Camera._release_lib)
-    assert "XSDK_Exit" not in source, \
+    # The docstring names XSDK_Exit while explaining why it must not be
+    # called; the assertion is about the call.
+    assert ".XSDK_Exit()" not in source, \
         "Exit on last close breaks every later open in the process"
 
     import fujixsdk.camera as module
