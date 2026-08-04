@@ -551,3 +551,55 @@ def test_the_script_owns_the_exposure_while_it_is_loaded():
     assert LiveViewWindow._write_exposure(
         win, lambda: sdk.set_shutter_speed(500_000), "shutter speed", "") is False
     assert sdk.written == written_before, "wrote an exposure the script owns"
+
+
+def test_a_refused_change_puts_the_dropdown_back():
+    """Reported 4 August: the dropdown showed the new value, the status line
+    said it could not be set, and the picture did not change.
+
+    All three were true at once.  The lock-timeout path returned before the
+    resync, so the control kept the value that was clicked while the body
+    stayed where it was - a control lying about the camera it controls.
+    """
+    import threading
+
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    sdk = _FakeSDK(speed=8000, iso=400)          # body is on 1/8000
+    win, _ = _live_view_stub(sdk)
+    win._stream = None
+    win._worker = None
+
+    # A plain Lock, not an RLock: an RLock is reentrant, so the thread holding
+    # it takes it again and the write would succeed.
+    held = threading.Lock()
+    held.acquire()
+    win._usb_lock = held
+
+    target = win._shutter_combo.findData(500_000)
+    win._shutter_combo.setCurrentIndex(target)    # the user clicks 1/2 s
+
+    assert LiveViewWindow._write_exposure(
+        win, lambda: sdk.set_shutter_speed(500_000), "shutter speed", "") is False
+    assert ("shutter", 500_000) not in sdk.written
+
+    shown = win._shutter_combo.currentData()
+    assert shown == 8000, ("the dropdown kept %r while the body is on 8000"
+                           % (shown,))
+
+
+def test_a_speed_the_list_does_not_offer_is_still_shown():
+    # The body can sit on a value that is not in the dropdown, and then the
+    # resync used to do nothing at all - leaving the control showing the last
+    # thing clicked, which is worse than showing an unfamiliar number.
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    sdk = _FakeSDK(speed=8000, iso=400)
+    win, _ = _live_view_stub(sdk)
+
+    sdk.speed = 12345                       # a value no list would offer
+    assert win._shutter_combo.findData(12345) < 0
+    LiveViewWindow._refresh_exposure(win)
+
+    assert win._shutter_combo.currentData() == 12345, \
+        "the control kept showing something the camera is not set to"

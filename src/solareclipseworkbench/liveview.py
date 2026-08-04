@@ -70,6 +70,13 @@ _STREAM_SETUP_WAIT_S = 3.0
 #: means the read is not coming back at all.
 _FRAME_READ_WAIT_S = 6.0
 
+#: How long a person's click waits for the camera lock.  Longer than the stream
+#: setup wait on purpose: somebody has just asked for something and is watching
+#: for it to happen, while the camera panel's background polling of the body can
+#: hold the lock for seconds at a time.  Failing at three seconds made a
+#: deliberate change look broken when it only needed to queue.
+_EXPOSURE_LOCK_WAIT_S = 12.0
+
 # How long to wait before asking the body for another frame.  Measured on the
 # X-T4: it emits a frame every ~200 ms and will not be hurried - polling with no
 # gap at all, or at 5, 20, 40 or 80 ms, returned the same 40 frames in eight
@@ -969,12 +976,20 @@ class LiveViewWindow(QDockWidget):
 
         name = SHUTTER_SPEED_NAMES.get(speed, f"{speed}us")
         self._exposure_label.setText(f"Exposure: {name}  ISO {iso}")
-        for combo, value in ((self._shutter_combo, speed), (self._iso_combo, iso)):
+        for combo, value, label in ((self._shutter_combo, speed, name),
+                                    (self._iso_combo, iso, str(iso))):
             index = combo.findData(value)
-            if index >= 0:
-                combo.blockSignals(True)
-                combo.setCurrentIndex(index)
-                combo.blockSignals(False)
+            combo.blockSignals(True)
+            if index < 0:
+                # The body is on something the list does not offer.  Adding it
+                # is the only way the control can tell the truth: without this
+                # the resync quietly does nothing and the dropdown keeps
+                # whatever was last clicked, so it reads 1/2 s while the camera
+                # is somewhere else entirely.
+                combo.addItem(label, value)
+                index = combo.findData(value)
+            combo.setCurrentIndex(index)
+            combo.blockSignals(False)
 
     def _write_exposure(self, action, what: str, dial_hint: str) -> bool:
         """Write one exposure setting, with live view actually stopped.
@@ -1002,6 +1017,7 @@ class LiveViewWindow(QDockWidget):
                      "exposures", what)
             self._status_bar.showMessage(
                 "The loaded script sets the exposure", 5000)
+            self._refresh_exposure()
             return False
 
         worker = self._worker
@@ -1015,17 +1031,23 @@ class LiveViewWindow(QDockWidget):
             if not worker.wait_idle(_FRAME_READ_WAIT_S):
                 log.warning("A frame read has not returned after %.0fs; the USB "
                             "link is stalled", _FRAME_READ_WAIT_S)
-        if not self._usb_lock.acquire(timeout=_STREAM_SETUP_WAIT_S):
+        if not self._usb_lock.acquire(timeout=_EXPOSURE_LOCK_WAIT_S):
             # Logged, not only shown: this path was silent, so a refusal here
             # and a refusal from the body were indistinguishable afterwards.
             # And it does not blame a schedule - the lock is held by whatever is
-            # using the camera, which with no script loaded is this window.
+            # using the camera, which with no script loaded is this window's own
+            # polling of the body for the camera panel.
             log.warning("Could not set the %s: the camera was still in use after "
-                        "%.0fs", what, _STREAM_SETUP_WAIT_S)
+                        "%.0fs", what, _EXPOSURE_LOCK_WAIT_S)
             self._status_bar.showMessage(
                 f"Could not set the {what}: the camera did not come free", 6000)
             if worker is not None:
                 worker.resume()
+            # Put the dropdown back to what the body is actually set to.  It
+            # keeps the value that was clicked otherwise, so the control says
+            # 1/500 while the camera is on 1/4000 and the picture does not
+            # change - which is exactly how this was reported.
+            self._refresh_exposure()
             return False
 
         was_streaming = self._stream is not None
