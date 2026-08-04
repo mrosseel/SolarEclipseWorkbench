@@ -625,14 +625,19 @@ class SolarEclipseView(QMainWindow, Observable):
         latitude = self.latitude_label.text()
         altitude = self.altitude_label.text()
 
-        if longitude and latitude and altitude:
+        try:
             self.settings.setValue("longitude", float(longitude))
             self.settings.setValue("latitude", float(latitude))
             self.settings.setValue("altitude", float(altitude))
+        except ValueError:
+            # Unset shows an em dash now, not an empty string; a placeholder
+            # is not a coordinate and must not be saved as one.
+            pass
 
         # Eclipse date
 
-        self.settings.setValue("eclipse_date", self.eclipse_date.text())
+        if self.eclipse_date.text() and self.eclipse_date.text() != "\u2014":
+            self.settings.setValue("eclipse_date", self.eclipse_date.text())
 
         # Date & time format
 
@@ -1032,42 +1037,54 @@ class SolarEclipseView(QMainWindow, Observable):
         self.toolbar.addWidget(self.panels_button)
 
     def status_strip(self) -> QHBoxLayout:
-        """The clock, in one line under the toolbar.
+        """The clock, the place and the eclipse, in one line under the toolbar.
 
-        Date and time in a group box of their own cost a quarter of the left
-        column to say two things that fit on one line.  Here they read at a
-        glance without taking room from the contact times.
+        All of it monospaced: a proportional 1 is narrower than a 0, so a
+        ticking clock makes everything to its right twitch once a second.
+        The captions are italic to read as captions; the two values a run is
+        planned around - the eclipse type and its duration - are bold.
+        Unset values show an em dash rather than nothing, so "no location yet"
+        looks deliberate instead of broken.
         """
         strip = QHBoxLayout()
-        strip.setContentsMargins(6, 0, 6, 2)
+        strip.setContentsMargins(8, 2, 8, 3)
 
-        # Fixed width digits, or the strip twitches once a second: in a
-        # proportional face a 1 is narrower than a 0, so every value beside the
-        # clock shifts as it ticks.  The captions stay proportional - they do
-        # not change, and monospaced words are harder to read.
-        digits = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        for value in (self.date_label_local, self.time_label_local,
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        caption_font = QFont(mono)
+        caption_font.setItalic(True)
+        bold = QFont(mono)
+        bold.setBold(True)
+
+        for label in (self.date_label_local, self.time_label_local,
                       self.longitude_label, self.latitude_label,
-                      self.altitude_label, self.eclipse_date,
-                      self.eclipse_type):
-            # Keep whatever weight the label already had: the eclipse type is
-            # bold on purpose, and setting a plain fixed font would undo it.
-            fixed = QFont(digits)
-            fixed.setBold(value.font().bold())
-            value.setFont(fixed)
+                      self.altitude_label, self.eclipse_date):
+            label.setFont(mono)
+        for label in (self.eclipse_type,):
+            label.setFont(bold)
+        for label in (self.longitude_label, self.latitude_label,
+                      self.altitude_label, self.eclipse_type):
+            if not label.text():
+                label.setText("\u2014")
+
+        def caption(text: str) -> QLabel:
+            label = QLabel(text)
+            label.setFont(caption_font)
+            return label
+
         strip.addWidget(self.date_label_local)
-        strip.addSpacing(12)
+        strip.addSpacing(10)
         strip.addWidget(self.time_label_local)
-        strip.addSpacing(20)
-        for caption, value in (("Lon", self.longitude_label),
-                               ("Lat", self.latitude_label),
-                               ("Alt", self.altitude_label)):
-            strip.addWidget(QLabel(caption))
+        strip.addSpacing(22)
+        for name, value in (("Lon", self.longitude_label),
+                            ("Lat", self.latitude_label),
+                            ("Alt", self.altitude_label)):
+            strip.addWidget(caption(name))
             strip.addWidget(value)
-            strip.addSpacing(12)
+            strip.addSpacing(14)
         strip.addSpacing(8)
+        strip.addWidget(caption("Eclipse"))
         strip.addWidget(self.eclipse_date)
-        strip.addSpacing(12)
+        strip.addSpacing(14)
         strip.addWidget(self.eclipse_type)
         strip.addStretch(1)
         return strip
