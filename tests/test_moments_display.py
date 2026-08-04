@@ -445,3 +445,34 @@ def test_a_voice_prompt_does_not_count_as_a_frame():
     # An unrecognised command counts as touching the camera: not knowing is not
     # a reason to run a preview across a frame.
     assert hardware_registry.job_touches_camera(SimpleNamespace(id='unknown'))
+
+
+def test_asking_to_quit_is_not_an_error_to_be_survived():
+    """The excepthook made Ctrl-C do nothing at all.
+
+    The relay's SIGINT guard releases its contacts and re-raises; that lands in
+    a Qt slot, and a hook that logs everything and carries on turned "quit"
+    into a logged error, repeatedly, while the window stayed open.
+    """
+    import sys
+    from types import SimpleNamespace
+
+    from solareclipseworkbench import gui as gui_mod
+
+    quits = []
+    original_excepthook = sys.excepthook
+    application = SimpleNamespace(quit=lambda: quits.append(True))
+    original_instance = gui_mod.QApplication.instance
+    gui_mod.QApplication.instance = staticmethod(lambda: application)
+    try:
+        gui_mod._keep_running_on_unhandled_errors()
+        hook = sys.excepthook
+
+        hook(AttributeError, AttributeError("a bug in a button"), None)
+        assert quits == [], "a bug in a button ended the run"
+
+        hook(KeyboardInterrupt, KeyboardInterrupt(), None)
+        assert quits == [True], "asking to quit did nothing"
+    finally:
+        gui_mod.QApplication.instance = original_instance
+        sys.excepthook = original_excepthook

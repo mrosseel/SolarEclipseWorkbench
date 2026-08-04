@@ -9,6 +9,7 @@ import datetime
 import faulthandler
 import logging
 import math
+import os
 import os.path
 import queue
 import shutil
@@ -4861,7 +4862,26 @@ def _keep_running_on_unhandled_errors():
     running in its own threads, and totality does not wait while somebody
     restarts the app and reloads a script.
     """
+    interrupted = []
+
     def _hook(kind, value, traceback_object):
+        # Asking to quit is not an error to be survived.  The relay's SIGINT
+        # guard releases its contacts and re-raises, that lands in a Qt slot,
+        # and a hook that logs everything and carries on makes Ctrl-C do
+        # nothing at all - which is what it did on 4 August.
+        if issubclass(kind, (KeyboardInterrupt, SystemExit)):
+            application = QApplication.instance()
+            if interrupted or application is None:
+                # Asked twice, or there is no event loop left to ask.  Go now
+                # rather than leaving somebody holding a window that will not
+                # close; the shutdown guards have already run by this point.
+                LOGGER.warning("Interrupted again - exiting immediately")
+                os._exit(130)
+            interrupted.append(True)
+            LOGGER.info("Interrupted - closing down")
+            application.quit()
+            return
+
         LOGGER.error("Unhandled %s in the interface - the schedule keeps "
                      "running", kind.__name__,
                      exc_info=(kind, value, traceback_object))
