@@ -1281,3 +1281,109 @@ def api_param(api_code: int) -> int:
     from the table, which is where the wrapper was before.
     """
     return API_PARAM.get(api_code, 0)
+
+
+# --------------------------------------------------------------------------
+# Battery, media and shutter count
+# --------------------------------------------------------------------------
+# From HEADERS/XAPIOpt.H.  The three APIs these belong to were called with the
+# wrong number of arguments and had never once returned a real answer.
+
+#: Which card slot to ask about.  The X-T4 has two.
+ITEM_MEDIASLOT1 = 1
+ITEM_MEDIASLOT2 = 2
+
+MEDIASTATUS_OK = 0x0001
+MEDIASTATUS_WRITEPROTECTED = 0x0002
+MEDIASTATUS_NOCARD = 0x0003
+MEDIASTATUS_UNFORMATTED = 0x0004
+MEDIASTATUS_ERROR = 0x0005
+MEDIASTATUS_MAXNO = 0x0006
+MEDIASTATUS_FULL = 0x0007
+MEDIASTATUS_ACCESSING = 0x0008
+MEDIASTATUS_INCOMPATIBLE = 0x0009
+
+MEDIASTATUS_NAMES: dict[int, str] = {
+    MEDIASTATUS_OK: "OK",
+    MEDIASTATUS_WRITEPROTECTED: "write protected",
+    MEDIASTATUS_NOCARD: "no card",
+    MEDIASTATUS_UNFORMATTED: "unformatted",
+    MEDIASTATUS_ERROR: "card error",
+    MEDIASTATUS_MAXNO: "frame numbering exhausted (9999)",
+    MEDIASTATUS_FULL: "card full",
+    MEDIASTATUS_ACCESSING: "being written to",
+    MEDIASTATUS_INCOMPATIBLE: "incompatible card",
+}
+
+#: Anything here means the next frame has nowhere to go.
+MEDIASTATUS_CANNOT_WRITE = frozenset((
+    MEDIASTATUS_WRITEPROTECTED,
+    MEDIASTATUS_NOCARD,
+    MEDIASTATUS_UNFORMATTED,
+    MEDIASTATUS_ERROR,
+    MEDIASTATUS_MAXNO,
+    MEDIASTATUS_FULL,
+    MEDIASTATUS_INCOMPATIBLE,
+))
+
+POWERCAPACITY_EMPTY = 0x0000
+POWERCAPACITY_END = 0x0001
+POWERCAPACITY_PREEND = 0x0002
+POWERCAPACITY_HALF = 0x0003
+POWERCAPACITY_FULL = 0x0004
+POWERCAPACITY_HIGH = 0x0005
+POWERCAPACITY_PREEND5 = 0x0007
+POWERCAPACITY_20 = 0x0008
+POWERCAPACITY_40 = 0x0009
+POWERCAPACITY_60 = 0x000A
+POWERCAPACITY_80 = 0x000B
+POWERCAPACITY_100 = 0x000C
+POWERCAPACITY_DC_CHARGE = 0x000D
+POWERCAPACITY_FULL_CHARGE = 0x000E
+POWERCAPACITY_CHARGING_ERROR = 0x000F
+POWERCAPACITY_CAPACITY_UNKNOWN = 0x0010
+POWERCAPACITY_DC = 0x00FF
+
+POWERCAPACITY_NAMES: dict[int, str] = {
+    POWERCAPACITY_EMPTY: "empty",
+    POWERCAPACITY_END: "flat",
+    POWERCAPACITY_PREEND: "nearly flat",
+    POWERCAPACITY_HALF: "half",
+    POWERCAPACITY_FULL: "full",
+    POWERCAPACITY_HIGH: "high",
+    POWERCAPACITY_PREEND5: "under 20%",
+    POWERCAPACITY_20: "20%",
+    POWERCAPACITY_40: "40%",
+    POWERCAPACITY_60: "60%",
+    POWERCAPACITY_80: "80%",
+    POWERCAPACITY_100: "100%",
+    POWERCAPACITY_DC: "on mains",
+    POWERCAPACITY_DC_CHARGE: "charging",
+    POWERCAPACITY_FULL_CHARGE: "charged",
+    POWERCAPACITY_CHARGING_ERROR: "charging error",
+    POWERCAPACITY_CAPACITY_UNKNOWN: "unknown",
+}
+
+#: Roughly what a level means as a percentage, for a progress bar.  The body
+#: reports a coarse level rather than a number, so this cannot be finer.
+POWERCAPACITY_PERCENT: dict[int, int] = {
+    POWERCAPACITY_EMPTY: 0,
+    POWERCAPACITY_END: 5,
+    POWERCAPACITY_PREEND: 10,
+    POWERCAPACITY_PREEND5: 15,
+    POWERCAPACITY_20: 20,
+    POWERCAPACITY_40: 40,
+    POWERCAPACITY_HALF: 50,
+    POWERCAPACITY_60: 60,
+    POWERCAPACITY_80: 80,
+    POWERCAPACITY_HIGH: 85,
+    POWERCAPACITY_FULL: 100,
+    POWERCAPACITY_100: 100,
+    POWERCAPACITY_FULL_CHARGE: 100,
+}
+
+#: Levels at which a body should not be trusted to last a totality.
+POWERCAPACITY_LOW = frozenset((
+    POWERCAPACITY_EMPTY, POWERCAPACITY_END, POWERCAPACITY_PREEND,
+    POWERCAPACITY_PREEND5, POWERCAPACITY_20,
+))

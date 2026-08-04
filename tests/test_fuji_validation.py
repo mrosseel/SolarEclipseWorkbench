@@ -7,6 +7,8 @@ validator raised one issue about AE mode, and the run failed anyway.
 
 from unittest.mock import MagicMock
 
+from fujixsdk.camera import BatteryInfo, MediaCapacity, ShutterCount
+
 from fujixsdk import _constants as C
 from fujixsdk._errors import XSDKError
 from fujixsdk.eclipse import validate_for_eclipse
@@ -28,13 +30,23 @@ def _camera(**overrides):
         get_shutter_speed=lambda: (C.SHUTTER_1_1000, 0),
         get_aperture=lambda: 800,
         get_buffer_capacity=lambda: (0, 32),
-        get_battery_info=lambda: (80, 0, 0),
-        get_media_capacity=lambda: 32 * 1024 * 1024,
+        # The real shapes: the body reports a coarse battery state rather than
+        # a percentage, and the card calls take a slot.
+        get_battery_info=lambda: BatteryInfo(
+            body=C.POWERCAPACITY_80, grip=C.POWERCAPACITY_EMPTY,
+            grip2=C.POWERCAPACITY_EMPTY, body_ratio=80, grip_ratio=0,
+            grip2_ratio=0),
+        get_media_status=lambda slot=1: C.MEDIASTATUS_OK,
+        get_media_capacity=lambda slot=1: MediaCapacity(
+            blank_frames=940, remaining_sectors=32 * 1024 * 1024,
+            sector_size=512, card_size=64 * 1000 ** 3),
+        get_shutter_count=lambda: ShutterCount(current=18955, total=18955,
+                                               exchanges=0),
     )
     defaults.update(overrides)
     cam = MagicMock()
     for name, fn in defaults.items():
-        setattr(cam, name, MagicMock(side_effect=lambda fn=fn: fn()))
+        setattr(cam, name, MagicMock(side_effect=lambda *a, fn=fn, **k: fn(*a, **k)))
     cam.camera_mode = 0x0001
     return cam
 

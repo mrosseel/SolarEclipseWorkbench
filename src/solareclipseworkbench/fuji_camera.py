@@ -40,6 +40,10 @@ try:
     )
     from fujixsdk._constants import (
         AE_MODE_NAMES,
+        ITEM_MEDIASLOT1 as SDK_ITEM_MEDIASLOT1,
+        ITEM_MEDIASLOT2 as SDK_ITEM_MEDIASLOT2,
+        MEDIASTATUS_CANNOT_WRITE,
+        MEDIASTATUS_NAMES,
         AE_OFF,
         FOCUS_MODE_NAMES,
         ISO_100,
@@ -486,9 +490,14 @@ class _FujiConfigStub:
         sdk_cam = self._cam._sdk_cam
 
         if name_lower == 'batterylevel':
+            # The body reports a coarse state, not a percentage.  This used to
+            # print it as one - "3%" for a half-full battery - which is worse
+            # than saying nothing.  And the X-T4's SDK module does not
+            # implement the battery API at all: GetDeviceInfoEx does not list
+            # 0x4055, so it answers 0x1013 whatever is passed.  Check the body
+            # by eye before an eclipse; there is no reading it from here.
             try:
-                level, _, _ = sdk_cam.get_battery_info()
-                return _FujiWidgetStub(name, f"{level}%")
+                return _FujiWidgetStub(name, sdk_cam.get_battery_info().describe())
             except Exception:
                 return _FujiWidgetStub(name, "Unknown")
 
@@ -1006,13 +1015,44 @@ class FujiCamera(BaseCamera):
         pass
 
     def get_storageinfo(self) -> list:
-        try:
-            free_kb = self._sdk.get_media_capacity()
-            # SDK only returns free capacity; estimate total as 2x free
-            # (we don't have a total capacity API)
-            return [_FujiStorageEntry(float(free_kb), float(free_kb) * 2)]
-        except Exception:
-            return [_FujiStorageEntry(999.9 * 1024 * 1024, 999.9 * 1024 * 1024)]
+        """Free and total space per card, or nothing when the body will not say.
+
+        It used to invent both numbers: the total was "free x 2" because there
+        was no total to read, and a body that refused the call reported 999.9 GB
+        free.  A card that is nearly full then looks empty right up to the
+        moment it stops taking frames.
+
+        An empty list is what the vendor-agnostic helper already reads as
+        "unknown" - it returns -1.0 - so saying nothing is both honest and
+        already handled.
+        """
+        entries = []
+        for slot in (SDK_ITEM_MEDIASLOT1, SDK_ITEM_MEDIASLOT2):
+            try:
+                capacity = self._sdk.get_media_capacity(slot)
+            except Exception:
+                continue
+            free_kb = capacity.free_bytes / 1024.0
+            total_kb = capacity.card_size / 1024.0 if capacity.card_size else free_kb
+            entries.append(_FujiStorageEntry(free_kb, total_kb))
+        return entries
+
+    def get_card_status(self) -> list:
+        """Whether each card can be written to, as (slot, status, name).
+
+        Unlike the capacity, this one the X-T4 does answer.  It is the pre-flight
+        question that matters: a write-protected or full card takes no frames at
+        all, and that is not something to discover at second contact.
+        """
+        status = []
+        for slot in (SDK_ITEM_MEDIASLOT1, SDK_ITEM_MEDIASLOT2):
+            try:
+                value = self._sdk.get_media_status(slot)
+            except Exception:
+                continue
+            status.append((slot, value,
+                           MEDIASTATUS_NAMES.get(value, "0x%04x" % value)))
+        return status
 
     def exit(self):
         self.disconnect()

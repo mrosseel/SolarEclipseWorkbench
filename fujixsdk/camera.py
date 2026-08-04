@@ -10,7 +10,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from . import _constants as C
 from . import recovery
@@ -62,6 +62,61 @@ class CameraInfo:
     ip_address: str
     framework: str
     device_name: str
+
+
+class BatteryInfo(NamedTuple):
+    """Battery levels for the body and, if fitted, the grip.
+
+    The levels are coarse states rather than percentages - the body reports
+    "80%" or "nearly flat" as an enum.  See POWERCAPACITY_NAMES.
+    """
+
+    body: int
+    grip: int
+    grip2: int
+    body_ratio: int
+    grip_ratio: int
+    grip2_ratio: int
+
+    @property
+    def is_low(self) -> bool:
+        """True when the body battery would not be trusted for a totality."""
+        return self.body in C.POWERCAPACITY_LOW
+
+    def describe(self) -> str:
+        name = C.POWERCAPACITY_NAMES.get(self.body, "0x%04x" % self.body)
+        if self.grip in C.POWERCAPACITY_NAMES and self.grip != C.POWERCAPACITY_EMPTY:
+            return "%s (grip %s)" % (name, C.POWERCAPACITY_NAMES[self.grip])
+        return name
+
+
+class MediaCapacity(NamedTuple):
+    """What is left on a card."""
+
+    blank_frames: int
+    remaining_sectors: int
+    sector_size: int
+    card_size: int
+
+    @property
+    def free_bytes(self) -> int:
+        return self.remaining_sectors * self.sector_size
+
+    def describe(self) -> str:
+        return "%d frames, %.1f GB free" % (
+            self.blank_frames, self.free_bytes / 1e9)
+
+
+class ShutterCount(NamedTuple):
+    """Actuation counters.
+
+    `total` is what people mean by shutter count.  `current` resets when the
+    shutter unit is replaced.
+    """
+
+    current: int
+    total: int
+    exchanges: int
 
 
 def _resolve_param(api_code: int, api_param, args: tuple):
@@ -989,46 +1044,116 @@ class Camera:
     # ------------------------------------------------------------------
     # Battery info (extended API)
     # ------------------------------------------------------------------
-    def get_battery_info(self) -> tuple[int, int, int]:
-        """Returns (level, a, b) from CheckBatteryInfo.
+    def get_battery_info(self) -> "BatteryInfo":
+        """The body and grip battery levels.
 
-        level is the battery percentage (0-100 scale, camera-dependent).
+        Six out-parameters, per the reference manual for every model except the
+        GFX 100 family:
+
+            XSDK_GetProp(hCamera, lAPICode, lAPIParam,
+                         plBodyBatteryInfo,  plGripBatteryInfo,
+                         plGripBattery2Info, plBodyBatteryRatio,
+                         plGripBatteryRatio, plGripBattery2Ratio)
+
+        Three were passed before, so the call was refused and no battery level
+        was ever read from this body - which matters on a day where the camera
+        has to last the whole of totality on the charge it starts with.
+
+        The levels are coarse states, not percentages: see POWERCAPACITY_NAMES
+        for what they mean and POWERCAPACITY_PERCENT for an approximation.
         """
-        level = ctypes.c_long()
-        a = ctypes.c_long()
-        b = ctypes.c_long()
+        body, grip, grip2 = (ctypes.c_long(), ctypes.c_long(), ctypes.c_long())
+        body_r, grip_r, grip2_r = (ctypes.c_long(), ctypes.c_long(),
+                                   ctypes.c_long())
         self.get_prop(
             C.API_CODE_CheckBatteryInfo,
-            ctypes.byref(level), ctypes.byref(a), ctypes.byref(b),
+            ctypes.byref(body), ctypes.byref(grip), ctypes.byref(grip2),
+            ctypes.byref(body_r), ctypes.byref(grip_r), ctypes.byref(grip2_r),
         )
-        return level.value, a.value, b.value
+        return BatteryInfo(
+            body=body.value, grip=grip.value, grip2=grip2.value,
+            body_ratio=body_r.value, grip_ratio=grip_r.value,
+            grip2_ratio=grip2_r.value,
+        )
 
     # ------------------------------------------------------------------
     # Media status / capacity (extended API)
     # ------------------------------------------------------------------
-    def get_media_status(self) -> int:
+    def get_media_status(self, slot: int = C.ITEM_MEDIASLOT1) -> int:
+        """Whether the card in the given slot can be written to.
+
+        Takes the slot as an input parameter before the answer:
+
+            XSDK_GetProp(hCamera, lAPICode, lAPIParam, lCategory, pStatus)
+
+        The slot was never passed, so this never answered.  Compare against
+        MEDIASTATUS_CANNOT_WRITE, or name it with MEDIASTATUS_NAMES.
+        """
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetMediaStatus, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetMediaStatus,
+                      ctypes.c_long(slot), ctypes.byref(val))
         return val.value
 
-    def get_media_capacity(self) -> int:
-        """Returns free capacity in KB."""
-        val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetMediaCapacity, ctypes.byref(val))
-        return val.value
+    def get_media_capacity(self, slot: int = C.ITEM_MEDIASLOT1) -> "MediaCapacity":
+        """How much room is left on the card in the given slot.
+
+            XSDK_GetProp(hCamera, lAPICode, lAPIParam, lCategory,
+                         pBlankFrameNum, pRemainSectorNum, pSectorSize,
+                         pCardSize)
+
+        The old signature claimed to return "free capacity in KB" from a single
+        out-parameter and a missing slot, and returned nothing at all.
+
+        blank_frames is the number the body itself thinks it can still take,
+        which is the figure worth showing before an eclipse - it accounts for
+        the format and compression actually set.
+        """
+        frames, sectors, sector_size, card = (ctypes.c_long(), ctypes.c_long(),
+                                              ctypes.c_long(), ctypes.c_long())
+        self.get_prop(
+            C.API_CODE_GetMediaCapacity, ctypes.c_long(slot),
+            ctypes.byref(frames), ctypes.byref(sectors),
+            ctypes.byref(sector_size), ctypes.byref(card),
+        )
+        return MediaCapacity(
+            blank_frames=frames.value, remaining_sectors=sectors.value,
+            sector_size=sector_size.value, card_size=card.value,
+        )
 
     # ------------------------------------------------------------------
     # Shutter count (extended API)
     # ------------------------------------------------------------------
-    def get_shutter_count(self) -> int:
-        val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetShutterCount, ctypes.byref(val))
-        return val.value
+    def get_shutter_count(self) -> "ShutterCount":
+        """The actuation counters.
+
+            XSDK_GetProp(hCamera, lAPICode, lAPIParam,
+                         pShutterCount, pTotalShutterCount, pExchangeCount)
+
+        One out-parameter was passed of the three.  `total` is the figure people
+        mean by shutter count; `current` resets when the shutter unit is
+        replaced, and `exchanges` says how many times that has happened.
+        """
+        current, total, exchanges = (ctypes.c_long(), ctypes.c_long(),
+                                     ctypes.c_long())
+        self.get_prop(
+            C.API_CODE_GetShutterCount,
+            ctypes.byref(current), ctypes.byref(total), ctypes.byref(exchanges),
+        )
+        return ShutterCount(current=current.value, total=total.value,
+                            exchanges=exchanges.value)
 
     # ------------------------------------------------------------------
     # Command dial status (extended API)
     # ------------------------------------------------------------------
     def get_command_dial_status(self) -> int:
-        val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetCommandDialStatus, ctypes.byref(val))
-        return val.value
+        """Not wired up - the X-T4 header says this takes four arguments.
+
+        Raises rather than returning a number that was never read.  It passed
+        one out-parameter of four, so the body refused the call and the value
+        returned was whatever the uninitialised long happened to hold.  The
+        reference manual does not document this API, so the remaining three
+        parameters cannot be guessed; nothing in this project calls it.
+        """
+        raise NotImplementedError(
+            "GetCommandDialStatus takes four arguments on the X-T4 and the SDK "
+            "reference does not document them")

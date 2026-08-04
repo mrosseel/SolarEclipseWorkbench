@@ -212,32 +212,53 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
     except XSDKError:
         pass
 
-    # Battery
+    # Battery.  A coarse state, not a percentage - it was printed as one.
+    # Bodies whose SDK module omits the API (the X-T4 among them) cannot be
+    # asked at all, so the check says to look at the body rather than staying
+    # silent about a thing that has to last the whole of totality.
     try:
-        level, _, _ = cam.get_battery_info()
+        battery = cam.get_battery_info()
         issues.append(CameraIssue(
-            "info", "Battery", f"{level}%", "",
+            "warning" if battery.is_low else "info", "Battery",
+            battery.describe(), "fit a fresh battery" if battery.is_low else "",
             "Battery level",
         ))
     except XSDKError:
-        pass
-
-    # Card space
-    try:
-        capacity_kb = cam.get_media_capacity()
-        capacity_gb = capacity_kb / (1024 * 1024)
         issues.append(CameraIssue(
-            "info", "Card", f"{capacity_gb:.1f} GB free", "",
-            "Available card space",
+            "info", "Battery", "not readable on this body",
+            "check the level on the camera by hand",
+            "Battery level",
         ))
-    except XSDKError:
-        pass
+
+    # Card.  Whether each card will take a frame at all matters more than how
+    # many it will take, and unlike the capacity it is a question this body
+    # answers.
+    for slot in (C.ITEM_MEDIASLOT1, C.ITEM_MEDIASLOT2):
+        try:
+            status = cam.get_media_status(slot)
+        except XSDKError:
+            continue
+        name = C.MEDIASTATUS_NAMES.get(status, "0x%04x" % status)
+        blocked = status in C.MEDIASTATUS_CANNOT_WRITE
+        issues.append(CameraIssue(
+            "error" if blocked else "info", f"Card slot {slot}", name,
+            "no frame can be written to this card" if blocked else "",
+            "Recording media status",
+        ))
+        try:
+            capacity = cam.get_media_capacity(slot)
+        except XSDKError:
+            continue          # the X-T4 lists this API but will not answer it
+        issues.append(CameraIssue(
+            "info", f"Card slot {slot} space", capacity.describe(), "",
+            "Room left on the card",
+        ))
 
     # Shutter count
     try:
         count = cam.get_shutter_count()
         issues.append(CameraIssue(
-            "info", "Shutter Count", f"{count} actuations", "",
+            "info", "Shutter Count", f"{count.total} actuations", "",
             "Total shutter actuations",
         ))
     except XSDKError:
