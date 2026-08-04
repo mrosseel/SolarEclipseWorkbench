@@ -490,6 +490,9 @@ class SolarEclipseView(QMainWindow, Observable):
         # The window is a time and a length.  Kept apart so each sits under the
         # header it belongs to; as one string spanning two columns it ran across
         # the table and made every column look ragged.
+        self.totality_label = QLabel()
+        self.totality_script_label = QLabel()
+        self.totality_script_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.beads_c2_duration_label = QLabel()
         self.beads_c2_duration_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.beads_c3_duration_label = QLabel()
@@ -775,17 +778,28 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(QLabel("Fourth contact (C4)"), 5, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunrise"), 6, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunset"), 7, 0)
-        reference_moments_grid_layout.addWidget(QLabel("Beads window (C2)"), 8, 0)
-        reference_moments_grid_layout.addWidget(self.beads_c2_label, 8, 1)
-        reference_moments_grid_layout.addWidget(self.beads_c2_duration_label, 8, 3)
-        reference_moments_grid_layout.addWidget(QLabel("Beads window (C3)"), 9, 0)
-        reference_moments_grid_layout.addWidget(self.beads_c3_label, 9, 1)
-        reference_moments_grid_layout.addWidget(self.beads_c3_duration_label, 9, 3)
+        # Totality, with the script that fits it.  This is the number a run is
+        # chosen by, and on 4 August the 110 s script was loaded against a 104 s
+        # totality: its last corona ladder still held the camera at third
+        # contact, the bead exposure never loaded, and the C3 burst fired at the
+        # ladder's half second.  The duration was on screen, in a box beside the
+        # date, saying "Total (1:44 = 104 s)" - true, easy to read past, and it
+        # never said which file to load.
+        reference_moments_grid_layout.addWidget(QLabel("Totality"), 8, 0)
+        reference_moments_grid_layout.addWidget(self.totality_label, 8, 1)
+        reference_moments_grid_layout.addWidget(self.totality_script_label, 8, 3)
+
+        reference_moments_grid_layout.addWidget(QLabel("Beads window (C2)"), 9, 0)
+        reference_moments_grid_layout.addWidget(self.beads_c2_label, 9, 1)
+        reference_moments_grid_layout.addWidget(self.beads_c2_duration_label, 9, 3)
+        reference_moments_grid_layout.addWidget(QLabel("Beads window (C3)"), 10, 0)
+        reference_moments_grid_layout.addWidget(self.beads_c3_label, 10, 1)
+        reference_moments_grid_layout.addWidget(self.beads_c3_duration_label, 10, 3)
 
         # The correction belongs with the numbers it changes: it moves C2 and C3
         # by seconds, which is more than a bead burst is long.  Default on — the
         # corrected contacts are the real ones, a smooth Moon is the approximation.
-        reference_moments_grid_layout.addWidget(self.limb_correction_checkbox, 10, 0, 1, 6)
+        reference_moments_grid_layout.addWidget(self.limb_correction_checkbox, 11, 0, 1, 6)
         # Somewhere for the slack to go.  Without these the grid stretches to
         # fill a full-height dock: ten rows spread seventy pixels apart and four
         # columns spread across five hundred, which is the "waaaay too much
@@ -1240,6 +1254,12 @@ class SolarEclipseView(QMainWindow, Observable):
             total = round(reference_moments["duration"].total_seconds())
             minutes, seconds = divmod(reference_moments["duration"].seconds, 60)
             self.eclipse_type.setText(f"{eclipse_type} ({minutes}:{seconds:02} = {total} s)")
+            self.totality_label.setText(f"{minutes}:{seconds:02}  =  {total} s")
+            # Which file, not just how long.  The scripts come in ten second
+            # steps and the one to load is the longest that does not exceed
+            # totality: a longer one is still exposing when the sun comes back.
+            self.totality_script_label.setText("load the %d s script"
+                                               % (int(total // 10) * 10))
 
         # First contact
 

@@ -476,3 +476,19 @@ def test_asking_to_quit_is_not_an_error_to_be_survived():
     finally:
         gui_mod.QApplication.instance = original_instance
         sys.excepthook = original_excepthook
+
+
+def test_the_moments_show_totality_and_which_script_fits_it():
+    """4 August: the 110 s script was loaded against a 104 s totality.
+
+    Its last corona ladder still held the camera at third contact, so the
+    command loading the bead exposure was dropped and the C3 burst fired at the
+    ladder's half second.  The duration was on screen the whole time - "Total
+    (1:44 = 104 s)", in a box beside the date - and it never said which file
+    that meant.
+    """
+    for total, expected in ((103.8, 100), (100.0, 100), (110.4, 110), (96.0, 90)):
+        # The longest script that does not exceed totality; a longer one is
+        # still exposing when the sun comes back.
+        assert int(round(total) // 10) * 10 == expected, \
+            "%.1f s totality should load the %d s script" % (total, expected)
