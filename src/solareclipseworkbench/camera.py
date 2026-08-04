@@ -2937,15 +2937,33 @@ def get_camera_dict(is_simulator: bool = False, alias_map: Optional[dict] = None
                 cameras.update(detection.cameras)
                 logging.info('Fuji SDK detected %d camera(s)',
                              len(detection.cameras))
-            # Seen is enough, opened is not required.  gphoto2 cannot drive an
-            # X series body tethered, so claiming one gains nothing - and the
-            # claim is not harmless: it takes the USB device away from the SDK
-            # for good.  On 4 August an SDK open failed, gphoto2 claimed the
-            # X-T4 a second later, and every SDK call after that answered
-            # 0x2001 until the body was power-cycled.  A body the SDK could not
-            # open is exactly when this used to fall through.
-            if detection.bodies_seen:
-                skip_fuji_gphoto = True
+            # The SDK being present is enough.  Not "the SDK opened a body",
+            # not even "the SDK saw one" - either of those makes the guard
+            # depend on the thing that is failing.
+            #
+            # gphoto2 cannot drive an X series body tethered, so claiming one
+            # can only do harm, and the harm is total: the claim takes the USB
+            # device away from the SDK for the rest of the run.  Twice on
+            # 4 August this cost an eclipse.  First an SDK open failed and
+            # gphoto2 claimed the body a second later.  Then, with that fixed,
+            # SDK detection returned nothing at all - so bodies_seen was zero,
+            # the guard did not apply, gphoto2 claimed the body again, and
+            # every bracket for the rest of the run took no frames:
+            #
+            #     Fuji SDK found no cameras after retries
+            #     Cannot claim USB device ... [-53] device busy
+            #     Bracket was cut short ... asked for 7 frame(s), took 0
+            #
+            # A Fuji body with no working SDK session is not a camera this
+            # program can shoot with.  Saying so is worth more than handing it
+            # to a driver that will claim it and still not shoot.
+            skip_fuji_gphoto = True
+            if not detection.bodies_seen:
+                logging.warning(
+                    'The Fuji SDK found no camera.  Any Fuji body on the bus is '
+                    'left alone rather than handed to gphoto2, which cannot '
+                    'shoot it tethered and whose claim would lock the SDK out '
+                    'for the rest of the run')
         else:
             logging.debug('Fuji SDK path not found, skipping SDK detection')
     except Exception as exc:

@@ -1420,6 +1420,7 @@ class SolarEclipseController(Observer):
         self.is_simulator: bool = is_simulator
 
         self.scheduler: Union[BackgroundScheduler, None] = None
+        self._problem_marker_shown = False
         self.sim_reference_moment: Union[str, None] = None
         self.sim_offset_minutes: Union[int, None] = None
 
@@ -1501,38 +1502,33 @@ class SolarEclipseController(Observer):
             return False
 
     def _show_camera_problems(self):
-        """Show queued camera problems, without ever interrupting a run.
+        """Put queued camera problems where they can be read, not in the way.
 
-        Before the run a dialog is right: that is when a camera that failed to
-        respond can still be replugged or swapped.  Once the schedule is
-        running a modal dialog is worse than the problem it reports, because it
-        blocks the UI thread while frames are being taken, so the count goes in
-        the window title instead and the detail stays in the log.
+        This used to raise a dialog whenever a schedule was not running.  Every
+        problem is already in the Problems dock, with its time and level, so
+        the dialog said nothing new and had to be dismissed before anything
+        else could be done - during setup, which is when problems arrive in
+        numbers.
+
+        What is left is the count in the window title, so a problem that
+        arrived while the window was behind something else is still noticed.
         """
         try:
             if hardware_problems.count() == 0:
+                if self._problem_marker_shown:
+                    self.view.setWindowTitle("Solar Eclipse Workbench")
+                    self._problem_marker_shown = False
                 return
 
-            if self._run_in_progress():
-                pending = hardware_problems.peek()
-                worst = "error" if any(p.severity == "error" for p in pending) else "warning"
-                marker = "\u26d4" if worst == "error" else "\u26a0"
-                self.view.setWindowTitle(
-                    f"{marker} {len(pending)} camera problem(s) - Solar Eclipse Workbench"
-                )
-                return
-
-            problems = hardware_problems.drain()
-            summary = hardware_problems.summarise(problems)
-            has_error = any(p.severity == "error" for p in problems)
-            box = QMessageBox.critical if has_error else QMessageBox.warning
-            box(
-                self.view,
-                "Camera problem" if len(problems) == 1 else "Camera problems",
-                summary + "\n\nDetails are in the log file.",
+            pending = hardware_problems.peek()
+            worst = "error" if any(p.severity == "error" for p in pending) else "warning"
+            marker = "\u26d4" if worst == "error" else "\u26a0"
+            self.view.setWindowTitle(
+                f"{marker} {len(pending)} camera problem(s) - Solar Eclipse Workbench"
             )
+            self._problem_marker_shown = True
         except Exception:
-            LOGGER.exception("Could not display camera problems")
+            LOGGER.exception("Could not show camera problems")
 
     def update_time(self):
         """ Update the displayed current time and countdown clocks."""

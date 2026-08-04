@@ -76,3 +76,30 @@ def test_a_non_fuji_body_is_still_gphoto2s(monkeypatch):
     camera_module.get_camera_dict()
 
     assert opened == ['Canon EOS 80D']
+
+
+def test_a_fuji_body_is_left_alone_even_when_the_sdk_saw_nothing(
+        no_gphoto_claims, monkeypatch, caplog):
+    """The gap that cost the run on 4 August at 17:55.
+
+    The guard depended on the SDK having seen a body, so when SDK detection
+    returned nothing the guard did not apply, gphoto2 claimed the X-T4, and
+    every bracket for the rest of the run took no frames:
+
+        Fuji SDK found no cameras after retries
+        Cannot claim USB device ... [-53] device busy
+        Bracket was cut short ... asked for 7 frame(s), took 0
+
+    A Fuji body with no working SDK session is not a camera this program can
+    shoot with, and handing it to a driver that cannot shoot it tethered while
+    locking out the one that can is strictly worse than saying so.
+    """
+    _detection({}, 0, monkeypatch)          # the SDK saw nothing at all
+
+    with caplog.at_level(logging.WARNING):
+        result = camera_module.get_camera_dict()
+
+    assert no_gphoto_claims == [], "gphoto2 claimed the body the SDK needs"
+    assert result == {}
+    assert any('left alone' in r.getMessage() for r in caplog.records), \
+        "nothing said why the camera is missing"
