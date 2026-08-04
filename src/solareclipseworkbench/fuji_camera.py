@@ -22,7 +22,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from . import exposure_trim, hardware_problems
 from .camera import BaseCamera, CameraError
@@ -1230,8 +1230,28 @@ def _report_validation_issues(camera: FujiCamera) -> None:
         logging.info('Fuji validation raised %d issue(s) for %s', len(issues), camera.name)
 
 
-def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
-    """Detect Fuji cameras via SDK. Returns {name: FujiCamera} dict.
+class FujiDetection(NamedTuple):
+    """What the SDK found, kept apart from what it managed to open.
+
+    These are not the same thing and the difference matters: gphoto2 must be
+    kept away from a Fuji body that is merely *present*, not only from one the
+    SDK holds open.  See :func:`detect_fuji`.
+    """
+
+    cameras: dict
+    bodies_seen: int
+
+
+def detect_fuji(sdk_path: str) -> FujiDetection:
+    """Detect Fuji bodies via the SDK, reporting sightings and opens apart.
+
+    A body that is seen but will not open is the dangerous case.  It used to
+    leave the caller with an empty dict, indistinguishable from "no Fuji here",
+    so gphoto2 went on to claim the device over PTP - which it cannot drive
+    tethered anyway.  The claim then guaranteed the SDK could never open it:
+    every later attempt answered 0x2001 and detect fell to zero.  Measured on
+    4 August: SDK open failed, gphoto2 claimed the X-T4 one second later, and
+    the body stayed unreachable until it was power-cycled.
 
     Retries detection up to 3 times with a delay after killing ptpcamerad,
     because the USB device needs time to become available.
@@ -1242,7 +1262,7 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
         logging.error("fujixsdk is not importable (%s) — the SDK was never tried. "
                       "Run from the repo root or put it on sys.path.",
                       FUJIXSDK_IMPORT_ERROR)
-        return {}
+        return FujiDetection({}, 0)
 
     _preload_mac_transport(sdk_path)
 
@@ -1271,7 +1291,7 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
 
     if not cameras:
         logging.warning('Fuji SDK found no cameras after retries')
-        return {}
+        return FujiDetection({}, 0)
 
     result = {}
     for info in cameras:
@@ -1296,7 +1316,12 @@ def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
                 detail=str(e),
             )
 
-    return result
+    return FujiDetection(result, len(cameras))
+
+
+def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
+    """The bodies the SDK opened, for callers that need nothing more."""
+    return detect_fuji(sdk_path).cameras
 
 
 # ======================================================================

@@ -2906,15 +2906,24 @@ def get_camera_dict(is_simulator: bool = False, alias_map: Optional[dict] = None
     # before gphoto2's autodetect does.
     skip_fuji_gphoto = False
     try:
-        from .fuji_camera import detect_fuji_cameras, find_fuji_sdk_path
+        from .fuji_camera import detect_fuji, find_fuji_sdk_path
         sdk_path = find_fuji_sdk_path()
         if sdk_path:
             logging.debug('Fuji SDK path: %s', sdk_path)
-            fuji_cameras = detect_fuji_cameras(sdk_path)
-            if fuji_cameras:
-                cameras.update(fuji_cameras)
+            detection = detect_fuji(sdk_path)
+            if detection.cameras:
+                cameras.update(detection.cameras)
+                logging.info('Fuji SDK detected %d camera(s)',
+                             len(detection.cameras))
+            # Seen is enough, opened is not required.  gphoto2 cannot drive an
+            # X series body tethered, so claiming one gains nothing - and the
+            # claim is not harmless: it takes the USB device away from the SDK
+            # for good.  On 4 August an SDK open failed, gphoto2 claimed the
+            # X-T4 a second later, and every SDK call after that answered
+            # 0x2001 until the body was power-cycled.  A body the SDK could not
+            # open is exactly when this used to fall through.
+            if detection.bodies_seen:
                 skip_fuji_gphoto = True
-                logging.info('Fuji SDK detected %d camera(s)', len(fuji_cameras))
         else:
             logging.debug('Fuji SDK path not found, skipping SDK detection')
     except Exception as exc:
@@ -2937,7 +2946,11 @@ def get_camera_dict(is_simulator: bool = False, alias_map: Optional[dict] = None
         # A Fuji body already opened via the SDK must not also be opened by
         # gphoto2 (it would fail to claim the USB device, or double-list it).
         if skip_fuji_gphoto and 'fuji' in model_name.lower():
-            logging.debug('Skipping gphoto for %s (using Fuji SDK)', model_name)
+            # Not debug: this is the line that says why a body the user can see
+            # on the bus is not in the gphoto2 list, and it has to be findable
+            # in the log when the SDK failed to open it.
+            logging.info('Leaving %s to the Fuji SDK; gphoto2 will not claim it',
+                         model_name)
             continue
         cam = get_camera_by_port(model_name, port)
 
