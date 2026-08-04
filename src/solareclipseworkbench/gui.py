@@ -1087,7 +1087,44 @@ class SolarEclipseView(QMainWindow, Observable):
         strip.addSpacing(14)
         strip.addWidget(self.eclipse_type)
         strip.addStretch(1)
+
+        # What is not ready yet, at a glance.  An em dash in amber is a quiet
+        # "not set"; it turns into the normal-coloured value when it is.  Camera
+        # and relay and script live here too because those three questions -
+        # is a body connected, will the shutter fire, is anything scheduled -
+        # are the whole pre-flight, and each has cost a rehearsal this week.
+        self.camera_state_label = QLabel("\u2014")
+        self.relay_state_label = QLabel("\u2014")
+        self.script_state_label = QLabel("\u2014")
+        for name, label in (("Cam", self.camera_state_label),
+                            ("Relay", self.relay_state_label),
+                            ("Script", self.script_state_label)):
+            label.setFont(mono)
+            strip.addWidget(caption(name))
+            strip.addWidget(label)
+            strip.addSpacing(14)
+        self._readiness_labels = (
+            self.longitude_label, self.latitude_label, self.altitude_label,
+            self.eclipse_date, self.eclipse_type,
+            self.camera_state_label, self.relay_state_label,
+            self.script_state_label)
+        self.refresh_readiness_colours()
         return strip
+
+    #: Quietly amber, not red: half of these stay unset in a legitimate run -
+    #: no mount, no relay on the parked body - and a row of red reads as a
+    #: fault, which "not filled in yet" is not.
+    UNSET_COLOUR = "color: #b98514;"
+
+    def refresh_readiness_colours(self) -> None:
+        """Amber for the em dashes, the normal palette for real values."""
+        for label in self._readiness_labels:
+            unset = label.text() in ("", "\u2014")
+            if unset and not label.text():
+                label.setText("\u2014")
+            label.setStyleSheet(self.UNSET_COLOUR if unset else "")
+
+
 
     def add_toolbar(self):
         """ Create the toolbar of the UI.
@@ -1117,7 +1154,9 @@ class SolarEclipseView(QMainWindow, Observable):
         # Date
 
         self.date_action.setStatusTip("Date")
-        self.date_action.setIcon(QIcon(str(ICON_PATH / "calendar.png")))
+        # The drawn diamond ring, not a calendar: the button chooses an
+        # eclipse, and the calendar glyph made it read as a date-format thing.
+        self.date_action.setIcon(QIcon(beads_icon(32)))
         self.date_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.date_action)
 
@@ -1710,6 +1749,7 @@ class SolarEclipseController(Observer):
 
         # self.view.eclipse_visualization.plot(current_time_utc)    FIXME
 
+        self._refresh_readiness()
         self.update_jobs_countdown()
 
     def update_jobs_countdown(self):
@@ -2349,6 +2389,33 @@ class SolarEclipseController(Observer):
             return True
 
         return False
+
+    def _refresh_readiness(self):
+        """Fill the strip's readiness answers from state already in memory.
+
+        Runs every clock tick, so nothing here may touch the camera or the
+        bus: a body is "connected" if an adapter is registered, not because it
+        was just asked.
+        """
+        try:
+            overview = getattr(self.model, 'camera_overview', None)
+            cameras = getattr(overview, 'camera_overview_dict', None) or {}
+            names = {getattr(cam, 'name', str(name)) for name, cam in cameras.items()}
+            self.view.camera_state_label.setText(
+                ", ".join(sorted(names)) if names else "\u2014")
+
+            trigger = getattr(self, 'relay_trigger', None)
+            self.view.relay_state_label.setText(
+                trigger.describe() if trigger is not None else "\u2014")
+
+            scheduler = getattr(self, 'scheduler', None)
+            jobs = len(scheduler.get_jobs()) if scheduler is not None else 0
+            self.view.script_state_label.setText(
+                "%d jobs" % jobs if jobs else "\u2014")
+
+            self.view.refresh_readiness_colours()
+        except Exception:
+            logging.debug("Could not refresh the readiness strip", exc_info=True)
 
     def _apply_simulation_offset(self):
         """Move the countdowns onto the simulated clock straight away.
