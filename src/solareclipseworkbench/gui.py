@@ -4646,8 +4646,35 @@ def _catch_native_crashes():
         LOGGER.debug("Could not install the native crash handler", exc_info=True)
 
 
+def _keep_running_on_unhandled_errors():
+    """Log an unhandled exception instead of killing the application.
+
+    PyQt calls qFatal() when a Python exception escapes a slot, so the process
+    aborts outright - no traceback in the log, because the message goes to
+    stderr, and no crash report.  That is how a single AttributeError in the
+    live view button took the whole GUI down at 15:59 on 4 August, two minutes
+    before second contact in the simulation.
+
+    Installing an excepthook stops the abort.  A bug in a button must not be
+    able to end a run: the schedule is the point of this program, it is still
+    running in its own threads, and totality does not wait while somebody
+    restarts the app and reloads a script.
+    """
+    def _hook(kind, value, traceback_object):
+        LOGGER.error("Unhandled %s in the interface - the schedule keeps "
+                     "running", kind.__name__,
+                     exc_info=(kind, value, traceback_object))
+        try:
+            faulthandler.dump_traceback(file=CRASH_LOG.open("a"), all_threads=False)
+        except Exception:
+            pass
+
+    sys.excepthook = _hook
+
+
 def main():
     _catch_native_crashes()
+    _keep_running_on_unhandled_errors()
 
     # Ensure the Fuji SDK's libraries are on LD_LIBRARY_PATH before anything
     # else runs.  If a re-exec is needed it happens here, at launch, instead of

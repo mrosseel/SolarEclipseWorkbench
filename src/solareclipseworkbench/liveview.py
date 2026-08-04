@@ -35,6 +35,7 @@ from fujixsdk._constants import (
     PRIORITY_CAMERA,
     PRIORITY_PC,
 )
+from fujixsdk import recovery as sdk_recovery
 from fujixsdk._errors import BusyError, XSDKError
 from fujixsdk.camera import Camera
 
@@ -516,6 +517,11 @@ class LiveViewWindow(QDockWidget):
         # Both from the adapter: the handle to talk to, and the lock that says
         # when it is safe to.
         self._usb_lock = getattr(camera, "_usb_lock", None) or threading.RLock()
+        # Two objects, deliberately: the SDK camera to stream from, and the
+        # adapter it came wrapped in, which is what carries ensure_ready and the
+        # rest of the workbench's camera contract.  Calling an adapter method on
+        # the unwrapped handle is what took the GUI down on 4 August.
+        self._adapter = camera
         self._camera = getattr(camera, "_sdk_cam", camera)
         self._stream: LiveViewStream | None = None
         self._worker: _FrameWorker | None = None
@@ -663,6 +669,22 @@ class LiveViewWindow(QDockWidget):
             log.warning("Could not set PC priority after reconnect: %s", e)
         return True
 
+    def _ensure_ready(self, priority: int) -> bool:
+        """Clear whatever is stopping the body, and take the given priority.
+
+        Prefers the adapter, which is where the workbench's camera contract
+        lives; falls back to the SDK recovery directly for a window handed a
+        bare SDK camera, which the constructor still allows.
+
+        Never lets the shutter fire: a preview being opened is not a reason for
+        a frame to go off.
+        """
+        ready = getattr(self._adapter, 'ensure_ready', None)
+        if ready is not None:
+            return ready(priority, allow_shot=False, why="live view")
+        return sdk_recovery.unblock(self._camera, priority, allow_shot=False,
+                                    why="live view")
+
     def _start_live_view_stream(self) -> bool:
         """Create and start a LiveViewStream. Returns True on success."""
         quality = self._quality_combo.currentData() or LIVEVIEW_QUALITY_FINE
@@ -703,8 +725,7 @@ class LiveViewWindow(QDockWidget):
         # blocker was something a drain does not fix, such as a live view left
         # running by a crashed run.  No flush shot: a shutter firing because
         # somebody opened a preview is never what was wanted.
-        self._camera.ensure_ready(PRIORITY_PC, allow_shot=False,
-                                  why="live view")
+        self._ensure_ready(PRIORITY_PC)
 
         try:
             ready = self._camera.wait_ready(timeout_s=5.0)

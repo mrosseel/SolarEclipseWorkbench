@@ -469,3 +469,52 @@ def test_the_frame_loop_waits_for_the_body_rather_than_spinning():
     assert liveview._POLL_AFTER_FRAME_MS < 150
     assert liveview._POLL_WHEN_EMPTY_MS < liveview._POLL_AFTER_FRAME_MS
     assert liveview._POLL_WHEN_QUIET_MS > liveview._POLL_WHEN_EMPTY_MS
+
+
+def test_ensure_ready_is_asked_of_the_adapter_not_the_bare_handle():
+    """The AttributeError that aborted the GUI at 15:59 on 4 August.
+
+    The window unwraps the adapter and keeps the SDK camera to stream from, so
+    an adapter method called on it does not exist.  PyQt turns an exception
+    escaping a slot into qFatal(), so this did not raise - it killed the
+    process, two minutes before second contact in the simulation.
+    """
+    from types import SimpleNamespace
+
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    asked = []
+    sdk_camera = object()               # no ensure_ready, like the real handle
+    adapter = SimpleNamespace(
+        _sdk_cam=sdk_camera,
+        ensure_ready=lambda priority, allow_shot=True, why="": asked.append(
+            (priority, allow_shot, why)) or True)
+
+    win = SimpleNamespace(_adapter=adapter, _camera=sdk_camera)
+    LiveViewWindow._ensure_ready(win, 1)
+
+    assert asked, "went to the unwrapped handle, which has no such method"
+    priority, allow_shot, why = asked[0]
+    assert allow_shot is False, "a preview must never fire the shutter"
+    assert why == "live view"
+
+
+def test_a_bare_sdk_camera_still_gets_unblocked():
+    # The constructor allows a window built on a raw SDK camera, so that path
+    # must not depend on the adapter contract.
+    from types import SimpleNamespace
+
+    from solareclipseworkbench import liveview as liveview_mod
+
+    called = []
+    bare = object()
+    win = SimpleNamespace(_adapter=bare, _camera=bare)
+    original = liveview_mod.sdk_recovery.unblock
+    liveview_mod.sdk_recovery.unblock = lambda cam, priority, allow_shot=True, why="": (
+        called.append((cam, allow_shot)) or True)
+    try:
+        liveview_mod.LiveViewWindow._ensure_ready(win, 1)
+    finally:
+        liveview_mod.sdk_recovery.unblock = original
+
+    assert called == [(bare, False)]
