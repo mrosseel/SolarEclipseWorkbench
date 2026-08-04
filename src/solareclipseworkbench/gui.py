@@ -491,8 +491,6 @@ class SolarEclipseView(QMainWindow, Observable):
         # header it belongs to; as one string spanning two columns it ran across
         # the table and made every column look ragged.
         self.totality_label = QLabel()
-        self.totality_script_label = QLabel()
-        self.totality_script_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.beads_c2_duration_label = QLabel()
         self.beads_c2_duration_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.beads_c3_duration_label = QLabel()
@@ -778,16 +776,13 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(QLabel("Fourth contact (C4)"), 5, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunrise"), 6, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunset"), 7, 0)
-        # Totality, with the script that fits it.  This is the number a run is
-        # chosen by, and on 4 August the 110 s script was loaded against a 104 s
-        # totality: its last corona ladder still held the camera at third
-        # contact, the bead exposure never loaded, and the C3 burst fired at the
-        # ladder's half second.  The duration was on screen, in a box beside the
-        # date, saying "Total (1:44 = 104 s)" - true, easy to read past, and it
-        # never said which file to load.
+        # Totality, beside the contacts it is computed from.  It is the number
+        # a run is chosen by - on 4 August a script written for a longer
+        # totality held the camera past third contact and the bead exposure
+        # never loaded - and it used to sit in a box beside the eclipse date,
+        # true and easy to read past.
         reference_moments_grid_layout.addWidget(QLabel("Totality"), 8, 0)
         reference_moments_grid_layout.addWidget(self.totality_label, 8, 1)
-        reference_moments_grid_layout.addWidget(self.totality_script_label, 8, 3)
 
         reference_moments_grid_layout.addWidget(QLabel("Beads window (C2)"), 9, 0)
         reference_moments_grid_layout.addWidget(self.beads_c2_label, 9, 1)
@@ -880,6 +875,17 @@ class SolarEclipseView(QMainWindow, Observable):
                          Qt.Orientation.Horizontal)
         self.resizeDocks([self.moments_dock], [MOMENTS_DOCK_HEIGHT],
                          Qt.Orientation.Vertical)
+
+        # The error log is worth a button of its own with the count on it: the
+        # whole point of the dock is that a problem which only reaches a file is
+        # a problem nobody sees until afterwards, and a closed dock is a file.
+        self.problems_dock_action = self.problems_dock.toggleViewAction()
+        self.problems_dock_action.setText("Error Log")
+        self.problems_dock_action.setStatusTip(
+            "Show every warning and error this run has produced")
+        self.toolbar.insertAction(self.mount_dock_action, self.problems_dock_action)
+        self.problems_dock.count_changed.connect(self._show_problem_count)
+        self._show_problem_count(0)
 
         self.camera_dock_action = self.camera_dock.toggleViewAction()
         self.camera_dock_action.setText("Cameras")
@@ -989,6 +995,27 @@ class SolarEclipseView(QMainWindow, Observable):
         """Remember where the docks were left."""
         settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
         settings.setValue("layout/docks", self.saveState())
+
+    def _show_problem_count(self, count: int) -> None:
+        """Put the number of logged problems in the toolbar button.
+
+        A count in the button is the difference between a dock somebody thought
+        to open and one they had no reason to.  Red, because the numbers that
+        matter here are the ones nobody went looking for.
+        """
+        if count:
+            self.problems_dock_action.setText("Error Log  \u25cf %d" % count)
+            font = self.font()
+            font.setBold(True)
+            for widget in self.toolbar.findChildren(QToolButton):
+                if widget.defaultAction() is self.problems_dock_action:
+                    widget.setStyleSheet(
+                        "color: #c0392b; font-weight: bold;")
+        else:
+            self.problems_dock_action.setText("Error Log")
+            for widget in self.toolbar.findChildren(QToolButton):
+                if widget.defaultAction() is self.problems_dock_action:
+                    widget.setStyleSheet("")
 
     def add_toolbar(self):
         """ Create the toolbar of the UI.
@@ -1254,12 +1281,10 @@ class SolarEclipseView(QMainWindow, Observable):
             total = round(reference_moments["duration"].total_seconds())
             minutes, seconds = divmod(reference_moments["duration"].seconds, 60)
             self.eclipse_type.setText(f"{eclipse_type} ({minutes}:{seconds:02} = {total} s)")
+            # The duration, not advice about it: the scripts people bring are
+            # their own, and one named for a duration is a local habit rather
+            # than something the program should assume.
             self.totality_label.setText(f"{minutes}:{seconds:02}  =  {total} s")
-            # Which file, not just how long.  The scripts come in ten second
-            # steps and the one to load is the longest that does not exceed
-            # totality: a longer one is still exposing when the sun comes back.
-            self.totality_script_label.setText("load the %d s script"
-                                               % (int(total // 10) * 10))
 
         # First contact
 
@@ -1871,6 +1896,16 @@ class SolarEclipseController(Observer):
                         f"Limb-corrected moments (C2_LIMB, C3_LIMB, BEADS_*) exist only when the "
                         f"limb correction is on and the lunar limb profile is installed."
                     )
+
+                # A loaded script means the eclipse is the thing to watch, so
+                # the bead panel follows the clock from here rather than staying
+                # on whatever second was last scrubbed to.  A starting position,
+                # not a lock: Free is still there.
+                try:
+                    self.view.beads_panel.follow_live()
+                except Exception:
+                    logging.debug("Could not put the bead panel on the clock",
+                                  exc_info=True)
 
                 self.jobs_model = JobsTableModel(self.scheduler, self)
                 self.view.jobs_table.setModel(self.jobs_model)
@@ -2719,7 +2754,7 @@ class ProblemsDock(QDockWidget):
     logged = pyqtSignal(str, str, str)
 
     def __init__(self, parent=None):
-        super().__init__("Problems", parent)
+        super().__init__("Error Log", parent)
         self.setObjectName("problems_dock")
 
         body = QWidget()
@@ -2772,6 +2807,10 @@ class ProblemsDock(QDockWidget):
         self.table.setRowCount(0)
         self._recount()
 
+    #: Emitted whenever the number of lines changes, so a toolbar button can
+    #: carry the count without polling for it.
+    count_changed = pyqtSignal(int)
+
     def _recount(self):
         rows = self.table.rowCount()
         errors = sum(1 for row in range(rows)
@@ -2780,6 +2819,7 @@ class ProblemsDock(QDockWidget):
         self.count_label.setText(
             "no problems" if not rows
             else "%d logged, %d error%s" % (rows, errors, "" if errors == 1 else "s"))
+        self.count_changed.emit(rows)
 
 
 class _DockLogHandler(logging.Handler):

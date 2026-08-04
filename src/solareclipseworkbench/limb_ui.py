@@ -350,16 +350,35 @@ class BeadsPanel(QWidget):
                     self.follow_box, self.contact_box):
             box.setMaximumWidth(86)
 
-        self.slider = QSlider(Qt.Orientation.Horizontal)
-        self.slider.setRange(-SLIDER_STEPS, SLIDER_STEPS)
-        self.slider.valueChanged.connect(self._on_slider)
-        controls.addWidget(self.slider, 1)
-
-        self.time_label = QLabel("-")
-        controls.addWidget(self.time_label)
         layout.addLayout(controls)
 
+        # The slider gets its own row.  Sharing one with four combo boxes in a
+        # dock this narrow left it a few pixels wide - present, and impossible
+        # to drag, which reads as missing.  A minimum keeps it draggable however
+        # narrow the dock is pulled.
+        scrub = QHBoxLayout()
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(-SLIDER_STEPS, SLIDER_STEPS)
+        self.slider.setMinimumWidth(160)
+        self.slider.valueChanged.connect(self._on_slider)
+        scrub.addWidget(self.slider, 1)
+
+        self.time_label = QLabel("-")
+        scrub.addWidget(self.time_label)
+        layout.addLayout(scrub)
+
         self._set_controls_enabled(False)
+
+    def follow_live(self) -> None:
+        """Pin the picture to the clock.
+
+        Called when a script is loaded: from then on the panel should show what
+        is happening rather than whatever second was last scrubbed to.  It is a
+        starting position, not a lock - Free is still there for anybody who
+        wants to look around during the partials.
+        """
+        if self.follow_box.currentText() != "Live":
+            self.follow_box.setCurrentText("Live")
 
     def _set_controls_enabled(self, enabled):
         live = self.follow_box.currentText() == "Live"
