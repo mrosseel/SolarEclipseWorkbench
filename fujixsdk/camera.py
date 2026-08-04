@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import ctypes
 import logging
 import os
@@ -155,6 +156,21 @@ def _resolve_param(api_code: int, api_param, args: tuple):
     return api_param, args
 
 
+def _exit_sdk_at_process_end() -> None:
+    """The one XSDK_Exit of the process, after which nothing re-inits."""
+    with Camera._init_lock:
+        if Camera._lib is not None:
+            try:
+                Camera._lib.XSDK_Exit()
+            except Exception:
+                pass
+            Camera._lib = None
+            Camera._init_count = 0
+
+
+atexit.register(_exit_sdk_at_process_end)
+
+
 class Camera:
     """Pythonic interface to a Fujifilm X Series camera via the Shooting SDK.
 
@@ -217,12 +233,24 @@ class Camera:
 
     @classmethod
     def _release_lib(cls):
-        """Decrement reference count and exit SDK when no cameras remain."""
+        """Decrement the reference count.  The SDK stays initialised.
+
+        It used to call XSDK_Exit when the last camera closed, and this SDK
+        does not survive an Exit followed by another Init in one process:
+        every open after the cycle answers a bare -1.  Proven both ways on the
+        body, 4 August - reopen refused after a normal close, reopen fine with
+        the Exit suppressed.
+
+        It hid for months because the GUI leaks reference counts by design
+        (detect increments without a matching release), so the count never
+        reached zero there; every one-shot script and probe did reach zero,
+        which is why the camera "worked in the app and not on the bench" and
+        then, after today's detection rework, stopped reopening anywhere.
+
+        Exit belongs at process end, where it cannot be followed by an Init.
+        """
         with cls._init_lock:
-            cls._init_count -= 1
-            if cls._init_count <= 0 and cls._lib is not None:
-                cls._lib.XSDK_Exit()
-                cls._init_count = 0
+            cls._init_count = max(cls._init_count - 1, 0)
 
     @staticmethod
     def detect(sdk_path: str | Path, interface: int = C.IF_USB,

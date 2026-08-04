@@ -333,3 +333,26 @@ def test_a_failed_open_does_not_tear_down_a_session_that_never_opened():
 
     assert lib.teardown == [], \
         "closed a session that was never opened: %s" % lib.teardown
+
+
+def test_closing_the_last_camera_does_not_exit_the_sdk():
+    """This SDK does not survive Exit followed by Init in one process.
+
+    Proven on the body, 4 August: reopen after a normal close answered a bare
+    -1 every time; with the Exit suppressed, reopen worked every time.  It hid
+    for months because the GUI leaks reference counts by design, so the count
+    never reached zero there - every one-shot script did reach zero, which is
+    why the camera "worked in the app but not on the bench", and after the
+    detection rework it stopped reopening anywhere.
+    """
+    import inspect
+
+    from fujixsdk.camera import Camera
+
+    source = inspect.getsource(Camera._release_lib)
+    assert "XSDK_Exit" not in source, \
+        "Exit on last close breaks every later open in the process"
+
+    import fujixsdk.camera as module
+    assert hasattr(module, "_exit_sdk_at_process_end"), \
+        "nothing exits the SDK at process end"
