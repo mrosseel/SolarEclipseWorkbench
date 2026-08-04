@@ -4997,8 +4997,24 @@ def _keep_running_on_unhandled_errors():
                 _release_all_contacts()
             except Exception:
                 LOGGER.debug("Could not open the relay contacts", exc_info=True)
-            application.quit()
-            return
+            # No closeAllWindows() either.  Closing the main window runs its
+            # closeEvent, which asks "are you sure you want to exit?" in a modal
+            # box - so the attempt to leave puts up one more dialog to be stuck
+            # behind.  Somebody who pressed Ctrl-C has already answered that
+            # question.
+            #
+            # Not application.quit().  That ends the main event loop, and a
+            # modal dialog runs its own nested one - QDialog::exec() was
+            # exactly where the main thread sat, on 4 August, while "Interrupted
+            # - closing down" was already in the log and the process would not
+            # die.  Any dialog open at the wrong moment made Ctrl-C useless.
+            #
+            # Everything that must happen has happened by now: the contacts are
+            # open, the schedulers are stopped, the log is flushed.  What is
+            # left is a window, and the answer to "quit" should not depend on
+            # which dialog is on top of it.
+            logging.shutdown()
+            os._exit(130)
 
         LOGGER.error("Unhandled %s in the interface - the schedule keeps "
                      "running", kind.__name__,
