@@ -548,17 +548,36 @@ def _release_all_contacts() -> None:
 
 
 def _install_shutdown_guards() -> None:
+    """Make sure contacts are opened when the process ends.
+
+    The release happens at exit, not in the signal handler.  A Python signal
+    handler runs on the main thread between bytecodes, so it can interrupt any
+    critical section - and this one iterated a WeakSet and did USB I/O.  On
+    4 August a Ctrl-C landed inside a lock in hardware_problems, the handler
+    raised while another exception was already pending:
+
+        SystemError: WeakSet.__iter__ returned a result with an exception set
+
+    and the lock was never released.  The interface then blocked forever in
+    count(), the window stopped responding, and SIGTERM could not get through
+    either - the process had to be killed outright.
+
+    Raising is all a handler needs to do.  The interpreter unwinds, atexit
+    runs, and the contacts are opened there - on a normal stack, where taking
+    locks and talking to USB is safe.
+    """
     atexit.register(_release_all_contacts)
     for signum in (signal.SIGINT, signal.SIGTERM):
         try:
             previous = signal.getsignal(signum)
 
             def handler(sig, frame, _previous=previous):
-                _release_all_contacts()
                 if callable(_previous):
                     _previous(sig, frame)
+                elif sig == signal.SIGINT:
+                    raise KeyboardInterrupt
                 else:
-                    raise KeyboardInterrupt if sig == signal.SIGINT else SystemExit(1)
+                    raise SystemExit(1)
 
             signal.signal(signum, handler)
         except (ValueError, OSError):

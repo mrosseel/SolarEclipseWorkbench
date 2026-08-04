@@ -314,3 +314,31 @@ def test_a_latched_contact_is_opened_when_the_trigger_is_built():
         "the trigger adopted a latched board"
     assert trigger.closed_channels == set()
     assert trigger.events == [], "inherited state was logged as if commanded"
+
+
+def test_the_signal_handler_does_no_work_of_its_own():
+    """A Python signal handler runs on the main thread between bytecodes, so it
+    can interrupt any critical section.  This one iterated a WeakSet and did USB
+    I/O.  On 4 August a Ctrl-C landed inside a lock in hardware_problems and the
+    handler raised while another exception was pending:
+
+        SystemError: WeakSet.__iter__ returned a result with an exception set
+
+    The lock was never released, the interface blocked forever in count(), and
+    SIGTERM could not get through either - the process had to be killed.
+
+    Releasing at exit instead keeps the guarantee and takes the work off the
+    handler's stack; that contacts are still opened on a signal is covered by
+    scripts checking a real subprocess, since it cannot be observed from here.
+    """
+    import inspect
+
+    from solareclipseworkbench import relay_trigger
+
+    source = inspect.getsource(relay_trigger._install_shutdown_guards)
+    handler = source[source.index("def handler"):]
+
+    assert "_release_all_contacts" not in handler, \
+        "the handler does USB work; that is what wedged the interface"
+    assert "atexit.register(_release_all_contacts)" in source, \
+        "nothing would open the contacts at all"
