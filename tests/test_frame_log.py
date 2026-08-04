@@ -239,6 +239,10 @@ def _live_view_stub(sdk):
     win._refresh_exposure = lambda: LiveViewWindow._refresh_exposure(win)
     win._write_exposure = lambda action, what, hint: LiveViewWindow._write_exposure(
         win, action, what, hint)
+    # The real window writes on a background thread so the window keeps
+    # painting; these tests want the write to have happened by the time they
+    # look, so here it runs where it is called.
+    win._write_in_background = win._write_exposure
     LiveViewWindow._populate_exposure(win)
     return win, LiveViewWindow
 
@@ -603,3 +607,76 @@ def test_a_speed_the_list_does_not_offer_is_still_shown():
 
     assert win._shutter_combo.currentData() == 12345, \
         "the control kept showing something the camera is not set to"
+
+
+def test_the_window_keeps_painting_while_a_write_waits():
+    """4 August: setting the ISO hung the application.
+
+    The write waits for the frame in flight, then for the camera lock - up to
+    eighteen seconds between them.  Waiting is correct; waiting on the thread
+    that paints is what looked like a hang.
+    """
+    import threading
+    import time
+
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_write(action, what, hint):
+        started.set()
+        release.wait(5)
+        return True
+
+    win = SimpleNamespace(
+        _write_exposure=slow_write,
+        _shutter_combo=SimpleNamespace(setEnabled=lambda e: None),
+        _iso_combo=SimpleNamespace(setEnabled=lambda e: None),
+        _status_bar=SimpleNamespace(showMessage=lambda *a, **k: None),
+        write_finished=SimpleNamespace(emit=lambda: None),
+        _write_thread=None)
+
+    began = time.perf_counter()
+    LiveViewWindow._write_in_background(win, lambda: None, "ISO", "")
+    returned_after = time.perf_counter() - began
+
+    assert started.wait(2), "the write never started"
+    assert returned_after < 0.5, (
+        "the caller was blocked for %.1fs - that is the frozen window"
+        % returned_after)
+    release.set()
+    win._write_thread.join(5)
+
+
+def test_two_writes_do_not_run_at_once():
+    # Two threads writing exposures to an SDK that is not thread-safe is how a
+    # session dies.
+    import threading
+
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    release = threading.Event()
+    calls = []
+
+    def slow_write(action, what, hint):
+        calls.append(what)
+        release.wait(5)
+        return True
+
+    messages = []
+    win = SimpleNamespace(
+        _write_exposure=slow_write,
+        _shutter_combo=SimpleNamespace(setEnabled=lambda e: None),
+        _iso_combo=SimpleNamespace(setEnabled=lambda e: None),
+        _status_bar=SimpleNamespace(showMessage=lambda m, *a: messages.append(m)),
+        write_finished=SimpleNamespace(emit=lambda: None),
+        _write_thread=None)
+
+    LiveViewWindow._write_in_background(win, lambda: None, "ISO", "")
+    LiveViewWindow._write_in_background(win, lambda: None, "shutter speed", "")
+
+    assert calls == ["ISO"], "started a second write over the first"
+    assert any("Still setting" in m for m in messages)
+    release.set()
+    win._write_thread.join(5)

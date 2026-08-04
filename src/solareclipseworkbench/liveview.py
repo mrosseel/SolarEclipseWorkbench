@@ -500,6 +500,11 @@ class LiveViewWindow(QDockWidget):
     standalone window, or closed via the title-bar button.
     """
 
+    #: A background exposure write has finished, however it went.  The write
+    #: cannot touch a widget itself: it runs off the GUI thread precisely so
+    #: the window keeps painting while it waits.
+    write_finished = pyqtSignal()
+
     _ZOOM_LEVELS = [1, 2, 4, 8]
 
     def __init__(self, camera, parent: QWidget | None = None):
@@ -528,6 +533,8 @@ class LiveViewWindow(QDockWidget):
         # adapter it came wrapped in, which is what carries ensure_ready and the
         # rest of the workbench's camera contract.  Calling an adapter method on
         # the unwrapped handle is what took the GUI down on 4 August.
+        self.write_finished.connect(self._on_write_finished)
+        self._write_thread = None
         self._adapter = camera
         self._camera = getattr(camera, "_sdk_cam", camera)
         self._stream: LiveViewStream | None = None
@@ -1029,8 +1036,19 @@ class LiveViewWindow(QDockWidget):
             # slow, but because the loop reacquires immediately and the waiter
             # never wins.
             if not worker.wait_idle(_FRAME_READ_WAIT_S):
+                # Do not write into a stalled link.  On 4 August the write went
+                # ahead anyway and got 0x2001 - the session was already gone,
+                # and everything after it, including handing priority back,
+                # failed the same way.  Stopping is the honest outcome: the
+                # preview is not coming back on this session.
                 log.warning("A frame read has not returned after %.0fs; the USB "
-                            "link is stalled", _FRAME_READ_WAIT_S)
+                            "link is stalled, so the %s was not written",
+                            _FRAME_READ_WAIT_S, what)
+                self._status_bar.showMessage(
+                    "The camera stopped responding - live view stopped", 8000)
+                worker.stop()
+                QTimer.singleShot(0, self.stop_stream)
+                return False
         if not self._usb_lock.acquire(timeout=_EXPOSURE_LOCK_WAIT_S):
             # Logged, not only shown: this path was silent, so a refusal here
             # and a refusal from the body were indistinguishable afterwards.
@@ -1120,15 +1138,55 @@ class LiveViewWindow(QDockWidget):
         value = self._shutter_combo.currentData()
         if value is None:
             return
-        self._write_exposure(lambda: self._camera.set_shutter_speed(value),
-                             "shutter speed", "is the shutter dial on T?")
+        self._write_in_background(
+            lambda: self._camera.set_shutter_speed(value),
+            "shutter speed", "is the shutter dial on T?")
 
     def _on_iso_changed(self, index: int):
         value = self._iso_combo.currentData()
         if value is None:
             return
-        self._write_exposure(lambda: self._camera.set_iso(value),
-                             "ISO", "is the ISO dial on C?")
+        self._write_in_background(lambda: self._camera.set_iso(value),
+                                  "ISO", "is the ISO dial on C?")
+
+    def _write_in_background(self, action, what: str, dial_hint: str) -> None:
+        """Write the setting off the GUI thread.
+
+        The write waits for the frame in flight and then for the camera lock -
+        up to eighteen seconds between them.  Done here, that is eighteen
+        seconds of frozen window, which is what an ISO change looked like on
+        4 August: the application hung.  Waiting is correct; waiting in the
+        thread that paints is not.
+
+        Only one write runs at a time.  A second click while one is in flight
+        would have two threads writing exposures to a camera whose SDK is not
+        thread-safe.
+        """
+        if getattr(self, '_write_thread', None) is not None \
+                and self._write_thread.is_alive():
+            self._status_bar.showMessage("Still setting the last one...", 3000)
+            return
+
+        self._shutter_combo.setEnabled(False)
+        self._iso_combo.setEnabled(False)
+        self._status_bar.showMessage("Setting the %s..." % what)
+
+        def run():
+            try:
+                self._write_exposure(action, what, dial_hint)
+            finally:
+                self.write_finished.emit()
+
+        self._write_thread = threading.Thread(
+            target=run, name="exposure-write", daemon=True)
+        self._write_thread.start()
+
+    def _on_write_finished(self):
+        """Back on the GUI thread once a write has finished, however it went."""
+        owned = getattr(self, '_schedule_owns_exposure', False)
+        self._shutter_combo.setEnabled(not owned)
+        self._iso_combo.setEnabled(not owned)
+        self._refresh_exposure()
 
     def is_streaming(self) -> bool:
         """True when frames are actually being fetched.
