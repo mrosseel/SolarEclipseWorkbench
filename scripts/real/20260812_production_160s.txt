@@ -232,7 +232,7 @@ take_bracket, C2, +, 0:02:25.6, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/20
 take_picture, BEADS_C3, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Load the beads exposure before the relay burst @ BEADS_C3-6.0 s, sun 8.6 deg"
 voice_prompt, C3, -, 0:00:08.0, C3_IN_8_SECONDS, "Eight seconds - look away from the eyepiece"
 relay_arm, BEADS_C3, -, 0:00:04.0, "Pre-arm S1 for the C3 burst @ BEADS_C3-4.0 s, sun 8.6 deg"
-relay_burst, BEADS_C3_START, -, 0:00:00.3, 4.6499999999999995, "Baily's beads and diamond ring at C3, relay at 8 fps @ BEADS_C3_START-0.3 s, sun 8.6 deg"
+relay_burst, BEADS_C3_START, -, 0:00:00.3, 4.65, "Baily's beads and diamond ring at C3, relay at 8 fps @ BEADS_C3_START-0.3 s, sun 8.6 deg"
 relay_release, BEADS_C3_START, +, 0:00:06.1, "Open every contact after the C3 burst @ BEADS_C3_START+6.1 s, sun 8.6 deg"
 voice_prompt, C3, -, 0:00:05.0, C3_IN_5_SECONDS, "5 to third contact"
 voice_prompt, C3, -, 0:00:04.0, C3_IN_4_SECONDS, "4 to third contact"

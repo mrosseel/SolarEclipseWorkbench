@@ -258,7 +258,10 @@ def bracket(cam, ref, sign, offset, exposure, iso, steps, frames, what, extra=""
 
 def relay_burst(ref, sign, offset, seconds, frames, what):
     FRAMES[XT4] += frames
-    emit("relay_burst, %s, %s, %s, %s, \"%s\"" %
+    # Two decimals: the hold is now derived from a measured rate, and
+    # "4.6499999999999995" in a line read by torchlight is noise where a number
+    # should be.  Hundredths are finer than the relay's own latency.
+    emit("relay_burst, %s, %s, %s, %.2f, \"%s\"" %
          (ref, sign, fmt_delta(offset), seconds, note(ref, sign, offset, what)), XT4)
 
 
