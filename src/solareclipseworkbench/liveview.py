@@ -997,6 +997,13 @@ class LiveViewWindow(QDockWidget):
         landing at all.  Nothing else about the session changes: the handle,
         the PC priority and the worker thread all stay as they were.
         """
+        if getattr(self, '_schedule_owns_exposure', False):
+            log.info("Ignored a %s change: a script is loaded and sets its own "
+                     "exposures", what)
+            self._status_bar.showMessage(
+                "The loaded script sets the exposure", 5000)
+            return False
+
         worker = self._worker
         if worker is not None:
             worker.pause()
@@ -1111,31 +1118,55 @@ class LiveViewWindow(QDockWidget):
         """
         return self._thread is not None
 
+    def set_schedule_owns_exposure(self, owned: bool) -> None:
+        """Hand the exposure controls to the script, or take them back.
+
+        Writing an exposure stops and restarts the stream, because the body
+        refuses the write while live view runs.  With a script loaded that is
+        both dangerous and pointless: dangerous because a restart lands on a
+        camera that may be mid-frame and gets refused - which is how the
+        session died on 4 August - and pointless because the script sets every
+        exposure it takes anyway.
+
+        The preview stays; only the two controls that would fight the schedule
+        go quiet.
+        """
+        if getattr(self, '_schedule_owns_exposure', None) == owned:
+            return
+        self._schedule_owns_exposure = owned
+        for combo in (self._shutter_combo, self._iso_combo):
+            combo.setEnabled(not owned)
+            combo.setToolTip("The loaded script sets the exposure" if owned else "")
+
     def set_totality_paused(self, paused: bool):
-        """Stop streaming from just before C2 until just after C3, and resume.
+        """Stop streaming when the camera is needed, and stay stopped.
 
-        The controller calls this every clock tick.  Its gphoto2 counterpart has
-        always had it; this window was written before that guard existed and
-        stranded on a branch before it arrived, so restoring it crashed the clock
-        with AttributeError the moment a live view was open.
+        The controller calls this every clock tick: for totality, and before
+        any scheduled frame.
 
-        Totality is the one stretch where the camera cannot afford to share the
-        connection: the frames are dense and every one of them is unrepeatable.
-        A stream the user started themselves is resumed afterwards, so the pause
-        does not quietly turn live view off for the rest of the eclipse.
+        It does not restart the stream.  Restarting used to look considerate -
+        the preview came back by itself - but a stream start is a session
+        operation, and this SDK does not survive many of them.  Measured on
+        4 August, live view open during a run: an exposure write stopped and
+        restarted the stream, the restart was refused 0x1006 because a frame
+        had the camera, and within twenty seconds every call was answering
+        0x2001 with the session dead.  The same afternoon, detection churning
+        sessions corrupted the heap outright.
+
+        So a preview during a run is a thing you open, look at, and lose to the
+        next frame.  That is enough for a focus check before second contact,
+        which is what it is for, and it costs the schedule one stream stop
+        rather than one per frame for the rest of the eclipse.
         """
         if getattr(self, '_totality_paused', False) == paused:
             return
         self._totality_paused = paused
-        if paused:
-            self._resume_after_totality = self._thread is not None
-            if self._thread is not None:
-                log.info("Live view paused for totality")
-                self.stop_stream()
-        elif getattr(self, '_resume_after_totality', False):
-            self._resume_after_totality = False
-            log.info("Totality over, live view resuming")
-            self.start_stream()
+        if paused and self._thread is not None:
+            log.info("Live view stopped: the camera is needed for a frame. "
+                     "Open it again when there is a gap")
+            self.stop_stream()
+            self._status_bar.showMessage(
+                "Stopped - the camera is needed for a frame", 8000)
 
     def closeEvent(self, event):
         try:

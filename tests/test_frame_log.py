@@ -136,6 +136,9 @@ class _FakeLiveView:
     def __init__(self):
         self._thread = object()
         self.events = []
+        # The window tells the user why it stopped; the fake only has to
+        # tolerate being told.
+        self._status_bar = SimpleNamespace(showMessage=lambda *a, **k: None)
 
     def stop_stream(self):
         self._thread = None
@@ -146,10 +149,14 @@ class _FakeLiveView:
         self.events.append("start")
 
 
-def test_live_view_pauses_for_totality_and_comes_back():
-    # The controller calls this every clock tick.  The restored window did not
-    # have it, and the clock died with AttributeError the moment a live view was
-    # open - reported 3 August, 22:11.
+def test_live_view_stops_for_a_frame_and_stays_stopped():
+    """A stream start is a session operation, and this SDK does not survive many.
+
+    4 August, live view open during a run: an exposure write stopped and
+    restarted the stream, the restart was refused 0x1006 because a frame had
+    the camera, and within twenty seconds every call answered 0x2001 with the
+    session dead.  Restarting by itself looks considerate and costs the run.
+    """
     from solareclipseworkbench.liveview import LiveViewWindow
 
     window = _FakeLiveView()
@@ -157,7 +164,7 @@ def test_live_view_pauses_for_totality_and_comes_back():
     LiveViewWindow.set_totality_paused(window, True)     # every tick, not just the edge
     LiveViewWindow.set_totality_paused(window, False)
 
-    assert window.events == ["stop", "start"]
+    assert window.events == ["stop"], "restarted the stream by itself"
 
 
 def test_a_live_view_the_user_had_closed_is_not_opened_by_totality_ending():
@@ -518,3 +525,29 @@ def test_a_bare_sdk_camera_still_gets_unblocked():
         liveview_mod.sdk_recovery.unblock = original
 
     assert called == [(bare, False)]
+
+
+def test_the_script_owns_the_exposure_while_it_is_loaded():
+    """An exposure write stops and restarts the stream, and the restart is what
+    killed the session on 4 August: refused 0x1006 because a frame had the
+    camera, then 0x2001 on everything after.  With a script loaded the write is
+    also pointless - the script sets every exposure it takes.
+    """
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    sdk = _FakeSDK(speed=8000, iso=400)
+    win, _ = _live_view_stub(sdk)
+    win._shutter_combo.setEnabled = lambda enabled: win.__dict__.setdefault(
+        "enabled", []).append(enabled)
+    win._shutter_combo.setToolTip = lambda text: None
+    win._iso_combo.setEnabled = lambda enabled: None
+    win._iso_combo.setToolTip = lambda text: None
+
+    LiveViewWindow.set_schedule_owns_exposure(win, True)
+    assert win.enabled == [False], "left the controls live under a script"
+
+    # And a write that arrives anyway is refused rather than stopping the stream.
+    written_before = list(sdk.written)
+    assert LiveViewWindow._write_exposure(
+        win, lambda: sdk.set_shutter_speed(500_000), "shutter speed", "") is False
+    assert sdk.written == written_before, "wrote an exposure the script owns"

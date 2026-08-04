@@ -1586,6 +1586,13 @@ class SolarEclipseController(Observer):
             gap = self._seconds_to_next_frame()
             frame_imminent = gap is not None and gap < LIVE_VIEW_CLEAR_BEFORE_S
             self._live_view_window.set_totality_paused(in_totality or frame_imminent)
+            # While a script is loaded it owns the exposure; the preview must
+            # not stop the stream to write one behind its back.
+            owns = bool(getattr(self, 'scheduler', None)
+                        and self.scheduler.get_jobs())
+            setter = getattr(self._live_view_window, 'set_schedule_owns_exposure', None)
+            if setter is not None:
+                setter(owns)
 
         # self.view.eclipse_visualization.plot(current_time_utc)    FIXME
 
