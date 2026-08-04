@@ -10,6 +10,7 @@ is worth whole seconds there and the assertions have something to bite on.
 
 import datetime
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,7 +21,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 from solareclipseworkbench import gui, limb_correction
-from solareclipseworkbench.gui import SolarEclipseView
+from solareclipseworkbench.gui import (LIMB_CORRECTION_LOCKED_TOOLTIP,
+                                       LIMB_CORRECTION_TOOLTIP,
+                                       SolarEclipseController, SolarEclipseView)
 from solareclipseworkbench.reference_moments import calculate_reference_moments
 
 # The production site, where the limb correction is known to be worth seconds.
@@ -130,6 +133,8 @@ def _controller(view, cameras, scheduler=None):
     c._seconds_to_next_frame = lambda: gui_mod.SolarEclipseController._seconds_to_next_frame(c)
     c._yield_live_view_for_frames = lambda: gui_mod.SolarEclipseController._yield_live_view_for_frames(c)
     c._stop_live_view_yielding = lambda: gui_mod.SolarEclipseController._stop_live_view_yielding(c)
+    c._set_limb_correction_locked = (
+        lambda locked: gui_mod.SolarEclipseController._set_limb_correction_locked(c, locked))
     return c
 
 
@@ -578,3 +583,41 @@ def test_consent_unlocks_the_exposure_controls_too():
     for accepts, expected in ((False, True), (True, False)):
         owns = (write_close or False) and not accepts
         assert owns is expected
+def test_an_unresolved_window_is_not_reported_as_a_missing_profile(view):
+    limb_correction.set_enabled(True)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    horizon = SimpleNamespace(time_utc=now, time_local=now)
+    view.show_reference_moments(
+        {"duration": datetime.timedelta(), "sunrise": horizon, "sunset": horizon,
+         "BEADS_C2_STATUS": "unresolved",
+         "BEADS_C3_STATUS": "unresolved"},
+        1.0, "Total")
+
+    assert view.beads_c2_label.text() == "capture window unresolved"
+    assert view.beads_c3_label.text() == "capture window unresolved"
+
+
+def test_pending_jobs_lock_the_limb_correction_setting(view):
+    controller = object.__new__(SolarEclipseController)
+    controller.view = view
+
+    controller._set_limb_correction_locked(True)
+    assert not view.limb_correction_checkbox.isEnabled()
+    assert view.limb_correction_checkbox.toolTip() == LIMB_CORRECTION_LOCKED_TOOLTIP
+
+    controller._set_limb_correction_locked(False)
+    assert view.limb_correction_checkbox.isEnabled()
+    assert view.limb_correction_checkbox.toolTip() == LIMB_CORRECTION_TOOLTIP
+
+
+def test_pending_jobs_reject_a_programmatic_correction_change(view):
+    controller = object.__new__(SolarEclipseController)
+    controller.view = view
+    controller.scheduler = SimpleNamespace(get_jobs=lambda: [object()])
+    limb_correction.set_enabled(True)
+    view.limb_correction_checkbox.setChecked(False)
+
+    controller.on_limb_correction_toggled(False)
+
+    assert limb_correction.is_enabled()
+    assert view.limb_correction_checkbox.isChecked()
