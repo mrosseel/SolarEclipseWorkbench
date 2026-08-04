@@ -372,7 +372,12 @@ sys.stderr.write(
 # the validator agrees with what was laid out here.
 LADDER_TAP_GAP_S = 0.35
 LADDER_PER_RUNG_USB_S = 0.35
-LADDER_DRAIN_S = 3.0
+# 2.0, recalibrated 5 August: the eight hardware ladders of the 4 August
+# rehearsal ran 6.38-6.90 s INCLUDING their drain, which prices the drain
+# near 1.2 s under the lazy-drain rework.  The old 3.0 predates that rework
+# and reserved 1.8 s per ladder of nothing - the reserve that was blocking a
+# second single per gap.  Worst measured plus half a second of margin.
+LADDER_DRAIN_S = 2.0
 # Below this the next ladder is starting while the one before it still has the
 # camera.  Seven ladders ran 6.4-6.9 s each on the 4 August rehearsal against
 # a 13.2 s pitch - which is 47% duty and 6.6 s of idle shutter between
@@ -384,11 +389,12 @@ LADDER_DRAIN_S = 3.0
 # honestly against the 4 August ladder times, mid-totality duty lands around
 # two thirds; the earlier "near 70%" was arithmetic against the floor rather
 # than the stretched pitch, and overstated it.
-LADDER_PITCH_MIN_S = 11.0
+LADDER_PITCH_MIN_S = 10.3
 
-#: What a between-ladders single costs end to end: settings over USB, a half
-#: second exposure, the frame written.
-GAP_SINGLE_COST_S = 2.0
+#: How close the last gap single may sit to the next ladder: its own modelled
+#: cost (0.8 s) plus clearance.  It was 2.5 s of standoff, which priced the
+#: third single out of every gap for no measured reason.
+GAP_SINGLE_COST_S = 1.1
 # The first ladder waits for the C2 burst to be released and its frames drained.
 TOTALITY_HEAD_S = 6.0
 # and the last has to be out of the way before the C3 bead sequence loads.
@@ -480,14 +486,14 @@ RELAY_EDGE_MARGIN_S = 0.3
 # solve marks where the BEADS fade; the ring it hands over to grows for
 # seconds more, and it is the one photograph people frame.  Three extra
 # seconds at 7.7 fps is 23 frames, and the burst still fits the 60-frame cap.
-RELAY_C3_TAIL_S = 3.0
+RELAY_C3_TAIL_S = 3.25
 RELAY_C3_S = BEADS_C3_S + RELAY_EDGE_MARGIN_S + RELAY_C3_TAIL_S
 
 # And the same asymmetry mirrored at C2, where the ring comes BEFORE the
 # window: the old 0.3 s lead gave the C2 diamond ring two frames.  Three
 # seconds of head is ~23 frames of ring into beads, and the burst grows to
 # about 53 of the 60-frame cap - which is what "is CL fully utilised" asked.
-RELAY_C2_HEAD_S = 3.0
+RELAY_C2_HEAD_S = 4.1
 RELAY_C2_S = BEADS_C2_S + RELAY_C2_HEAD_S + RELAY_EDGE_MARGIN_S
 
 # Trigger latency, measured on the bench 1 August 2026, and it depends entirely on
@@ -796,13 +802,23 @@ def _totality_block(target_s: float) -> None:
     # next ladder loads.
     for first, second in zip(offsets, offsets[1:]):
         # Anchored to the NEXT ladder, so however long the previous one runs
-        # the single is finished before the next needs the camera; it exists
+        # the singles are finished before it needs the camera; each exists
         # only when the model - not the happier measurement - leaves room.
-        gap_at = second - GAP_SINGLE_COST_S - 0.5
-        if gap_at > first + LADDER_RUN_S + 0.3:
-            timeline.append((gap_at, picture,
-                             (XT4, "C2", "+", gap_at, deep, ISO_DEEP,
+        slot = second - GAP_SINGLE_COST_S - 0.5
+        while slot > first + LADDER_RUN_S + 0.3:
+            timeline.append((slot, picture,
+                             (XT4, "C2", "+", slot, deep, ISO_DEEP,
                               "Deep corona single between ladders")))
+            slot -= 1.0
+    # And one after the last ladder, in the stretch before the C3 sequence
+    # needs the camera - the tail was the widest untouched gap left.
+    if offsets:
+        tail_at = offsets[-1] + LADDER_RUN_S + 0.5
+        while tail_at + 1.5 < target_s - totality_tail_s():
+            timeline.append((tail_at, picture,
+                             (XT4, "C2", "+", tail_at, deep, ISO_DEEP,
+                              "Deep corona single before the C3 sequence")))
+            tail_at += 1.0
     if inside(30.0, target_s):
         timeline.append((30.0, announce,
                          ("C2", "+", 30, "C2_PLUS_30_SECONDS", "Thirty seconds into totality")))

@@ -75,7 +75,11 @@ SINGLE_OVERHEAD_S = 0.4    # measured: 0.23 s settings-and-fire, plus slack
 # next speed over USB, and the bracket drains at the end.
 TAP_GAP_S = 0.35
 PER_RUNG_USB_S = 0.35
-BRACKET_DRAIN_S = 3.0
+# Recalibrated 5 August against the eight hardware ladders of the 4 August
+# rehearsal: 6.38-6.90 s including the drain, so the drain prices near 1.2 s
+# under the lazy-drain rework.  The 3 August reference table above predates
+# that rework - its measured figures describe code that no longer runs.
+BRACKET_DRAIN_S = 2.0
 
 
 def bracket_cost(base_speed: str, width: str) -> float:
@@ -140,6 +144,15 @@ LOCK_WAIT_S = 1.5
 
 
 def cost_of(command: str, args: list) -> float:
+    if command == "relay_burst":
+        # The hold, plus the drain the job runs after opening the contact.
+        # It was priced at the 1.0 s default, which let anything scheduled
+        # straight after a burst look safe when the camera was still busy.
+        try:
+            return float(args[0]) + 2.5
+        except (ValueError, IndexError, TypeError):
+            return 12.0
+
     if command == "take_picture":
         # `capture` returns 80ms after the tap, but the body is not free until
         # the shutter closes: a 4" frame costs the scheduler nothing and blocks
