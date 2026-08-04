@@ -28,7 +28,8 @@ from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QS
 from PyQt6.QtGui import QFontDatabase, QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
 QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
-QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter, QDockWidget
+QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter, QDockWidget, \
+QTableWidget, QTableWidgetItem, QHeaderView
 from PyQt6 import QtWidgets
 from apscheduler.job import Job
 from apscheduler.schedulers import SchedulerNotRunningError
@@ -676,6 +677,12 @@ class SolarEclipseView(QMainWindow, Observable):
         # toolbar, which borrows their show/hide actions.
         self.mount_dock = MountDock(self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.mount_dock)
+
+        # What the body has to have set, and every warning the run produces.
+        # Both were previously only in the log, which nobody reads while an
+        # eclipse is happening.
+        self.problems_dock = ProblemsDock(self)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.problems_dock)
         # Closed by default: a mount is the exception, not the rule, and an empty
         # panel taking a quarter of the window is worse than a toolbar button.
         self.mount_dock.hide()
@@ -1916,16 +1923,54 @@ class SolarEclipseController(Observer):
             logging.exception('Exception while syncing camera time')
         try:
             logging.debug('_on_cameras_ready: checking camera state')
-            warnings = self.model.check_camera_state()
-            if warnings:
-                QMessageBox.warning(
-                    self.view,
-                    "Camera Settings Warning",
-                    "One or more cameras require attention before shooting:\n\n"
-                    + "\n\n".join(f"\u26a0\ufe0f  {w}" for w in warnings)
-                )
+            rows = self._camera_settings_rows()
+            if rows:
+                CameraSettingsDialog(rows, self.view).exec()
         except Exception:
             logging.exception('Exception while checking camera state')
+
+    def _camera_settings_rows(self):
+        """Each body's outstanding settings as (severity, camera, setting, needs, is).
+
+        Bodies that can describe their own state - the Fuji, through the SDK -
+        give the setting, the required value and the current one separately.
+        Anything else has only a sentence to offer, which goes in the setting
+        column rather than being parsed into columns it never had.
+        """
+        rows = []
+        overview = getattr(self.model, 'camera_overview', None)
+        cameras = getattr(overview, 'camera_overview_dict', None) or {}
+        seen: set = set()
+        for name, camera in cameras.items():
+            if id(camera) in seen:
+                continue
+            seen.add(id(camera))
+            validate = getattr(camera, 'validate', None)
+            if validate is None:
+                continue
+            try:
+                issues = validate() or []
+            except Exception:
+                logging.debug('Could not validate %s', name, exc_info=True)
+                continue
+            for issue in issues:
+                if issue.severity in ('error', 'warning'):
+                    rows.append((issue.severity, getattr(camera, 'name', name),
+                                 issue.setting, issue.expected, issue.current))
+
+        for warning in self.check_camera_state_warnings():
+            rows.append(('warning', '', warning, '', ''))
+
+        rows.sort(key=lambda r: 0 if r[0] == 'error' else 1)
+        return rows
+
+    def check_camera_state_warnings(self):
+        """The plain-sentence warnings from bodies that cannot say more."""
+        try:
+            return self.model.check_camera_state() or []
+        except Exception:
+            logging.debug('check_camera_state failed', exc_info=True)
+            return []
 
     def _open_fuji_live_view(self, camera):
         """Open the SDK live view for a Fuji body, if there is room before the
@@ -2554,6 +2599,155 @@ class SimulatorPopup(QWidget, Observable):
         """ Close the pop-up window. """
 
         self.close()
+
+
+class CameraSettingsDialog(QDialog):
+    """What has to be set on each body, and what it is set to now.
+
+    A list, not prose.  The validator already returns the setting, what it must
+    be and what it is; those were being flattened into sentences that had to be
+    read through to find the one word that mattered, at the moment there is
+    least time to read anything.
+    """
+
+    MARKS = {"error": ("FIX", "#c0392b"), "warning": ("?", "#d68910")}
+
+    def __init__(self, rows, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Camera settings")
+
+        layout = QVBoxLayout(self)
+        table = QTableWidget(len(rows), 5)
+        table.setHorizontalHeaderLabels(["", "Camera", "Setting", "Needs", "Is"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+
+        for row, (severity, camera, setting, needs, is_now) in enumerate(rows):
+            mark, colour = self.MARKS.get(severity, ("?", "#d68910"))
+            for column, text in enumerate((mark, camera, setting, needs, is_now)):
+                item = QTableWidgetItem(str(text))
+                if column in (0, 3, 4):
+                    item.setFont(mono)
+                item.setForeground(QColor(colour))
+                table.setItem(row, column, item)
+
+        header = table.horizontalHeader()
+        for column in range(4):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        table.resizeRowsToContents()
+        layout.addWidget(table)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        close = QPushButton("Close")
+        close.clicked.connect(self.accept)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        self.resize(720, min(150 + 24 * len(rows), 520))
+
+
+class ProblemsDock(QDockWidget):
+    """Every warning and error the run produces, on screen instead of in a file.
+
+    A problem that only reaches the log is a problem nobody sees until
+    afterwards, and afterwards is too late for an eclipse.
+
+    Warnings and errors only: the information lines are the schedule doing its
+    job and would bury the rest.  Nothing here is specific to any device - it
+    is whatever was logged, from wherever.
+    """
+
+    LEVELS = {logging.WARNING: "WARN", logging.ERROR: "ERROR",
+              logging.CRITICAL: "FATAL"}
+    COLOURS = {"ERROR": "#c0392b", "FATAL": "#c0392b", "WARN": "#d68910"}
+    MAX_ROWS = 500
+
+    #: Records arrive on whatever thread logged them - scheduler pool threads
+    #: included - and a Qt widget touched off the GUI thread is undefined
+    #: behaviour.
+    logged = pyqtSignal(str, str, str)
+
+    def __init__(self, parent=None):
+        super().__init__("Problems", parent)
+        self.setObjectName("problems_dock")
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(4, 4, 4, 4)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Time", "", "Problem"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setWordWrap(False)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.table)
+
+        buttons = QHBoxLayout()
+        self.count_label = QLabel("no problems")
+        buttons.addWidget(self.count_label)
+        buttons.addStretch()
+        clear = QPushButton("Clear")
+        clear.clicked.connect(self.clear)
+        buttons.addWidget(clear)
+        layout.addLayout(buttons)
+
+        self.setWidget(body)
+        self.logged.connect(self._append)
+        logging.getLogger().addHandler(_DockLogHandler(self))
+
+    def _append(self, when: str, level: str, message: str):
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        colour = self.COLOURS.get(level)
+        for column, text in enumerate((when, level, message)):
+            item = QTableWidgetItem(text)
+            if column != 2:
+                item.setFont(mono)
+            if colour:
+                item.setForeground(QColor(colour))
+            self.table.setItem(row, column, item)
+        while self.table.rowCount() > self.MAX_ROWS:
+            self.table.removeRow(0)
+        self.table.scrollToBottom()
+        self._recount()
+
+    def clear(self):
+        self.table.setRowCount(0)
+        self._recount()
+
+    def _recount(self):
+        rows = self.table.rowCount()
+        errors = sum(1 for row in range(rows)
+                     if (self.table.item(row, 1) or QTableWidgetItem("")).text()
+                     in ("ERROR", "FATAL"))
+        self.count_label.setText(
+            "no problems" if not rows
+            else "%d logged, %d error%s" % (rows, errors, "" if errors == 1 else "s"))
+
+
+class _DockLogHandler(logging.Handler):
+    """Feeds the dock without ever being able to break logging."""
+
+    def __init__(self, dock: ProblemsDock):
+        super().__init__(level=logging.WARNING)
+        self._dock = dock
+
+    def emit(self, record):
+        try:
+            self._dock.logged.emit(
+                datetime.datetime.fromtimestamp(record.created).strftime("%H:%M:%S"),
+                ProblemsDock.LEVELS.get(record.levelno, record.levelname),
+                record.getMessage().split("\n")[0])
+        except Exception:
+            pass          # a broken log view must not break the run
 
 
 class MountDock(QDockWidget):
