@@ -459,21 +459,28 @@ def test_asking_to_quit_is_not_an_error_to_be_survived():
 
     from solareclipseworkbench import gui as gui_mod
 
-    quits = []
+    exits = []
     original_excepthook = sys.excepthook
-    application = SimpleNamespace(quit=lambda: quits.append(True))
+    application = SimpleNamespace(quit=lambda: None)
     original_instance = gui_mod.QApplication.instance
+    original_exit = gui_mod.os._exit
     gui_mod.QApplication.instance = staticmethod(lambda: application)
+    # The hook ends the process now, by design: a modal dialog runs its own
+    # event loop and quit() cannot reach it.  Without intercepting this the
+    # test kills pytest, which is exactly what it did - the run stopped
+    # mid-file with no summary and the remaining tests never ran.
+    gui_mod.os._exit = lambda code: exits.append(code)
     try:
         gui_mod._keep_running_on_unhandled_errors()
         hook = sys.excepthook
 
         hook(AttributeError, AttributeError("a bug in a button"), None)
-        assert quits == [], "a bug in a button ended the run"
+        assert exits == [], "a bug in a button ended the run"
 
         hook(KeyboardInterrupt, KeyboardInterrupt(), None)
-        assert quits == [True], "asking to quit did nothing"
+        assert exits == [130], "asking to quit did not end the process"
     finally:
+        gui_mod.os._exit = original_exit
         gui_mod.QApplication.instance = original_instance
         sys.excepthook = original_excepthook
 

@@ -29,7 +29,7 @@ from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QS
 from PyQt6.QtGui import QFontDatabase, QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
 QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
-QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter, QDockWidget, \
+QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter, QDockWidget, QMenu, \
 QTableWidget, QTableWidgetItem, QHeaderView
 from PyQt6 import QtWidgets
 from apscheduler.job import Job
@@ -693,7 +693,9 @@ class SolarEclipseView(QMainWindow, Observable):
         # meant to fill is still there.
         self.coverage_dock = CoverageDock(self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.coverage_dock)
-        self.coverage_dock.hide()
+        # Open, with "load a script" in it, rather than hidden until one is
+        # loaded: a panel nobody can find is a panel nobody uses, and it says
+        # what it is waiting for.
 
         self.problems_dock = ProblemsDock(self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.problems_dock)
@@ -711,17 +713,10 @@ class SolarEclipseView(QMainWindow, Observable):
         # clock belongs - see status_strip() - and the space goes to the panels
         # that need it.
 
-        location_group_box = QGroupBox()
-        location_grid_layout = QGridLayout()
-        location_grid_layout.addWidget(QLabel("Lon [°]"), 0, 0)
-        location_grid_layout.addWidget(self.longitude_label, 0, 1)
-        location_grid_layout.addWidget(QLabel("Lat [°]"), 1, 0)
-        location_grid_layout.addWidget(self.latitude_label, 1, 1)
-        location_grid_layout.addWidget(QLabel("Alt [m]"), 2, 0)
-        location_grid_layout.addWidget(self.altitude_label, 2, 1)
-        location_group_box.setLayout(location_grid_layout)
-        location_group_box.setMinimumWidth(250)
-        vbox_left.addWidget(location_group_box)
+        # The place joins the clock in the strip.  Moving the date and time out
+        # and leaving this behind was half a job: a group box two hundred and
+        # fifty pixels wide, holding three numbers, under a strip that already
+        # said where and when.
 
         eclipse_date_group_box = QGroupBox()
         eclipse_date_grid_layout = QGridLayout()
@@ -857,7 +852,6 @@ class SolarEclipseView(QMainWindow, Observable):
         self.moments_dock_action = self.moments_dock.toggleViewAction()
         self.moments_dock_action.setText("Contact times")
         self.moments_dock_action.setStatusTip("Show the contact times and countdowns")
-        self.toolbar.insertAction(self.mount_dock_action, self.moments_dock_action)
 
         # Both are short panels, and a dock alone in an area fills it: down the
         # right that left six hundred pixels of nothing beside ten numbers,
@@ -877,20 +871,21 @@ class SolarEclipseView(QMainWindow, Observable):
         self.coverage_dock_action.setText("Coverage")
         self.coverage_dock_action.setStatusTip(
             "Show what the loaded script photographs, on a timeline")
-        self.toolbar.insertAction(self.mount_dock_action, self.coverage_dock_action)
 
         self.problems_dock_action = self.problems_dock.toggleViewAction()
         self.problems_dock_action.setText("Error Log")
         self.problems_dock_action.setStatusTip(
             "Show every warning and error this run has produced")
-        self.toolbar.insertAction(self.mount_dock_action, self.problems_dock_action)
         self.problems_dock.count_changed.connect(self._show_problem_count)
         self._show_problem_count(0)
 
         self.camera_dock_action = self.camera_dock.toggleViewAction()
         self.camera_dock_action.setText("Cameras")
         self.camera_dock_action.setStatusTip("Show the connected cameras")
-        self.toolbar.insertAction(self.mount_dock_action, self.camera_dock_action)
+
+        # Every toggle exists by now: the three built with the toolbar and the
+        # four built with the docks below it.
+        self.build_panels_menu()
 
         # Below about this width the two discs stop being readable.
         self.eclipse_visualization.setMinimumWidth(240)
@@ -1018,6 +1013,30 @@ class SolarEclipseView(QMainWindow, Observable):
                 if widget.defaultAction() is self.problems_dock_action:
                     widget.setStyleSheet("")
 
+    def build_panels_menu(self) -> None:
+        """One button listing every dock, instead of a button each.
+
+        Six toggles in a row is most of the toolbar spent on panels that are
+        mostly closed, and it pushed the buttons that do something to the far
+        end.  A menu also shows their state together, which is the question
+        actually being asked: what is open.
+        """
+        menu = QMenu("Panels", self)
+        for action in (self.geometry_dock_action, self.beads_action,
+                       self.moments_dock_action, self.camera_dock_action,
+                       self.coverage_dock_action, self.problems_dock_action,
+                       self.mount_dock_action):
+            if action is not None:
+                menu.addAction(action)
+
+        self.panels_button = QToolButton(self)
+        self.panels_button.setText("Panels")
+        self.panels_button.setMenu(menu)
+        self.panels_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.panels_button.setToolTip("Show or hide the panels")
+        self.toolbar.addWidget(self.panels_button)
+
     def status_strip(self) -> QHBoxLayout:
         """The clock, in one line under the toolbar.
 
@@ -1030,6 +1049,13 @@ class SolarEclipseView(QMainWindow, Observable):
         strip.addWidget(self.date_label_local)
         strip.addSpacing(12)
         strip.addWidget(self.time_label_local)
+        strip.addSpacing(20)
+        for caption, value in (("Lon", self.longitude_label),
+                               ("Lat", self.latitude_label),
+                               ("Alt", self.altitude_label)):
+            strip.addWidget(QLabel(caption))
+            strip.addWidget(value)
+            strip.addSpacing(12)
         strip.addStretch(1)
         return strip
 
@@ -1140,8 +1166,7 @@ class SolarEclipseView(QMainWindow, Observable):
         # Qt's own toggles, so closing a dock by its X keeps the button in step.
         self.geometry_dock_action = self.geometry_dock.toggleViewAction()
         self.geometry_dock_action.setText("Sun View")
-        self.geometry_dock_action.setStatusTip("Show the eclipse geometry")
-        self.toolbar.addAction(self.geometry_dock_action)
+        self.geometry_dock_action.setStatusTip("Show the Sun view")
 
         self.beads_action = self.beads_dock.toggleViewAction()
         # Text, like every other toggle beside it.  With an icon set, this was
@@ -1149,12 +1174,10 @@ class SolarEclipseView(QMainWindow, Observable):
         # control rather than the same one.
         self.beads_action.setText("Beads")
         self.beads_action.setStatusTip("Show the Baily's beads graphic")
-        self.toolbar.addAction(self.beads_action)
 
         self.mount_dock_action = self.mount_dock.toggleViewAction()
         self.mount_dock_action.setText("Mount")
         self.mount_dock_action.setStatusTip("Show the mount controls")
-        self.toolbar.addAction(self.mount_dock_action)
 
         # The haze correction.  Sits on the toolbar rather than in a dialog
         # because it is judged by eye against live view and adjusted while the
