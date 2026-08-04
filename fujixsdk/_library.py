@@ -498,13 +498,23 @@ class XAPILibrary:
         )
 
         # --- Model-dependent (variadic) ---
-        # These use variadic args; ctypes handles this by not setting argtypes
-        # and relying on the caller to pass ctypes-typed arguments.
-        self.XSDK_CapProp = self._lib.XSDK_CapProp
-        self.XSDK_CapProp.restype = ctypes.c_long
+        #     XSDK_GetProp(XSDK_HANDLE hCamera, long lAPICode, long lAPIParam, ...)
+        #
+        # argtypes covers the three fixed parameters and stops there.  Leaving
+        # it unset - which this did, on the belief that ctypes then works it out
+        # - is wrong on arm64 macOS, where a variadic argument is passed
+        # differently from a fixed one: fixed arguments go in registers,
+        # variadic arguments go on the stack.  With no argtypes ctypes passes
+        # everything as fixed, so the callee looks on the stack and finds
+        # whatever was there.
+        #
+        # That is why almost every property call on this Mac answered 0x1002
+        # "Invalid parameter" - the focus mode, the image quality, the live view
+        # size and quality - while the dedicated non-variadic entry points like
+        # XSDK_SetShutterSpeed worked perfectly.  A garbage pointer read back
+        # through GetProp is also a segmentation fault waiting to happen.
+        fixed = [c_void_p, ctypes.c_long, ctypes.c_long]
 
-        self.XSDK_SetProp = self._lib.XSDK_SetProp
-        self.XSDK_SetProp.restype = ctypes.c_long
-
-        self.XSDK_GetProp = self._lib.XSDK_GetProp
-        self.XSDK_GetProp.restype = ctypes.c_long
+        self.XSDK_CapProp = self._func("XSDK_CapProp", fixed)
+        self.XSDK_SetProp = self._func("XSDK_SetProp", fixed)
+        self.XSDK_GetProp = self._func("XSDK_GetProp", fixed)

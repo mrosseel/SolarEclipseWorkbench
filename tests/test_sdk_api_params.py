@@ -82,3 +82,29 @@ def test_the_live_view_sizes_are_the_sizes_the_body_makes():
     assert C.LIVEVIEW_SIZE_L == 0x0001
     assert C.LIVEVIEW_SIZE_XGA == C.LIVEVIEW_SIZE_L      # old name still works
     assert C.LIVEVIEW_QUALITY_BASIC == 0x0003            # was missing entirely
+
+
+def test_the_variadic_entry_points_declare_their_fixed_arguments():
+    """The bug that made almost every property call fail on Apple Silicon.
+
+    XSDK_GetProp(XSDK_HANDLE, long lAPICode, long lAPIParam, ...) is variadic.
+    On arm64 macOS a variadic argument is passed on the stack while a fixed one
+    goes in a register, and ctypes only knows where the variadic part starts if
+    argtypes declares the fixed part.  With argtypes unset it passes everything
+    as fixed, the callee reads the stack, and finds whatever was there - 0x1002
+    "Invalid parameter" at best and a segmentation fault at worst.
+
+    Asserted on the class rather than a live library so it holds with no camera
+    and no SDK present.
+    """
+    import ctypes
+    import inspect
+
+    from fujixsdk import _library
+
+    source = inspect.getsource(_library.XAPILibrary._setup_functions)
+    for name in ("XSDK_CapProp", "XSDK_SetProp", "XSDK_GetProp"):
+        assert f'self._func("{name}", fixed)' in source, (
+            f"{name} is variadic and must declare its three fixed arguments; "
+            "leaving argtypes unset breaks the ABI on arm64 macOS")
+    assert "fixed = [c_void_p, ctypes.c_long, ctypes.c_long]" in source
