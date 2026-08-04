@@ -47,7 +47,13 @@ BOLD, DIM, GREEN, RED, YELLOW, RESET = (
 # time and the script cannot be read for which end of the ladder it lands on
 # without knowing the base exposure - so this errs towards the expensive case.
 COSTS = {
-    "take_picture": 3.3,
+    # 0.8, not the 3.3 it was: the frame log for the 4 August rehearsal shows
+    # singles completing - and releasing the camera lock - 0.23 s after their
+    # scheduled time plus the exposure, because the card write is the body's
+    # own affair and the job does not wait for it.  3.3 charged every single
+    # for a write it never blocks on, and priced the between-ladder singles
+    # out of the densest scripts.
+    "take_picture": 0.8,
     "take_burst": 12.0,       # 11.8s measured against a loaded queue, the worst case
     "sync_cameras": 1.0,
     "voice_prompt": 0.0,      # runs off-camera, takes no lock
@@ -61,7 +67,7 @@ DEFAULT_COST = 1.0
 # waiting out the frame before it rather than by its own exposure.  The cost of
 # a single is therefore the previous exposure plus this, and taking it as this
 # frame's exposure plus the same is the conservative reading.
-SINGLE_OVERHEAD_S = 1.8
+SINGLE_OVERHEAD_S = 0.4    # measured: 0.23 s settings-and-fire, plus slack
 
 # A bracket's cost is dominated by how long its shutter is open, so it cannot be
 # read off the width alone: 19 rungs cost 19s at 1/1000 and 34s at 1/2.  Each rung
