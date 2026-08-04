@@ -161,8 +161,10 @@ def test_builtin_backends_are_registered():
     assert {"lcus", "numato", "dsd", "hid", "simulated"} <= set(backends)
 
 
-def test_dsd_backend_speaks_at_commands_without_a_terminator(monkeypatch):
-    # The SH-UR firmware misparses a trailing CR/LF, so none may be sent.
+def test_dsd_backend_terminates_at_commands_with_crlf(monkeypatch):
+    # The SH-UR parser is line-buffered: without CR/LF it executes nothing,
+    # and leftover bytes from an interrupted sender corrupt the next command —
+    # hence the bare CR/LF flush on open.
     import serial as serial_mod
     from solareclipseworkbench.relay_trigger import DsdSerialBackend
 
@@ -179,7 +181,7 @@ def test_dsd_backend_speaks_at_commands_without_a_terminator(monkeypatch):
     backend.set_channel(1, True)
     backend.set_channel(4, False)
 
-    assert written == [b"AT+CH1=1", b"AT+CH4=0"]
+    assert written == [b"\r\n", b"AT+CH1=1\r\n", b"AT+CH4=0\r\n"]
 
 
 def test_get_backend_reports_what_is_available_when_the_name_is_wrong():

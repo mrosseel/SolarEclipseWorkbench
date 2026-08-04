@@ -338,8 +338,11 @@ class DsdSerialBackend(Backend):
     """DSD TECH SH-UR series boards (SH-UR01A, SH-UR04A) behind a CP2102.
 
     Protocol is ASCII AT commands at 9600 baud: ``AT+CH1=1`` closes channel 1,
-    ``AT+CH1=0`` opens it.  The firmware misparses a trailing CR/LF, so no
-    terminator is sent.
+    ``AT+CH1=0`` opens it.  The parser is line-buffered and executes nothing
+    until CR/LF arrives — proven on an SH-UR04A on 4 August 2026, where
+    unterminated commands were silently held forever and the relays never
+    moved.  The same buffering means bytes from an interrupted sender corrupt
+    the next command, so the line buffer is cleared with a bare CR/LF on open.
     """
 
     name = "dsd"
@@ -373,11 +376,15 @@ class DsdSerialBackend(Backend):
         self.port = port
         try:
             self._serial = serial.Serial(port, baudrate, timeout=timeout)
+            # Terminate whatever half-command the firmware may still be
+            # holding, so the first real command is parsed clean.
+            self._serial.write(b"\r\n")
+            self._serial.flush()
         except serial.SerialException as exc:
             raise RelayError(f"cannot open relay on {port}: {exc}") from exc
 
     def set_channel(self, channel: int, closed: bool) -> None:
-        command = f"AT+CH{channel}={1 if closed else 0}".encode("ascii")
+        command = f"AT+CH{channel}={1 if closed else 0}\r\n".encode("ascii")
         try:
             self._serial.write(command)
             self._serial.flush()

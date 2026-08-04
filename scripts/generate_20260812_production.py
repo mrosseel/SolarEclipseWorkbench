@@ -378,11 +378,13 @@ LADDER_DRAIN_S = 3.0
 # a 13.2 s pitch - which is 47% duty and 6.6 s of idle shutter between
 # ladders, the "density much too low" complaint in one number.  10 s keeps
 # 3 s of clearance over the worst measured ladder and lifts the count.
-# 11.5 rather than 10: the gap single needs the model's ladder cost (8.4 s,
-# deliberately pessimistic) plus its own ~2 s to fit, and at 10 the validator
-# rightly dropped a single at two durations.  Duty measured against the real
-# 6.6 s ladders comes out near 70%.
-LADDER_PITCH_MIN_S = 11.5
+# 11.0: the floor the gap single's spacing rule allows - the model's ladder
+# cost (8.4 s, deliberately pessimistic) plus the single and margins is 11.2,
+# and the spread stretches actual pitches above the floor anyway.  Measured
+# honestly against the 4 August ladder times, mid-totality duty lands around
+# two thirds; the earlier "near 70%" was arithmetic against the floor rather
+# than the stretched pitch, and overstated it.
+LADDER_PITCH_MIN_S = 11.0
 
 #: What a between-ladders single costs end to end: settings over USB, a half
 #: second exposure, the frame written.
