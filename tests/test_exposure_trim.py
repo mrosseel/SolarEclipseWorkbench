@@ -126,7 +126,15 @@ def test_the_trim_moves_a_whole_semicolon_ladder():
     exposure_trim.set_stops(1)
     lifted = cam.parse_bracket_speeds("1/2000;1/500;1/125")
 
-    assert [round(v * 2) for v in plain] == [round(v) for v in lifted]
+    # Doubled, but landing on speeds the body actually has: the rungs are put
+    # back on the camera's scale after the trim, so 1/125 lifted a stop is the
+    # body's 1/60 rather than an exact 15625 us that it would refuse.  Within
+    # 2% is closer than the gaps in the scale.
+    from fujixsdk._constants import SHUTTER_SPEED_NAMES
+    for before, after in zip(plain, lifted):
+        assert after in SHUTTER_SPEED_NAMES, "%d us is not a speed" % after
+        assert abs(after / (before * 2.0) - 1.0) < 0.02, (
+            "%d us doubled should be near %d, got %d" % (before, before * 2, after))
 
 
 def test_the_trim_moves_a_computed_ladder_too():

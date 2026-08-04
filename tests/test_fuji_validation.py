@@ -254,3 +254,44 @@ def test_a_trim_cannot_ask_for_a_speed_the_body_has_not_got():
     assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("1/6400")) == '1/6400"'
     assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("0.5")) == '1/2"'
     assert FASTEST_SHUTTER_S == 1.0 / 8000
+
+
+def test_a_trimmed_ladder_rung_lands_on_a_real_shutter_speed():
+    """What cost the corona ladders on 4 August.
+
+    The trim multiplies microseconds directly, so -0.5 EV turned 1/8000 - 125 us
+    - into 88 us, which is not a shutter speed.  The SDK took it, the body
+    answered 0x2003, and the frame was taken at whatever was set before.  Every
+    ladder starts at 1/8000, so every ladder died on its first rung while the
+    slower partials carried on working; the log said the frames were fine and
+    the card had none of them.
+    """
+    from fujixsdk._constants import SHUTTER_SPEED_NAMES
+
+    from solareclipseworkbench import exposure_trim
+    from solareclipseworkbench.fuji_camera import snap_to_scale
+
+    ladder = (125, 500, 2000, 8000, 33333, 125000, 500000)   # the corona ladder
+    try:
+        for stops in (-1.0, -0.5, 0.0, +0.5, +1.0):
+            exposure_trim.set_stops(stops)
+            for rung in ladder:
+                trimmed = exposure_trim.apply_microseconds(rung)
+                snapped = snap_to_scale(trimmed)
+                assert snapped in SHUTTER_SPEED_NAMES, (
+                    "%+.1f EV on %d us gave %s, which the body has no name for"
+                    % (stops, rung, snapped))
+    finally:
+        exposure_trim.set_stops(0.0)
+
+
+def test_the_fastest_rung_clamps_rather_than_failing():
+    from fujixsdk._constants import SHUTTER_SPEED_NAMES
+
+    from solareclipseworkbench.fuji_camera import snap_to_scale
+
+    # 88 us is 1/8000 trimmed by half a stop; the body stops at 1/8000.
+    assert SHUTTER_SPEED_NAMES[snap_to_scale(88)] == '1/8000"'
+    assert SHUTTER_SPEED_NAMES[snap_to_scale(125)] == '1/8000"'
+    # A positive trim has room and must not be clamped.
+    assert SHUTTER_SPEED_NAMES[snap_to_scale(177)] != '1/8000"'

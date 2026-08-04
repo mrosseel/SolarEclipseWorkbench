@@ -490,6 +490,37 @@ def _parse_shutter_speed(speed_str: str) -> Optional[int]:
     return val
 
 
+def snap_to_scale(microseconds: int) -> int:
+    """Put a computed exposure back onto a speed the body actually has.
+
+    The exposure trim multiplies microseconds directly, so -0.5 EV turns 1/8000
+    - 125 us - into 88 us, which is not a shutter speed.  The SDK takes it, the
+    body answers 0x2003, and the frame is taken at whatever was set before.
+
+    That is what cost the corona ladders on 4 August: every ladder starts at
+    1/8000, so with a negative trim every ladder failed on its first rung while
+    the partials, being slower, carried on working.  The log said the frames
+    were fine.  The card had none of them.
+
+    Clamped at the fast end as well: a trim that cannot be applied there is a
+    trim partly applied, which is worth saying and worth surviving.
+    """
+    if microseconds <= 0:
+        return microseconds
+    wanted = microseconds / 1_000_000.0
+    if wanted < FASTEST_SHUTTER_S:
+        logging.warning(
+            'Exposure %.0f us is faster than this body can take; using %s',
+            microseconds, FASTEST_SHUTTER_NAME)
+        wanted = FASTEST_SHUTTER_S
+
+    grid = [pair for pair in _get_speeds_by_seconds() if pair[0] >= FASTEST_SHUTTER_S]
+    if not grid:
+        return microseconds
+    secs, val = min(grid, key=lambda pair: abs(math.log(pair[0] / wanted)))
+    return val
+
+
 def _parse_aperture(aperture_str: str) -> Optional[int]:
     """Map workbench aperture string (e.g. "5.6") to SDK int (f-number * 100)."""
     try:
@@ -1152,8 +1183,11 @@ class FujiCamera(BaseCamera):
                     f"not have: {', '.join(unknown)}"
                 )
             # The rungs are exposures too, so the observer's correction moves
-            # the whole ladder rather than only the frames outside it.
-            return [exposure_trim.apply_microseconds(v) for v in speeds]
+            # the whole ladder rather than only the frames outside it - and each
+            # trimmed rung goes back onto the body's own scale, or the ladder
+            # dies on its first rung the moment a trim is dialled in.
+            return [snap_to_scale(exposure_trim.apply_microseconds(v))
+                    for v in speeds]
 
         # The base of the ladder is whatever is on the body: the caller has just
         # dialled in the exposure this bracket is meant to straddle.
@@ -1225,7 +1259,8 @@ class FujiCamera(BaseCamera):
                 speeds.append(value)
 
         self._warn_if_short(speeds, positions, current_speed, steps_str)
-        return [exposure_trim.apply_microseconds(v) for v in speeds]
+        return [snap_to_scale(exposure_trim.apply_microseconds(v))
+                for v in speeds]
 
     def _warn_if_short(self, speeds: list, positions: int, current_speed: int,
                        steps_str: str) -> None:

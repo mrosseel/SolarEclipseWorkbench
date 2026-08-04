@@ -18,7 +18,7 @@ from solareclipseworkbench.notifications import check_notification
 from solareclipseworkbench.gui import SolarEclipseController
 # The registry lives in its own module so the GUI can reach it without
 # importing this one (which imports the GUI).  Re-exported for existing callers.
-from solareclipseworkbench.hardware_registry import note_job_command, HARDWARE, HARDWARE_COMMANDS, register_hardware
+from solareclipseworkbench.hardware_registry import job_touches_camera, note_job_command, HARDWARE, HARDWARE_COMMANDS, register_hardware
 from solareclipseworkbench.solar_eclipse import get_solar_eclipses
 
 COMMANDS = {
@@ -246,7 +246,67 @@ def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_m
         if missing is not None:
             unknown[missing] = unknown.get(missing, 0) + 1
 
+    warn_if_script_outlasts_totality(scheduler, reference_moments)
+
     return unknown
+
+
+#: A totality command finishing this close to third contact is treated as
+#: overrunning it.  A corona ladder takes about six and a half seconds on this
+#: body, so anything starting inside that window is still holding the camera
+#: when the beads sequence needs it.
+TOTALITY_OVERRUN_MARGIN_S = 8.0
+
+
+def warn_if_script_outlasts_totality(scheduler, reference_moments: dict) -> float:
+    """Say so when the script was written for a longer totality than this one.
+
+    Returns the seconds of overrun, 0.0 when there are none.
+
+    Loading the wrong duration is silent and costs the part of the eclipse that
+    cannot be retaken.  On 4 August the 110 s script ran against a 100 s
+    totality: its last corona ladder began at C2+95.6 s and held the camera
+    until about C2+102 s, so the command that loads the bead exposure for third
+    contact waited, was dropped after 1.5 s, and the bead burst fired at the
+    corona ladder's half-second exposure instead.  Fewer frames, none of them
+    beads, and nothing said anything until the photographs were reviewed.
+
+    The scheduler already knows every job's time and the eclipse already knows
+    when third contact is; comparing them costs nothing and is the difference
+    between a warning while there is still time to load another file and a
+    ruined third contact.
+    """
+    c2 = reference_moments.get("C2")
+    c3 = reference_moments.get("C3")
+    if c2 is None or c3 is None:
+        return 0.0
+
+    deadline = c3.time_utc - timedelta(seconds=TOTALITY_OVERRUN_MARGIN_S)
+    latest = None
+    for job in scheduler.get_jobs():
+        when = getattr(job, "next_run_time", None)
+        if when is None or not job_touches_camera(job):
+            continue
+        if c2.time_utc <= when < c3.time_utc and when > deadline:
+            if latest is None or when > latest:
+                latest = when
+    if latest is None:
+        return 0.0
+
+    overrun = (latest - deadline).total_seconds()
+    totality = (c3.time_utc - c2.time_utc).total_seconds()
+    logging.error(
+        "This script was written for a longer totality than this one: a camera "
+        "command runs %.1f s into the %.0f s reserved before third contact, and "
+        "totality here is %.0f s.  Load the script for %.0f s - the one running "
+        "will hold the camera when the third contact beads need it",
+        overrun, TOTALITY_OVERRUN_MARGIN_S, totality, totality)
+    hardware_problems.report(
+        "Script",
+        "Written for a longer totality: %.0f s here" % totality,
+        detail="a camera command runs %.1f s into the third contact reserve" % overrun,
+    )
+    return overrun
 
 
 def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cmd_str: str, cameras: dict,
