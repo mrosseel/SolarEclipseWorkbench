@@ -490,6 +490,33 @@ def _parse_shutter_speed(speed_str: str) -> Optional[int]:
     return val
 
 
+def _distinct(speeds) -> list:
+    """Drop rungs that have become copies of one already in the ladder.
+
+    Clamping at the fast end turns everything past the limit into the same
+    speed, so a bracket around a body already at 1/8000 came out as thirteen
+    frames of which seven were identical - and reported "took all 13 frames".
+
+    Duplicates are not free during totality: each is a slot in the transfer
+    queue, a card write, and about a second of a hundred that cannot be had
+    again.  Better six useful frames and a line saying why than thirteen of
+    which half say the same thing.
+    """
+    kept, seen, asked = [], set(), 0
+    for speed in speeds:
+        asked += 1
+        if speed in seen:
+            continue
+        seen.add(speed)
+        kept.append(speed)
+    if asked != len(kept):
+        logging.warning(
+            'Bracket: %d of %d rungs are past the fastest speed this body has '
+            'and would have been identical frames; taking %d',
+            asked - len(kept), asked, len(kept))
+    return kept
+
+
 def snap_to_scale(microseconds: int) -> int:
     """Put a computed exposure back onto a speed the body actually has.
 
@@ -509,7 +536,10 @@ def snap_to_scale(microseconds: int) -> int:
         return microseconds
     wanted = microseconds / 1_000_000.0
     if wanted < FASTEST_SHUTTER_S:
-        logging.warning(
+        # Debug, not warning: a bracket that runs off the fast end produces one
+        # of these per rung, and seven identical warnings say less than the one
+        # line _distinct writes about how many rungs were lost.
+        logging.debug(
             'Exposure %.0f us is faster than this body can take; using %s',
             microseconds, FASTEST_SHUTTER_NAME)
         wanted = FASTEST_SHUTTER_S
@@ -1186,8 +1216,8 @@ class FujiCamera(BaseCamera):
             # the whole ladder rather than only the frames outside it - and each
             # trimmed rung goes back onto the body's own scale, or the ladder
             # dies on its first rung the moment a trim is dialled in.
-            return [snap_to_scale(exposure_trim.apply_microseconds(v))
-                    for v in speeds]
+            return _distinct(snap_to_scale(exposure_trim.apply_microseconds(v))
+                             for v in speeds)
 
         # The base of the ladder is whatever is on the body: the caller has just
         # dialled in the exposure this bracket is meant to straddle.
@@ -1259,8 +1289,8 @@ class FujiCamera(BaseCamera):
                 speeds.append(value)
 
         self._warn_if_short(speeds, positions, current_speed, steps_str)
-        return [snap_to_scale(exposure_trim.apply_microseconds(v))
-                for v in speeds]
+        return _distinct(snap_to_scale(exposure_trim.apply_microseconds(v))
+                         for v in speeds)
 
     def _warn_if_short(self, speeds: list, positions: int, current_speed: int,
                        steps_str: str) -> None:

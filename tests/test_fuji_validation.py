@@ -295,3 +295,41 @@ def test_the_fastest_rung_clamps_rather_than_failing():
     assert SHUTTER_SPEED_NAMES[snap_to_scale(125)] == '1/8000"'
     # A positive trim has room and must not be clamped.
     assert SHUTTER_SPEED_NAMES[snap_to_scale(177)] != '1/8000"'
+
+
+def test_a_bracket_past_the_fast_end_does_not_take_the_same_frame_twice():
+    """From the log, 4 August 22:03:
+
+        take_bracket +/- 2 -> 13 frame(s):
+          1/8000", 1/8000", 1/8000", 1/8000", 1/8000", 1/8000", 1/8000...
+        take_bracket took all 13 frame(s)
+
+    A bracket around a body already at 1/8000 clamps every faster rung to the
+    same speed, so half of it was identical frames - and it reported complete
+    success.  During totality each duplicate is a slot in the transfer queue, a
+    card write, and about a second of a hundred that cannot be had again.
+    """
+    import logging
+
+    from fujixsdk._constants import SHUTTER_SPEED_NAMES
+
+    from solareclipseworkbench.fuji_camera import _distinct, snap_to_scale
+
+    ladder = [30, 38, 48, 61, 76, 96, 122, 154, 194, 244, 308, 388, 488]
+
+    kept = _distinct(snap_to_scale(v) for v in ladder)
+
+    assert len(kept) == len(set(kept)), "the same exposure twice in one bracket"
+    assert len(kept) < len(ladder), "nothing was dropped"
+    assert SHUTTER_SPEED_NAMES[kept[0]] == '1/8000"'
+    # And what is left is a real range, not a single speed repeated.
+    assert SHUTTER_SPEED_NAMES[kept[-1]] == '1/2000"'
+
+
+def test_a_bracket_that_fits_is_left_alone():
+    from solareclipseworkbench.fuji_camera import _distinct, snap_to_scale
+
+    ladder = [500, 1000, 2000, 4000, 8000]          # 1/2000 to 1/125
+    kept = _distinct(snap_to_scale(v) for v in ladder)
+
+    assert len(kept) == len(ladder)
