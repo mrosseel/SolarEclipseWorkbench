@@ -6,6 +6,7 @@
 """
 import argparse
 import datetime
+import faulthandler
 import logging
 import math
 import os.path
@@ -4619,7 +4620,35 @@ class QJobsTableView(QTableView):
         pass
 
 
+#: Where a native crash writes its stack.  Kept out of the rotating log because
+#: the crash happens after logging has stopped being able to help.
+CRASH_LOG = Path("/tmp/solareclipseworkbench-crash.log")
+
+
+def _catch_native_crashes():
+    """Make a segmentation fault name the thread and line that caused it.
+
+    The SDK is a C library called from several threads, and when it faults the
+    process dies with no Python traceback at all - the log simply stops.  That
+    happened at 15:59:14 on 4 August, two seconds after live view opened during
+    a run, and left nothing to work from: no traceback, and macOS wrote no
+    crash report either.
+
+    faulthandler writes the stack of every thread on SIGSEGV, SIGBUS, SIGFPE
+    and SIGABRT.  It costs nothing until something goes wrong, and it is the
+    difference between "it crashed" and knowing which call did it.
+    """
+    try:
+        handle = CRASH_LOG.open("a")
+        faulthandler.enable(file=handle, all_threads=True)
+        LOGGER.debug("Native crash handler writing to %s", CRASH_LOG)
+    except Exception:
+        LOGGER.debug("Could not install the native crash handler", exc_info=True)
+
+
 def main():
+    _catch_native_crashes()
+
     # Ensure the Fuji SDK's libraries are on LD_LIBRARY_PATH before anything
     # else runs.  If a re-exec is needed it happens here, at launch, instead of
     # mid-session during camera detection (which would discard unsaved settings).
