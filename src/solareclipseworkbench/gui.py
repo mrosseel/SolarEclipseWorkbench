@@ -2362,7 +2362,9 @@ class SolarEclipseController(Observer):
         """Safely shut down the scheduler and update UI."""
         try:
             if self.scheduler:
-                self.scheduler.shutdown()
+                # Not wait=True: that blocks until the job in flight finishes,
+                # and during totality that is a whole bracket.
+                self.scheduler.shutdown(wait=False)
                 self.jobs_model.clear_jobs_overview()
                 self.view.camera_action.setEnabled(True)
                 LOGGER.info("Scheduler stopped by user")
@@ -4918,6 +4920,21 @@ def _keep_running_on_unhandled_errors():
                 os._exit(130)
             interrupted.append(True)
             LOGGER.info("Interrupted - closing down")
+            # Stop the background work first.  A scheduler still running keeps
+            # the interpreter alive long after the window has gone, and its
+            # default shutdown waits for the job in flight - which can be a
+            # seven rung bracket.  Somebody pressing Ctrl-C has stopped caring
+            # about the frame that is in the air.
+            try:
+                from solareclipseworkbench.utils import stop_all_schedulers
+                stop_all_schedulers()
+            except Exception:
+                LOGGER.debug("Could not stop the schedulers", exc_info=True)
+            try:
+                from solareclipseworkbench.relay_trigger import _release_all_contacts
+                _release_all_contacts()
+            except Exception:
+                LOGGER.debug("Could not open the relay contacts", exc_info=True)
             application.quit()
             return
 
@@ -5048,7 +5065,35 @@ def main():
         # Schedule after the event loop starts so the main window is painted.
         QTimer.singleShot(0, controller.set_reference_moments)
 
-    return app.exec()
+    code = app.exec()
+
+    # The event loop has ended; everything below decides whether the process
+    # actually goes away.
+    #
+    # It did not, on 4 August: one Ctrl-C left the window gone and the process
+    # alive.  concurrent.futures registers an atexit hook that joins its worker
+    # threads, the scheduler runs jobs on exactly such a pool, and a job in
+    # flight can be a seven rung bracket - so the interpreter waited for a
+    # frame nobody was waiting for any more.
+    #
+    # So the work that matters is done here, explicitly and in order, and then
+    # the process ends without waiting for anything else.  The contacts are
+    # opened first: that is the one thing that must never be skipped, and
+    # os._exit skips atexit, which is where it used to be handled.
+    try:
+        from solareclipseworkbench.relay_trigger import _release_all_contacts
+        _release_all_contacts()
+    except Exception:
+        LOGGER.debug("Could not open the relay contacts on the way out",
+                     exc_info=True)
+    try:
+        from solareclipseworkbench.utils import stop_all_schedulers
+        stop_all_schedulers()
+    except Exception:
+        LOGGER.debug("Could not stop the schedulers on the way out", exc_info=True)
+
+    logging.shutdown()
+    os._exit(code)
 
 
 def sync_cameras(controller: SolarEclipseController):

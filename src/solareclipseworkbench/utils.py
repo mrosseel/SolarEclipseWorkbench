@@ -131,6 +131,29 @@ def simulation_offset(ref_moments: dict, reference_moment: str,
             - timedelta(minutes=minutes_to_reference_moment or 0) - now)
 
 
+#: Every scheduler this process has started and not shut down.  An interrupt
+#: needs to stop them without hunting for whoever owns them, and a scheduler
+#: left running keeps the interpreter alive after the window has gone - which
+#: is most of why Ctrl-C stopped working.
+_RUNNING_SCHEDULERS: set = set()
+
+
+def stop_all_schedulers() -> None:
+    """Stop every scheduler at once, without waiting for jobs in flight.
+
+    wait=False on purpose.  The default blocks until running jobs finish, and a
+    job here can be a seven rung bracket: asking to quit during totality would
+    hang until the ladder ended.  Somebody pressing Ctrl-C has stopped caring
+    about the frame that is in the air.
+    """
+    for scheduler in list(_RUNNING_SCHEDULERS):
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            logging.debug("Scheduler would not shut down", exc_info=True)
+        _RUNNING_SCHEDULERS.discard(scheduler)
+
+
 def start_scheduler():
     """ Start background scheduler and return it.
 
@@ -143,6 +166,7 @@ def start_scheduler():
     scheduler = BackgroundScheduler()
     scheduler.add_listener(_on_job_problem, EVENT_JOB_ERROR | EVENT_JOB_MISSED)
     scheduler.start()
+    _RUNNING_SCHEDULERS.add(scheduler)
 
     return scheduler
 
