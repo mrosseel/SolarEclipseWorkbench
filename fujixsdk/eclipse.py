@@ -32,6 +32,29 @@ class CameraIssue:
     message: str
 
 
+#: The body saying it does not implement an API at all, as opposed to refusing
+#: the call.  Reported by XSDK_GetErrorNumber as 0x1013, and confirmed against
+#: XSDK_GetDeviceInfoEx, which lists the API codes a model's module carries -
+#: CheckBatteryInfo is absent from the X-T4's list, whatever the manual says.
+API_NOT_IMPLEMENTED = 0x1013
+
+
+def _cannot_be_asked(exc: XSDKError) -> bool:
+    """Whether this body simply has no such API.
+
+    Worth separating from every other failure: a missing API is not a fault to
+    be fixed before an eclipse, and reporting it as one every session teaches
+    the reader to skim past warnings that do matter.
+    """
+    return (exc.code & 0xFFFF) == API_NOT_IMPLEMENTED
+
+
+def _unavailable(setting: str, expected: str, by_hand: str) -> CameraIssue:
+    """A setting this body cannot report: stated once, as information."""
+    return CameraIssue("info", setting, "not available on this body", expected,
+                       by_hand)
+
+
 def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
     """Check all camera settings and report what needs to change for eclipse shooting."""
     issues = []
@@ -63,10 +86,18 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
         # Swallowing this hides the setting most likely to cost frames: a body
         # left in AF refuses S2 whenever focus does not confirm.  Say that the
         # check could not run rather than implying it passed.
-        issues.append(CameraIssue(
-            "warning", "Focus Mode", f"unreadable (0x{exc.code & 0xFFFF:04x})", "MF",
-            "Could not read the focus mode - check the selector is on M by hand",
-        ))
+        if _cannot_be_asked(exc):
+            issues.append(_unavailable("Focus Mode", "MF",
+                                       "check the selector is on M"))
+        else:
+            # Not swallowed: a body left in AF refuses S2 whenever focus does
+            # not confirm, which is the setting most likely to cost frames.
+            issues.append(CameraIssue(
+                "warning", "Focus Mode",
+                f"unreadable (0x{exc.code & 0xFFFF:04x})", "MF",
+                "Could not read the focus mode - check the selector is on M "
+                "by hand",
+            ))
 
     # ISO must be a fixed value.  On auto the body meters every frame, which for
     # a corona means metering off a mostly black sky, and every ISO the script
@@ -156,11 +187,20 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
                 "Set image quality to RAW",
             ))
     except XSDKError as exc:
-        issues.append(CameraIssue(
-            "warning", "Image Quality", f"unreadable (0x{exc.code & 0xFFFF:04x})", "RAW",
-            "Could not read image quality - confirm RAW, lossless compressed, "
-            "no JPEG, on the camera by hand",
-        ))
+        if _cannot_be_asked(exc):
+            # The X-T4's module carries no image quality API.  It is set on the
+            # body and cannot be read back, which is a fact about the camera,
+            # not a problem with it.
+            issues.append(_unavailable(
+                "Image Quality", "RAW",
+                "confirm RAW, lossless compressed, no JPEG, on the camera"))
+        else:
+            issues.append(CameraIssue(
+                "warning", "Image Quality",
+                f"unreadable (0x{exc.code & 0xFFFF:04x})", "RAW",
+                "Could not read image quality - confirm RAW, lossless "
+                "compressed, no JPEG, on the camera by hand",
+            ))
 
     # White balance: Daylight
     try:
@@ -224,11 +264,8 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
             "Battery level",
         ))
     except XSDKError:
-        issues.append(CameraIssue(
-            "info", "Battery", "not readable on this body",
-            "check the level on the camera by hand",
-            "Battery level",
-        ))
+        issues.append(_unavailable("Battery", "charged",
+                                   "check the level on the camera"))
 
     # Card.  Whether each card will take a frame at all matters more than how
     # many it will take, and unlike the capacity it is a question this body

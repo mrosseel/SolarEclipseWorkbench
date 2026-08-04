@@ -176,3 +176,53 @@ def test_buffer_is_left_alone_when_it_has_room():
     shooter = EclipseShooter(cam)
     shooter._keep_buffer_clear()
     cam.drain_buffer.assert_not_called()
+
+
+def test_an_api_the_body_does_not_have_is_not_a_warning():
+    """Asked for on 4 August: the X-T4 cannot report its image quality or its
+    battery, and saying so as a warning every session trains the reader to skim
+    past warnings that do matter.
+
+    0x1013 is the body saying it has no such API - confirmed against
+    GetDeviceInfoEx, whose list of implemented codes omits CheckBatteryInfo
+    however supported the manual claims the model is.
+    """
+    from fujixsdk._errors import XSDKError
+
+    def unimplemented():
+        raise XSDKError(0x1013, "API not found in model module")
+
+    issues = validate_for_eclipse(_camera(get_image_quality=unimplemented))
+    quality = _find(issues, "Image Quality")
+
+    assert quality, "the setting disappeared instead of being stated"
+    assert quality[0].severity == "info", "still warning about a missing API"
+    assert quality[0].current == "not available on this body"
+
+
+def test_a_failure_that_is_not_a_missing_api_still_warns():
+    # The distinction is the point: busy, or a dead handle, is a real problem
+    # and must not be filed away as a fact about the model.
+    from fujixsdk._errors import XSDKError
+
+    def busy():
+        raise XSDKError(0x1006, "Camera is busy")
+
+    issues = validate_for_eclipse(_camera(get_image_quality=busy))
+    quality = _find(issues, "Image Quality")
+
+    assert quality[0].severity == "warning"
+    assert "0x1006" in quality[0].current
+
+
+def test_the_focus_mode_keeps_the_same_distinction():
+    from fujixsdk._errors import XSDKError
+
+    def unimplemented():
+        raise XSDKError(0x1013, "API not found in model module")
+
+    issues = validate_for_eclipse(_camera(get_focus_mode=unimplemented))
+    focus = _find(issues, "Focus Mode")
+
+    assert focus[0].severity == "info"
+    assert focus[0].expected == "MF"
