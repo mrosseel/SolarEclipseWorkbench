@@ -64,7 +64,7 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
         # left in AF refuses S2 whenever focus does not confirm.  Say that the
         # check could not run rather than implying it passed.
         issues.append(CameraIssue(
-            "warning", "Focus Mode", f"unreadable ({exc})", "MF",
+            "warning", "Focus Mode", f"unreadable (0x{exc.code & 0xFFFF:04x})", "MF",
             "Could not read the focus mode - check the selector is on M by hand",
         ))
 
@@ -157,7 +157,7 @@ def validate_for_eclipse(cam: Camera) -> list[CameraIssue]:
             ))
     except XSDKError as exc:
         issues.append(CameraIssue(
-            "warning", "Image Quality", f"unreadable ({exc})", "RAW",
+            "warning", "Image Quality", f"unreadable (0x{exc.code & 0xFFFF:04x})", "RAW",
             "Could not read image quality - confirm RAW, lossless compressed, "
             "no JPEG, on the camera by hand",
         ))

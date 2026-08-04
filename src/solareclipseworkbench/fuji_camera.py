@@ -1306,10 +1306,14 @@ def _report_validation_issues(camera: FujiCamera) -> None:
         if issue.severity == 'info':
             logging.info('%s: %s is %s', camera.name, issue.setting, issue.current)
             continue
+        # The setting, what it needs, what it is - and nothing else.  The
+        # sentence in issue.message is written for a dialog that has room to
+        # explain; in a log line it buries the three words that matter behind
+        # advice the reader did not ask for at that moment.  The popup carries
+        # the actionable list; this carries the fact.
         hardware_problems.report(
             camera.name,
-            issue.message,
-            detail=f"{issue.setting} is {issue.current}, expected {issue.expected}",
+            '%s: needs %s, is %s' % (issue.setting, issue.expected, issue.current),
             severity=issue.severity,
         )
 
