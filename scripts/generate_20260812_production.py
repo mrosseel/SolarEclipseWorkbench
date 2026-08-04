@@ -476,25 +476,29 @@ BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
 # card keeps every frame regardless, since the body records RAW+JPEG to it
 # while tethered (MediaRecord reads 0x0001).  The transfer queue only decides
 # what the PC can pull afterwards, not what is photographed.
-# Where the margins go follows where the diamond ring is, and the ring sits
-# at the edge NEAREST totality at both contacts.  At C2 the beads wink out
-# one by one and the LAST survivor is the ring - multiple beads must precede
-# a final single one, which is arithmetic, not lore.  At C3 the FIRST point
-# to re-emerge is the ring, then the other beads join.  (An earlier version
-# of these comments had that inverted; the burst margins built on it put
-# 3.25 s of tail at C3 buying crescent frames while the ring sat behind
-# 0.3 s of head.)
+# Where the margins go follows where the photographic diamond ring is, and
+# the solver itself says where that is.  bead_window() walks out from each
+# contact until the lit arc exceeds the photographic threshold - "the moment
+# the beads merge back into a crescent" - so the solved window is strictly
+# the bead phase.  The diamond ring a camera wants - fat crescent remnant
+# with the corona already visible - has a WIDER lit arc, which puts it
+# outside the window on the crescent side: BEFORE the window at C2, AFTER it
+# at C3.
 #
-# So the generous margin goes on the totality side each time - it is also the
-# side where a limb-solve error costs the one unrepeatable photograph - and
-# the far side gets what the 60-frame buffer has left over:
+# This paragraph has said two other things in its life.  First that the ring
+# leads at C2 and trails at C3 (right, for this reason, by luck); then that
+# the ring is the last bead at C2 and the first at C3 (the astronomer's
+# technicality - true of the final photon, and it moved the margins to the
+# totality side, where two rehearsals in a row showed the ring being missed).
+# The camera photographs the photographer's ring.  The totality side keeps a
+# small guard for limb-solve error and the dying/first bead itself.
 #
-#     C2:  head 2.5 (beads forming)  window  tail 2.0 (ring + solve error)
-#     C3:  head 2.2 (solve error + ring)  window  tail 1.5 (beads fading)
-RELAY_C2_HEAD_S = 2.5
-RELAY_C2_TAIL_S = 2.0
-RELAY_C3_HEAD_S = 2.2
-RELAY_C3_TAIL_S = 1.5
+#     C2:  head 3.8 (DIAMOND, beads forming)  window  tail 0.7 (last bead + error)
+#     C3:  head 0.7 (error + first bead)  window  tail 3.0 (DIAMOND, growing)
+RELAY_C2_HEAD_S = 3.8
+RELAY_C2_TAIL_S = 0.7
+RELAY_C3_HEAD_S = 0.7
+RELAY_C3_TAIL_S = 3.0
 RELAY_C2_S = BEADS_C2_S + RELAY_C2_HEAD_S + RELAY_C2_TAIL_S
 RELAY_C3_S = BEADS_C3_S + RELAY_C3_HEAD_S + RELAY_C3_TAIL_S
 
@@ -758,13 +762,11 @@ def _totality_block(target_s: float) -> None:
     emit("#")
     emit("# The beads run %.2f s at C2 and %.2f s at C3, and the bursts hold %.1f s and %.1f s."
          % (BEADS_C2_S, BEADS_C3_S, RELAY_C2_S, RELAY_C3_S))
-    emit("# The margins are asymmetric because the diamond ring is: at C2 the beads wink out")
-    emit("# one by one and the LAST survivor is the ring, at C3 the FIRST re-emerging point is.")
-    emit("# So the generous margin sits on the totality side each time - C2 head %.1f / tail %.1f,"
-         % (RELAY_C2_HEAD_S, RELAY_C2_TAIL_S))
-    emit("# C3 head %.1f / tail %.1f - where a limb-solve error would cost the one photograph"
-         % (RELAY_C3_HEAD_S, RELAY_C3_TAIL_S))
-    emit("# that cannot be retaken.")
+    emit("# The margins are asymmetric because the photographic diamond ring sits on the")
+    emit("# crescent side of each solved window - the windows are strictly the bead phase,")
+    emit("# and the ring's wider lit arc puts it before the window at C2, after it at C3.")
+    emit("# C2 head %.1f / tail %.1f;  C3 head %.1f / tail %.1f."
+         % (RELAY_C2_HEAD_S, RELAY_C2_TAIL_S, RELAY_C3_HEAD_S, RELAY_C3_TAIL_S))
     emit("#")
     emit("# %d and %d frames, at the %.1f fps measured on this body with the drive dial on CL"
          % (RELAY_C2_N, RELAY_C3_N, XT4_RELAY_FPS))
