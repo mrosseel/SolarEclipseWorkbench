@@ -1560,6 +1560,167 @@ def detect_fuji(sdk_path: str) -> FujiDetection:
 
 
 def _open_through_the_daemon(sdk_path: str, device_name: str) -> "SDKCamera":
+    """Open the session.  The daemons are left alone: they ARE the transport.
+
+    This function used to kill ptpcamerad immediately before the open, on the
+    theory that macOS was holding the device.  The log convicted it:
+
+        23:14:22  detect attempt 2 returned 1 camera(s)   <- transport working
+        23:14:22  Reset macOS camera daemons               <- this function
+        23:14:23  Failed to open ... SDK call returned error
+
+    The Fuji SDK talks to the body through the ImageCapture daemons, which is
+    what the comment on _reset_mac_camera_stack has said all along.  Killing
+    them one second before OpenEx is sabotage: the open lands in the window
+    where the transport is dead and respawning.  Every app-path open failure
+    since the kill was added has this shape, and reproducing the app's entry
+    point on the bench failed with the kill and opened without it.
+
+    Recovery from a genuinely stuck ICA session stays where it always was:
+    detect_fuji resets the daemons when detection itself finds nothing.
+    """
+    return SDKCamera(sdk_path, device_name)
+
+
+def _report_validation_issues(camera: FujiCamera) -> None:
+    """Run the eclipse pre-flight check and surface anything it objects to.
+
+    Done at detection rather than at first shot, which is the whole point: a
+    camera left in AF, or on JPEG, or with exposure compensation dialled in, is
+    trivial to fix while setting up and impossible to fix afterwards.
+    """
+    try:
+        issues = camera.validate()
+    except Exception:
+        logging.debug('Fuji validation failed for %s', camera.name, exc_info=True)
+        return
+
+    for issue in issues or []:
+        # "info" issues are statements of fact (the aperture in use, and so on),
+        # not things to fix, so they stay in the log.
+        if issue.severity == 'info':
+            logging.info('%s: %s is %s', camera.name, issue.setting, issue.current)
+            continue
+        # The setting, what it needs, what it is - and nothing else.  The
+        # sentence in issue.message is written for a dialog that has room to
+        # explain; in a log line it buries the three words that matter behind
+        # advice the reader did not ask for at that moment.  The popup carries
+        # the actionable list; this carries the fact.
+        hardware_problems.report(
+            camera.name,
+            '%s: needs %s, is %s' % (issue.setting, issue.expected, issue.current),
+            severity=issue.severity,
+        )
+
+    if issues:
+        logging.info('Fuji validation raised %d issue(s) for %s', len(issues), camera.name)
+
+
+class FujiDetection(NamedTuple):
+    """What the SDK found, kept apart from what it managed to open.
+
+    These are not the same thing and the difference matters: gphoto2 must be
+    kept away from a Fuji body that is merely *present*, not only from one the
+    SDK holds open.  See :func:`detect_fuji`.
+    """
+
+    cameras: dict
+    bodies_seen: int
+
+
+def detect_fuji(sdk_path: str) -> FujiDetection:
+    """Detect Fuji bodies via the SDK, reporting sightings and opens apart.
+
+    A body that is seen but will not open is the dangerous case.  It used to
+    leave the caller with an empty dict, indistinguishable from "no Fuji here",
+    so gphoto2 went on to claim the device over PTP - which it cannot drive
+    tethered anyway.  The claim then guaranteed the SDK could never open it:
+    every later attempt answered 0x2001 and detect fell to zero.  Measured on
+    4 August: SDK open failed, gphoto2 claimed the X-T4 one second later, and
+    the body stayed unreachable until it was power-cycled.
+
+    Retries detection up to 3 times with a delay after killing ptpcamerad,
+    because the USB device needs time to become available.
+    """
+    if not FUJIXSDK_AVAILABLE:
+        # Returning silently here once cost a whole bench sitting: the script
+        # reported "no camera" when the truth was "the wrapper never imported".
+        logging.error("fujixsdk is not importable (%s) — the SDK was never tried. "
+                      "Run from the repo root or put it on sys.path.",
+                      FUJIXSDK_IMPORT_ERROR)
+        return FujiDetection({}, 0)
+
+    _preload_mac_transport(sdk_path)
+
+    # Retry — after killing ptpcamerad the USB device needs a moment
+    cameras = []
+    for attempt in range(3):
+        if attempt > 0:
+            # A failed attempt usually means a stale ICA session is holding the
+            # body; forcing fresh daemons is the only recovery that has worked.
+            _reset_mac_camera_stack()
+            time.sleep(3.0)
+        try:
+            # Names only.  Opening each body to read its product string, then
+            # closing it, then opening it again to use it, is three sessions
+            # where one will do - and every extra open/close is another chance
+            # for the SDK to corrupt the heap if the device moves.  The product
+            # name comes off the session that is kept, below.
+            cameras = SDKCamera.detect(sdk_path, with_info=False)
+            logging.info('Fuji SDK detect attempt %d returned %d camera(s)',
+                         attempt + 1, len(cameras))
+            if cameras:
+                break
+        except fujixsdk.LDPathError:
+            # Safety net: the SDK signalled LD_LIBRARY_PATH needs updating
+            # mid-run.  maybe_reexec_for_fuji_sdk() at startup normally prevents
+            # ever reaching this point.
+            _reexec_process()
+        except Exception as e:
+            logging.debug('Fuji SDK detect attempt %d failed: %s', attempt + 1, e)
+        time.sleep(2)
+
+    if not cameras:
+        logging.warning('Fuji SDK found no cameras after retries')
+        return FujiDetection({}, 0)
+
+    result = {}
+    for info in cameras:
+        # Use "Fuji Fujifilm <model>" to match gphoto2's naming convention
+        name = f"Fuji Fujifilm {info.product}" if info.product != "(unknown)" else f"Fuji Camera ({info.device_name})"
+        try:
+            sdk_cam = _open_through_the_daemon(sdk_path, info.device_name)
+            # The product name from the session just opened, so the camera is
+            # still called "Fuji Fujifilm X-T4" - the name scripts use - without
+            # a second session having been opened to find that out.
+            try:
+                product = sdk_cam.device_info.product
+                if product:
+                    name = f"Fuji Fujifilm {product}"
+            except Exception:
+                logging.debug('Could not read the product name for %s',
+                              info.device_name, exc_info=True)
+            fuji_cam = FujiCamera(sdk_cam, name, sdk_path, info.device_name)
+            result[name] = fuji_cam
+            # The relay commands in a script get a trigger, not a camera, so the
+            # open SDK session has to be findable from there: it is the session
+            # that queues a transfer per frame, and so the session that decides
+            # how long the release may be held and has to be drained afterwards.
+            register_hardware('sdk_camera', fuji_cam)
+            logging.info('Detected Fuji camera: %s (device=%s)', name, info.device_name)
+            _report_validation_issues(fuji_cam)
+        except Exception as e:
+            logging.warning('Failed to open Fuji camera %s: %s', info.device_name, e)
+            hardware_problems.report(
+                'Fuji SDK',
+                f'Found {name} but could not open it',
+                detail=str(e),
+            )
+
+    return FujiDetection(result, len(cameras))
+
+
+def _open_through_the_daemon(sdk_path: str, device_name: str) -> "SDKCamera":
     """Open the session: kill the daemons that grab the device, then try ONCE.
 
     No in-process retry.  There was one - three attempts, daemons killed
