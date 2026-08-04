@@ -61,6 +61,13 @@ _EXPOSURE_WRITE_BUDGET_S = 2.0
 # enough that the window answers rather than hanging.
 _STREAM_SETUP_WAIT_S = 3.0
 
+#: How long to wait for a frame read already in flight.  read_frame blocks for
+#: as long as the body takes to answer, and holds the camera lock throughout;
+#: one took over three seconds on 4 August and failed two ISO changes and a
+#: stop.  Longer than the lock wait on purpose - this is the wait that has a
+#: chance of succeeding, and past it the link is stalled rather than slow.
+_FRAME_READ_WAIT_S = 6.0
+
 # Focus peaking: edge threshold and overlay colour
 _PEAKING_THRESHOLD = 30
 _PEAKING_COLOR = QColor(255, 0, 0, 180)  # semi-transparent red
@@ -371,12 +378,27 @@ class _FrameWorker(QObject):
         # 5 ms gap, so a setting written while this loop runs is answered 0x1006
         # almost every time - the body really is busy, with us.
         self._paused = threading.Event()
+        # Clear while a frame read is in flight.  read_frame is a blocking USB
+        # call of unbounded length - measured over three seconds on 4 August -
+        # and it holds the camera lock for its whole duration.  Anything that
+        # needs the camera waits on this rather than racing the lock.
+        self._idle = threading.Event()
+        self._idle.set()
 
     def pause(self):
         self._paused.set()
 
     def resume(self):
         self._paused.clear()
+
+    def wait_idle(self, timeout: float) -> bool:
+        """Wait until no frame read is in flight.  False if one still is.
+
+        False means the USB link is stalled inside the SDK, not that the loop
+        is busy: a frame read that has not returned will not return because of
+        anything done here.
+        """
+        return self._idle.wait(timeout)
 
     def set_stream(self, stream: LiveViewStream):
         """Point the loop at a new stream, for when one is stopped and remade.
@@ -404,12 +426,14 @@ class _FrameWorker(QObject):
             if not self._usb_lock.acquire(timeout=0.05):
                 QThread.msleep(20)
                 continue
+            self._idle.clear()
             try:
                 data = self._stream.read_frame()
             except Exception as e:
                 self.error.emit(str(e))
                 break
             finally:
+                self._idle.set()
                 self._usb_lock.release()
             if data:
                 self.frame_ready.emit(data)
@@ -462,6 +486,9 @@ class LiveViewWindow(QDockWidget):
         self._stream: LiveViewStream | None = None
         self._worker: _FrameWorker | None = None
         self._thread: QThread | None = None
+        # Threads left running because a frame read never came back.  Held only
+        # so Qt does not delete a running QThread; nothing reads this back.
+        self._stalled_threads: list = []
 
         # Software processing state
         self._zoom_factor = 1
@@ -693,20 +720,33 @@ class LiveViewWindow(QDockWidget):
         """Stop the live view stream and worker thread."""
         self._fps_timer.stop()
 
-        if self._worker:
-            self._worker.stop()
+        worker = self._worker
+        if worker:
+            worker.stop()
             # Disconnect signals to prevent callbacks during teardown
             try:
-                self._worker.frame_ready.disconnect(self._on_frame)
-                self._worker.error.disconnect(self._on_error)
+                worker.frame_ready.disconnect(self._on_frame)
+                worker.error.disconnect(self._on_error)
             except (TypeError, RuntimeError):
                 pass
+            # The loop exits between frames, so what decides how long this takes
+            # is the frame read in flight, not the flag just set.
+            worker.wait_idle(_FRAME_READ_WAIT_S)
         if self._thread:
             self._thread.quit()
             if not self._thread.wait(5000):
-                log.warning("Live view thread did not stop in time, terminating")
-                self._thread.terminate()
-                self._thread.wait(2000)
+                # Not terminated.  Killing a thread parked inside an SDK call
+                # leaves the SDK holding a half-finished USB transfer: on
+                # 4 August that turned a slow stop into a window that would not
+                # close at all, and it is the likeliest source of the segfault
+                # the night before.  The thread is kept referenced instead -
+                # deleting a running QThread crashes Qt outright - and it ends
+                # when its read finally returns.
+                log.error("A live view frame read has not returned; the USB link "
+                          "is stalled.  Leaving the thread to finish rather than "
+                          "killing it mid-transfer - reconnect the camera if the "
+                          "preview does not come back")
+                self._stalled_threads.append((self._thread, worker))
             self._thread = None
         self._worker = None
 
@@ -895,6 +935,14 @@ class LiveViewWindow(QDockWidget):
         worker = self._worker
         if worker is not None:
             worker.pause()
+            # Wait for the frame already in flight before going for the lock.
+            # Racing it just burns the whole lock timeout: the worker holds the
+            # lock for as long as read_frame blocks, so both waits were the same
+            # wait, and an ISO change during a slow read failed for no better
+            # reason than that.
+            if not worker.wait_idle(_FRAME_READ_WAIT_S):
+                log.warning("A frame read has not returned after %.0fs; the USB "
+                            "link is stalled", _FRAME_READ_WAIT_S)
         if not self._usb_lock.acquire(timeout=_STREAM_SETUP_WAIT_S):
             # Logged, not only shown: this path was silent, so a refusal here
             # and a refusal from the body were indistinguishable afterwards.
@@ -959,14 +1007,19 @@ class LiveViewWindow(QDockWidget):
                               what)
                     restart_failed = True
             self._usb_lock.release()
-            if worker is not None:
-                worker.resume()
             if restart_failed:
+                # Never resumed: the worker still points at the stream that was
+                # stopped for the write, and reading from that is what parks a
+                # thread inside the SDK with the camera lock held.
+                if worker is not None:
+                    worker.stop()
                 self.stop_stream()
                 self._status_bar.showMessage(
                     "Live view stopped after the setting was written - "
                     "start it again", 8000)
             else:
+                if worker is not None:
+                    worker.resume()
                 self._refresh_exposure()
 
     def _on_shutter_changed(self, index: int):

@@ -392,3 +392,60 @@ def test_a_stream_that_will_not_restart_leaves_the_window_stopped():
 
     assert ("shutter", 500_000) in sdk.written, "the setting still had to land"
     assert win.stopped, "the window was left thinking it was streaming"
+
+
+def test_the_write_waits_for_the_frame_read_already_in_flight():
+    # 4 August: two ISO changes failed with "still in use after 3s".  Not the
+    # body refusing - the worker was inside a read_frame that had not returned,
+    # holding the camera lock, so racing the lock spent the whole timeout on a
+    # wait that could not succeed.
+    sdk = _FakeSDK(speed=8000, iso=400)
+    win, LiveViewWindow = _live_view_stub(sdk)
+    win._stream = _FakeStream()
+    win._start_live_view_stream = lambda: setattr(win, "_stream", _FakeStream()) or True
+
+    waited = []
+
+    class _Worker:
+        def pause(self): pass
+        def resume(self): pass
+        def stop(self): pass
+        def set_stream(self, stream): pass
+
+        def wait_idle(self, timeout):
+            waited.append(timeout)
+            return True
+
+    win._worker = _Worker()
+    target = win._iso_combo.findData(1600)
+    win._iso_combo.setCurrentIndex(target)
+    LiveViewWindow._on_iso_changed(win, target)
+
+    assert waited, "the write went for the lock without waiting for the read"
+    assert ("iso", 1600) in sdk.written
+
+
+def test_a_worker_is_not_resumed_onto_a_stream_that_is_gone():
+    # Resuming it points the loop at the stream stopped for the write, and
+    # reading from that is what parks a thread inside the SDK holding the lock.
+    sdk = _FakeSDK(speed=8000, iso=400)
+    win, LiveViewWindow = _live_view_stub(sdk)
+    win._stream = _FakeStream()
+    win._start_live_view_stream = lambda: False
+    win.stop_stream = lambda: None
+    calls = []
+
+    class _Worker:
+        def pause(self): calls.append("pause")
+        def resume(self): calls.append("resume")
+        def stop(self): calls.append("stop")
+        def wait_idle(self, timeout): return True
+        def set_stream(self, stream): calls.append("set_stream")
+
+    win._worker = _Worker()
+    target = win._iso_combo.findData(1600)
+    win._iso_combo.setCurrentIndex(target)
+    LiveViewWindow._on_iso_changed(win, target)
+
+    assert "resume" not in calls, "resumed onto a stopped stream"
+    assert "stop" in calls

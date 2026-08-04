@@ -11,3 +11,21 @@ there.  It belongs here, once, ahead of everything.
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+
+
+@pytest.fixture(scope="session", autouse=True)
+def qt_application():
+    """One QApplication for the run, before any widget is built.
+
+    Building a QWidget without one aborts the interpreter outright - no
+    traceback that names the test, just "Fatal Python error: Aborted".  The
+    widget tests only passed because some other file happened to be imported
+    first and made one, so running a single file failed while the whole suite
+    passed.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    yield app
