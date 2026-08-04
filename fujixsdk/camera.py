@@ -66,15 +66,36 @@ class CameraInfo:
 def _resolve_param(api_code: int, api_param, args: tuple):
     """Work out the api_param, tolerating a caller that omitted it.
 
+    The api_param is how many arguments follow it - not a magic number per
+    API.  The SDK's own sample makes this plain, passing 1 alongside one value
+    and 0 alongside none:
+
+        set_prop_l(handle, API_CODE_SetLiveViewImageSize, 1, SDK_LIVEVIEW_SIZE_L)
+        set_prop(handle, API_CODE_StartLiveView, 0)
+
+    So it is counted here rather than looked up.  A table cannot be trusted for
+    this: it describes what the API wants, while the count has to describe what
+    is actually on the stack.  Claiming six arguments while passing three does
+    not fail, it reads three words of whatever happens to be there - which is a
+    segmentation fault, not an error code.  The wrapper passed 0 everywhere
+    before, which was wrong but never lied about the stack.
+
     The parameter used to be positional and mandatory, so a value meant as the
     first variadic argument can arrive in its place.  Anything that is not a
-    plain int is therefore treated as the argument it is, and the number is
-    looked up.
+    plain int is therefore treated as the argument it is.
     """
+    if api_param is not None and not isinstance(api_param, int):
+        args = (api_param,) + args
+        api_param = None
     if api_param is None:
-        return C.api_param(api_code), args
-    if not isinstance(api_param, int):
-        return C.api_param(api_code), (api_param,) + args
+        api_param = len(args)
+        wanted = C.API_PARAM.get(api_code)
+        if wanted is not None and wanted != api_param:
+            # The call goes ahead with the honest count and will be refused by
+            # the body rather than corrupting the stack.  The header is what
+            # says the API is incompletely wired up here.
+            log.warning("API 0x%04x takes %d arguments, %d given; the body will "
+                        "refuse this call", api_code, wanted, api_param)
     return api_param, args
 
 

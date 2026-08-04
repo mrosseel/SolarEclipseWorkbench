@@ -33,12 +33,29 @@ def test_an_unknown_api_falls_back_to_zero():
     assert C.api_param(0xDEAD) == 0
 
 
-def test_an_omitted_param_is_looked_up():
+def test_an_omitted_param_is_the_number_of_arguments():
     value = ctypes.c_long(1)
     param, args = _resolve_param(C.API_CODE_SetLiveViewImageSize, None, (value,))
 
     assert param == 1
     assert args == (value,)
+
+
+def test_the_count_describes_the_stack_not_the_header():
+    # CheckBatteryInfo wants six arguments and the wrapper passes three.
+    # Sending 6 does not fail - it reads three words of whatever is on the
+    # stack, which is a segmentation fault rather than an error code.
+    param, args = _resolve_param(C.API_CODE_CheckBatteryInfo, None, (1, 2, 3))
+
+    assert param == 3, "promised the SDK more arguments than exist"
+    assert args == (1, 2, 3)
+
+
+def test_no_argument_call_sends_zero():
+    param, args = _resolve_param(C.API_CODE_StartLiveView, None, ())
+
+    assert param == 0
+    assert args == ()
 
 
 def test_a_value_passed_where_the_param_used_to_go_is_not_mistaken_for_one():
@@ -48,7 +65,7 @@ def test_a_value_passed_where_the_param_used_to_go_is_not_mistaken_for_one():
     value = ctypes.c_long(3)
     param, args = _resolve_param(C.API_CODE_SetLiveViewImageSize, value, ())
 
-    assert param == 1
+    assert param == 1, "counted the value as a parameter number"
     assert args == (value,)
 
 
