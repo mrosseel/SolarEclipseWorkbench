@@ -364,3 +364,88 @@ affect burst centring.  It would matter to a sub-second contact-time claim.
       degree up, most of a stop of airmass -- and they also decide whether a
       low-sun shot is worth taking.  For 2026-08-12 in Spain the last brackets now
       read 2.23, 0.62 and -0.28 deg.
+
+---
+
+# Mount (MLAstro SAL-33 / OnStepX) — planned 4 August, not started
+
+Findings verified against the code; the epoch error was recomputed here rather
+than taken from the review that raised it.
+
+## P1 — `goto_sun` sends the wrong coordinate epoch
+
+`mounts/base.py:309` calls Skyfield's `radec()` with no epoch, which returns
+ICRF/J2000. OnStepX works in the current epoch (`MOUNT_COORDS TOPOCENTRIC`).
+
+Computed for 12 Aug 2026 18:30 UTC with our own DE421:
+
+    J2000  : RA 9.4738 h   Dec +14.9087
+    of date: RA 9.4984 h   Dec +14.7920
+    offset : 0.375 deg = 22.5'   (dRA 21.4', dDec -7.0')
+
+That is **1.4 solar radii** — the Sun falls entirely outside where it was
+aimed. 40% of the half-frame at 480 mm on APS-C, 67% at 800 mm.
+
+Fix: `radec(epoch='date')`. Optionally observe from `wgs84.latlon(...)` since
+the workbench knows the location — but that is cosmetic: solar parallax is
+~8.8", under 1% of the Sun's radius. The error is precession, not parallax.
+
+Do **not** add refraction. Skyfield's `apparent()` covers light-time and
+aberration but not refraction, and OnStepX applies its own. Double-correcting
+would be worst near the horizon, which is where this sunset eclipse happens.
+
+Only two call sites, both through `sun_radec`: `goto_sun` and the simulator.
+
+## P1 — the Track button does not select solar rate
+
+`gui.py:2809` calls `tracking_on` directly, so it resumes whatever rate the
+mount held, usually sidereal.  `mounts/__init__.py:185 mount_track_sun` already
+does it properly — checks `capabilities.tracking_rates`, sends `:TS#`, then
+tracks.  The button should call that, so panel and script cannot diverge.
+
+## P2 — refusals are silent
+
+`gui.py:2791 _guard` catches exceptions but discards the returned `bool`.
+`tracking_on`, `park` and `unpark` return `False` on refusal and the user sees
+only a status that quietly snaps back.
+
+## P2 — mount time and site are never synchronised
+
+No `:St` / `:Sg` / `:SL` / `:SG` anywhere in the driver.  Add `set_site` and
+`set_time` plus an explicit "Sync mount to workbench" button — not a silent
+write on connect.
+
+**Verify before writing:** LX200 `:Sg` traditionally takes longitude
+**west-positive**, the opposite of this codebase's convention.  Getting it
+backwards puts the mount out by twice the longitude.  Check against the OnStepX
+source and pin the sign in a test.
+
+## P2 — the panel is USB-only — deferred
+
+`mounts/onstepx.py:383` enumerates serial ports only; there is no host/IP
+input.  Real, but USB works and a new network path is a new failure mode.  Not
+before the eclipse.
+
+## Testing
+
+- Epoch asserted against equinox-of-date, plus a regression that the
+  J2000-vs-date separation on eclipse day exceeds a solar radius, so it cannot
+  silently revert.
+- Fake transport asserting `:TS#` precedes tracking-on from the button.
+- `_guard` reports when an action returns `False`.
+- On hardware: read RA/Dec and compare against the date-epoch expectation, then
+  `goto_sun` and compare reported against commanded.  **The epoch bug is
+  invisible against the simulator**, which shares the same wrong function —
+  likely how it survived.
+
+# Still unverified after 4 August
+
+- **A full rehearsal through the scheduler producing a readable frame-timing
+  log.**  Everything so far is component-level.
+- Whether the relaxed live view rule holds up on hardware through a whole run.
+- `GetMediaCapacity` is listed as supported by the body's own module yet refuses
+  every parameter 0-8 and every slot.  Unexplained; reported as unavailable
+  rather than worked around.
+- Battery cannot be read at all on the X-T4 — `GetDeviceInfoEx` does not list
+  `0x4055`.  **Battery is a manual pre-flight check**: fresh battery in, spare
+  in a pocket.

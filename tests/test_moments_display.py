@@ -153,29 +153,69 @@ def test_live_view_opens_for_a_fuji_over_the_sdk(view, monkeypatch):
     assert opened["camera"] is fuji
 
 
-def _scheduler_with_next_frame_in(seconds):
+def _scheduler_with_next_frame_in(seconds, command='take_picture'):
+    """A scheduler holding one job, of the given command, that far away."""
     from types import SimpleNamespace
+
+    from solareclipseworkbench import hardware_registry
+
     when = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=seconds)
-    return SimpleNamespace(get_jobs=lambda: [SimpleNamespace(next_run_time=when)])
+    job = SimpleNamespace(id='job-1', next_run_time=when)
+    hardware_registry.note_job_command(job.id, command)
+    return SimpleNamespace(get_jobs=lambda: [job])
 
 
-def test_live_view_is_refused_while_a_script_is_loaded(view, monkeypatch):
-    # Live view took the camera off the USB bus mid-run twice on 4 August, the
-    # second time after it was made to serialise on the camera lock - so the API
-    # calls were not the whole of it.  Until that is understood on a bench, the
-    # two do not happen together.
+def test_live_view_is_refused_when_a_frame_is_imminent(view, monkeypatch):
+    # Not because a script exists - because opening a stream three seconds
+    # before a frame only gets it paused again before anything can be seen.
     from types import SimpleNamespace
     from solareclipseworkbench import gui as gui_mod
 
-    shown = {}
     monkeypatch.setattr(gui_mod.QMessageBox, "warning",
-                        lambda *a, **k: shown.update(title=a[1], body=a[2]))
+                        lambda *a, **k: None)
+    opened = []
+    monkeypatch.setattr(gui_mod, "QDockWidget", None, raising=False)
     fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
-    controller = _controller(view, {"X-T4": fuji}, scheduler=_scheduler_with_next_frame_in(3))
+    controller = _controller(view, {"X-T4": fuji},
+                             scheduler=_scheduler_with_next_frame_in(3))
+    controller.view.addDockWidget = lambda *a: opened.append(a)
 
     gui_mod.SolarEclipseController._open_fuji_live_view(controller, fuji)
 
-    assert "script is loaded" in shown["title"].lower()
+    assert opened == [], "opened a preview into a frame three seconds away"
+
+
+def test_live_view_opens_in_the_last_minute_before_totality(view, monkeypatch):
+    """The focus check that matters most, and the one the old rule refused.
+
+    A tube still cooling drifts, so focus wants checking as late as possible.
+    The schedule around second contact is dense with voice prompts, which touch
+    no camera at all - refusing for those made the last minute the one minute
+    focus could not be checked.
+    """
+    from types import SimpleNamespace
+    from solareclipseworkbench import gui as gui_mod
+
+    monkeypatch.setattr(gui_mod.QMessageBox, "warning",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("refused a focus check before totality")))
+    opened = []
+    # The decision is what is under test, not the window: building a real one
+    # needs a real body on the USB bus.
+    from solareclipseworkbench import liveview as liveview_mod
+    monkeypatch.setattr(liveview_mod, "LiveViewWindow",
+                        lambda camera, parent=None: SimpleNamespace(
+                            setFloating=lambda *a: None, show=lambda: None,
+                            close=lambda: None))
+    fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
+    controller = _controller(
+        view, {"X-T4": fuji},
+        scheduler=_scheduler_with_next_frame_in(5, command='voice_prompt'))
+    controller.view.addDockWidget = lambda *a: opened.append(a)
+
+    gui_mod.SolarEclipseController._open_fuji_live_view(controller, fuji)
+
+    assert opened, "a voice prompt is not a reason to refuse a focus check"
 
 
 def test_live_view_opens_when_no_script_is_loaded(view, monkeypatch):
@@ -358,3 +398,50 @@ def test_a_bead_window_reads_as_a_span_with_its_length(view):
     _shown(view, True)
     assert "-" in view.beads_c2_label.text()
     assert view.beads_c2_duration_label.text().endswith("s")
+
+
+def test_live_view_is_cleared_before_a_frame_not_only_for_totality():
+    """What makes leaving a preview open safe while a script is loaded.
+
+    The stream stops itself before the frame rather than relying on the
+    observer to remember, and comes back once the frame is done.
+    """
+    import datetime as dt
+    from types import SimpleNamespace
+
+    from solareclipseworkbench import gui as gui_mod
+    from solareclipseworkbench import hardware_registry
+
+    paused = []
+    window = SimpleNamespace(set_totality_paused=lambda p: paused.append(p))
+
+    def _tick_with_frame_in(seconds):
+        paused.clear()
+        when = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=seconds)
+        job = SimpleNamespace(id='frame', next_run_time=when)
+        hardware_registry.note_job_command(job.id, 'take_picture')
+        scheduler = SimpleNamespace(get_jobs=lambda: [job])
+        gap = hardware_registry.seconds_to_next_camera_job(scheduler)
+        imminent = gap is not None and gap < gui_mod.LIVE_VIEW_CLEAR_BEFORE_S
+        window.set_totality_paused(imminent)
+        return paused[-1]
+
+    assert _tick_with_frame_in(2) is True, "streamed straight into a frame"
+    assert _tick_with_frame_in(120) is False, "stayed paused with no frame due"
+
+
+def test_a_voice_prompt_does_not_count_as_a_frame():
+    from types import SimpleNamespace
+
+    from solareclipseworkbench import hardware_registry
+
+    prompt = SimpleNamespace(id='prompt')
+    frame = SimpleNamespace(id='frame')
+    hardware_registry.note_job_command(prompt.id, 'voice_prompt')
+    hardware_registry.note_job_command(frame.id, 'take_bracket')
+
+    assert not hardware_registry.job_touches_camera(prompt)
+    assert hardware_registry.job_touches_camera(frame)
+    # An unrecognised command counts as touching the camera: not knowing is not
+    # a reason to run a preview across a frame.
+    assert hardware_registry.job_touches_camera(SimpleNamespace(id='unknown'))

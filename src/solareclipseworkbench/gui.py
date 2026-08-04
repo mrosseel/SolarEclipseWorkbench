@@ -46,7 +46,8 @@ from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get
     get_sony_save_destination, get_sony_image_quality
 from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
 from solareclipseworkbench import exposure_trim, hardware_problems
-from solareclipseworkbench.hardware_registry import register_hardware
+from solareclipseworkbench.hardware_registry import (register_hardware,
+                                                     seconds_to_next_camera_job)
 from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wiring, discover_relays,
                                                  list_backends, make_backend)
@@ -1371,6 +1372,17 @@ class SolarEclipseView(QMainWindow, Observable):
             close_event.ignore()
 
 
+#: Live view will not open when a frame is closer than this.  It has to start a
+#: stream, be looked at, and stop again; opening it into an imminent frame just
+#: means the clock tick pauses it before anything can be seen.
+LIVE_VIEW_MIN_GAP_S = 30.0
+
+#: How long before a frame the stream is stopped.  Longer than the ~1 s a stop
+#: takes, and longer than the exposure write that may follow it, so the camera
+#: is unambiguously free when the frame is due.
+LIVE_VIEW_CLEAR_BEFORE_S = 8.0
+
+
 class SolarEclipseController(Observer):
     """ Controller for the Solar Eclipse Workbench UI in the MVC pattern. """
 
@@ -1546,8 +1558,14 @@ class SolarEclipseController(Observer):
         self.view.update_time(current_time_local, current_time_utc, countdown_c1, countdown_c2, countdown_max,
                               countdown_c3, countdown_c4, countdown_sunrise, countdown_sunset)
 
-        # Auto-pause live view 15 s before C2 until 15 s after C3 so scheduled
-        # shots around second and third contact have uncontested USB access.
+        # Get live view off the bus before any frame, and keep it off through
+        # totality.  This is what makes it safe to leave a preview open while a
+        # script is loaded: the stream stops itself in time rather than relying
+        # on the observer to remember, and it comes back once the frame is done.
+        #
+        # Totality is a single stretch rather than a gap between frames because
+        # the frames there are dense and unrepeatable, and because the observer
+        # is looking at the sky, not the screen.
         if self._live_view_window is not None:
             c2 = self.model.c2_info
             c3 = self.model.c3_info
@@ -1557,7 +1575,9 @@ class SolarEclipseController(Observer):
                 and c3 is not None
                 and (c2.time_utc - _MARGIN) <= reference_now <= (c3.time_utc + _MARGIN)
             )
-            self._live_view_window.set_totality_paused(in_totality)
+            gap = self._seconds_to_next_frame()
+            frame_imminent = gap is not None and gap < LIVE_VIEW_CLEAR_BEFORE_S
+            self._live_view_window.set_totality_paused(in_totality or frame_imminent)
 
         # self.view.eclipse_visualization.plot(current_time_utc)    FIXME
 
@@ -1919,26 +1939,31 @@ class SolarEclipseController(Observer):
         the next frame, not whether a schedule exists, and the stream closes
         itself before that frame rather than waiting to be told.
         """
-        # Not while a schedule exists.  Live view opened during a run has now
-        # taken the camera off the USB bus twice - 4 August, both rehearsals -
-        # and the second time was after it was made to serialise on the camera
-        # lock, so the API calls were not the whole of it.  Something about live
-        # view and relay shooting on this body does not coexist, and until that
-        # is understood on a bench rather than during a run, the two do not
-        # happen together.
+        # Allowed while a script is loaded, because focus has to be checked in
+        # the last minutes before totality - a tube still cooling drifts, and
+        # that is exactly when the old rule refused.
         #
-        # This was the original rule.  It was loosened to allow focusing through
-        # the partials, which is a real need - but a focus check is not worth
-        # the eclipse, and the loosened version is what broke both runs.
-        scheduler = getattr(self, 'scheduler', None)
-        if scheduler is not None and scheduler.get_jobs():
-            QMessageBox.warning(
-                self.view,
-                "Not while a script is loaded",
-                "Live view has taken the camera off the USB bus mid-run, and why "
-                "is not yet understood.\n\nFocus before loading the script. If "
-                "you need it now, stop the schedule first."
-            )
+        # It refused for a reason: live view took the camera off the USB bus in
+        # both rehearsals on 4 August.  Since then all three mechanisms have
+        # been found and fixed - gphoto2 claiming the USB device out from under
+        # the SDK, the variadic ABI bug that was generating the segfaults, and
+        # live view left running by a crashed process wedging priority.  The
+        # comment that justified this said "why is not yet understood"; it is
+        # understood now, so the blanket refusal has outlived its evidence.
+        #
+        # What replaces it is the question that actually matters: how long until
+        # a frame.  Not "is a job due" - most jobs around second contact are
+        # voice prompts, which touch nothing - and not "does a schedule exist".
+        # The clock tick closes the stream before the frame and through totality
+        # (see _tick), so this only has to refuse when a frame is imminent.
+        gap = self._seconds_to_next_frame()
+        if gap is not None and gap < LIVE_VIEW_MIN_GAP_S:
+            logging.info('Live view refused: a frame is due in %.0fs, less than '
+                         'the %.0fs it needs to open and close again',
+                         gap, LIVE_VIEW_MIN_GAP_S)
+            self.view.statusBar().showMessage(
+                f"A frame is due in {gap:.0f}s - try again straight after it",
+                6000)
             return
 
         from solareclipseworkbench.liveview import LiveViewWindow
@@ -1958,19 +1983,13 @@ class SolarEclipseController(Observer):
         logging.info('Live view opened for %s', getattr(camera, 'name', 'the Fuji body'))
 
     def _seconds_to_next_frame(self):
-        """Seconds until the next scheduled job, or None if nothing is scheduled."""
-        scheduler = getattr(self, 'scheduler', None)
-        if scheduler is None:
-            return None
-        soonest = None
-        for job in scheduler.get_jobs():
-            when = getattr(job, 'next_run_time', None)
-            if when is None:
-                continue
-            gap = (when - datetime.datetime.now(when.tzinfo)).total_seconds()
-            if gap >= 0 and (soonest is None or gap < soonest):
-                soonest = gap
-        return soonest
+        """Seconds until the next job that needs the camera, or None.
+
+        Jobs that leave the camera alone do not count.  Counting them is what
+        made this useless in the last minute before totality, where the
+        schedule is dense with voice prompts and holds no frame at all.
+        """
+        return seconds_to_next_camera_job(getattr(self, 'scheduler', None))
 
     def _open_live_view(self):
         """Open (or bring to front) the live view window.

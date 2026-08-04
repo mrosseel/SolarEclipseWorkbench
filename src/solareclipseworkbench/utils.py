@@ -18,7 +18,7 @@ from solareclipseworkbench.notifications import check_notification
 from solareclipseworkbench.gui import SolarEclipseController
 # The registry lives in its own module so the GUI can reach it without
 # importing this one (which imports the GUI).  Re-exported for existing callers.
-from solareclipseworkbench.hardware_registry import HARDWARE, HARDWARE_COMMANDS, register_hardware
+from solareclipseworkbench.hardware_registry import note_job_command, HARDWARE, HARDWARE_COMMANDS, register_hardware
 from solareclipseworkbench.solar_eclipse import get_solar_eclipses
 
 COMMANDS = {
@@ -384,6 +384,10 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
         job = scheduler.add_job(_timed(func, execution_time, description),
                                 trigger=trigger, args=args, name=description)
         _JOB_NAMES[job.id] = description
+        # Live view asks later whether the next job needs the camera; a voice
+        # prompt does not, and refusing a focus check for one is what made the
+        # minute before totality the one minute focus could not be checked.
+        note_job_command(job.id, func_name)
     except KeyError as missing:
         # A line naming a moment the calculation did not produce.  Usually a
         # limb-corrected moment — BEADS_C2 and friends only exist when the

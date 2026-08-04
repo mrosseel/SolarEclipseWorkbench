@@ -28,6 +28,52 @@ HARDWARE_COMMANDS = {
 }
 
 
+# Which script command each scheduled job runs, by job id.  Filled in as the
+# script is scheduled.  Live view needs this: it may run while a script is
+# loaded, but not across a frame, and "is a job due" is the wrong question -
+# most of the jobs around second contact are voice prompts, which touch
+# nothing.  Refusing for those is what stopped a focus check in the last minute
+# before totality, which is the one minute it is most needed.
+JOB_COMMANDS: dict = {}
+
+#: Commands that leave the camera alone, so live view may run across them.
+CAMERA_FREE_COMMANDS = frozenset(
+    {'voice_prompt'}
+    | {name for name, kind in HARDWARE_COMMANDS.items() if kind == 'mount'}
+)
+
+
+def note_job_command(job_id: str, command: str) -> None:
+    """Record which command a scheduled job will run."""
+    JOB_COMMANDS[job_id] = command
+
+
+def job_touches_camera(job) -> bool:
+    """Whether this job will use the camera or fire the shutter.
+
+    Unknown jobs count as touching it: an unrecognised command is not a reason
+    to let a preview run across a frame.
+    """
+    return JOB_COMMANDS.get(getattr(job, 'id', None), '') not in CAMERA_FREE_COMMANDS
+
+
+def seconds_to_next_camera_job(scheduler, now=None) -> float | None:
+    """Seconds until the next job that needs the camera, or None if there is none."""
+    if scheduler is None:
+        return None
+    import datetime
+    soonest = None
+    for job in scheduler.get_jobs():
+        when = getattr(job, 'next_run_time', None)
+        if when is None or not job_touches_camera(job):
+            continue
+        reference = now or datetime.datetime.now(when.tzinfo)
+        gap = (when - reference).total_seconds()
+        if gap >= 0 and (soonest is None or gap < soonest):
+            soonest = gap
+    return soonest
+
+
 def register_hardware(kind: str, device) -> None:
     """Make a relay trigger or mount available to scheduled commands.
 
