@@ -1778,18 +1778,13 @@ class SolarEclipseController(Observer):
                 pass          # their eclipse, their call - see _open_fuji_live_view
             else:
                 self._live_view_window.set_totality_paused(in_totality or frame_imminent)
-            # The controls lock on a tighter clock than the stream: a write
-            # takes a few seconds, so it needs a few seconds of clearance.
-            # Borrowing the stream's 8 s window meant the approach ramp - a
-            # frame every twelve to fifteen seconds - left the dropdowns grey
-            # in slivers, which read as broken rather than as a rhythm.  And
-            # consent covers the controls too: overriding the pause while
-            # being refused the dropdowns is half a permission.
-            write_close = gap is not None and gap < EXPOSURE_WRITE_CLEAR_S
-            owns = (write_close or in_totality) and not accepts
-            setter = getattr(self._live_view_window, 'set_schedule_owns_exposure', None)
-            if setter is not None:
-                setter(owns)
+            # The exposure controls are never locked by the schedule.  They were
+            # - first for the whole run, then near frames, then near frames
+            # but less so - and every version of it ended with the person at
+            # the telescope shouting "leave the controls to me".  They are
+            # right: a write near a frame risks that frame, and whose frame is
+            # it?  Theirs.  The only disable left is the seconds a write is
+            # physically in flight, which protects the session, not the plan.
 
         # self.view.eclipse_visualization.plot(current_time_utc)    FIXME
 

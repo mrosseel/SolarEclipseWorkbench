@@ -1042,14 +1042,6 @@ class LiveViewWindow(QDockWidget):
         landing at all.  Nothing else about the session changes: the handle,
         the PC priority and the worker thread all stay as they were.
         """
-        if getattr(self, '_schedule_owns_exposure', False):
-            log.info("Ignored a %s change: a frame is due and the write would "
-                     "stop the stream on top of it", what)
-            self._status_bar.showMessage(
-                "A frame is due - try again straight after it", 5000)
-            self._refresh_exposure()
-            return False
-
         worker = self._worker
         if worker is not None:
             worker.pause()
@@ -1206,9 +1198,8 @@ class LiveViewWindow(QDockWidget):
 
     def _on_write_finished(self):
         """Back on the GUI thread once a write has finished, however it went."""
-        owned = getattr(self, '_schedule_owns_exposure', False)
-        self._shutter_combo.setEnabled(not owned)
-        self._iso_combo.setEnabled(not owned)
+        self._shutter_combo.setEnabled(True)
+        self._iso_combo.setEnabled(True)
         self._refresh_exposure()
 
     def is_streaming(self) -> bool:
@@ -1220,26 +1211,6 @@ class LiveViewWindow(QDockWidget):
         the thread down, the other keeps it and pauses it.
         """
         return self._thread is not None
-
-    def set_schedule_owns_exposure(self, owned: bool) -> None:
-        """Hand the exposure controls to the script, or take them back.
-
-        Writing an exposure stops and restarts the stream, because the body
-        refuses the write while live view runs.  With a script loaded that is
-        both dangerous and pointless: dangerous because a restart lands on a
-        camera that may be mid-frame and gets refused - which is how the
-        session died on 4 August - and pointless because the script sets every
-        exposure it takes anyway.
-
-        The preview stays; only the two controls that would fight the schedule
-        go quiet.
-        """
-        if getattr(self, '_schedule_owns_exposure', None) == owned:
-            return
-        self._schedule_owns_exposure = owned
-        for combo in (self._shutter_combo, self._iso_combo):
-            combo.setEnabled(not owned)
-            combo.setToolTip("A frame is due; the script is shooting" if owned else "")
 
     def set_totality_paused(self, paused: bool):
         """Stop streaming when the camera is needed, and stay stopped.

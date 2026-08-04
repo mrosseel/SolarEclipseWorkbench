@@ -531,34 +531,17 @@ def test_a_bare_sdk_camera_still_gets_unblocked():
     assert called == [(bare, False)]
 
 
-def test_the_controls_lock_only_while_a_frame_is_due():
-    """An exposure write stops and restarts the stream, and the restart is what
-    killed the session on 4 August: refused 0x1006 because a frame had the
-    camera, then 0x2001 on everything after.
-
-    So the lock is about the next few seconds, not about whether a script is
-    loaded.  Locking them for the whole run made the controls useless for what
-    they are for - looking at the exposure between frames - which is the same
-    mistake as refusing to open live view for a whole eclipse.
+def test_the_schedule_has_no_claim_on_the_exposure_controls():
+    """They were locked for the whole run, then near frames, then near frames
+    but less so - and every version ended with the person at the telescope
+    shouting "leave the controls to me".  They are right: a write near a frame
+    risks that frame, and it is their frame.  The mechanism is gone; the only
+    disable left is while a write is physically in flight.
     """
     from solareclipseworkbench.liveview import LiveViewWindow
 
-    sdk = _FakeSDK(speed=8000, iso=400)
-    win, _ = _live_view_stub(sdk)
-    win._shutter_combo.setEnabled = lambda enabled: win.__dict__.setdefault(
-        "enabled", []).append(enabled)
-    win._shutter_combo.setToolTip = lambda text: None
-    win._iso_combo.setEnabled = lambda enabled: None
-    win._iso_combo.setToolTip = lambda text: None
-
-    LiveViewWindow.set_schedule_owns_exposure(win, True)
-    assert win.enabled == [False], "left the controls live under a script"
-
-    # And a write that arrives anyway is refused rather than stopping the stream.
-    written_before = list(sdk.written)
-    assert LiveViewWindow._write_exposure(
-        win, lambda: sdk.set_shutter_speed(500_000), "shutter speed", "") is False
-    assert sdk.written == written_before, "wrote an exposure the script owns"
+    assert not hasattr(LiveViewWindow, "set_schedule_owns_exposure"), \
+        "the schedule grew a claim on the controls again"
 
 
 def test_a_refused_change_puts_the_dropdown_back():
