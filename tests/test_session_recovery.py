@@ -211,3 +211,125 @@ def test_the_adapter_does_not_make_a_lock_of_its_own():
     assert "self._lock = self._usb_lock" in source
     assert "self._lock = threading.RLock()" not in source, \
         "a second lock is a second door into the SDK"
+
+
+def test_a_failed_open_does_not_tear_down_a_session_that_never_opened():
+    """The heap corruption, 4 August:
+
+        malloc: Incorrect checksum for freed object 0x1309d4e00:
+                probably modified after being freed
+        Corrupt value: 0xffffffff00000000
+        zsh: abort
+
+    When XSDK_OpenEx fails, check_result raises and the half-built object is
+    collected - so __del__ calls close(), and close() runs a full teardown
+    (Release, drain, SetPriorityMode, Close) on a handle the SDK never gave
+    out.  The process aborts, past the reach of any handler, and retrying a
+    failed open turned it from occasional into repeatable.
+    """
+    import gc
+
+    from fujixsdk import _constants as C
+    from fujixsdk._errors import XSDKError
+    from fujixsdk.camera import Camera
+
+    class _FailingLib:
+        def __init__(self):
+            self.teardown = []
+
+        def XSDK_Detect(self, *a):
+            return C.COMPLETE
+
+        def XSDK_OpenEx(self, *a):
+            return -1
+
+        def XSDK_Release(self, *a):
+            self.teardown.append("Release")
+            return C.COMPLETE
+
+        def XSDK_Close(self, *a):
+            self.teardown.append("Close")
+            return C.COMPLETE
+
+        def XSDK_SetPriorityMode(self, *a):
+            self.teardown.append("SetPriorityMode")
+            return C.COMPLETE
+
+        def XSDK_GetBufferCapacity(self, *a):
+            return C.COMPLETE
+
+    lib = _FailingLib()
+    original = Camera._ensure_lib
+    Camera._ensure_lib = classmethod(lambda cls, path: lib)
+    try:
+        try:
+            Camera("/nowhere", "ENUM:0")
+        except XSDKError:
+            pass
+        gc.collect()
+    finally:
+        Camera._ensure_lib = original
+
+    assert lib.teardown == [], \
+        "closed a session that was never opened: %s" % lib.teardown
+
+
+def test_a_failed_open_does_not_tear_down_a_session_that_never_opened():
+    """The heap corruption, 4 August:
+
+        malloc: Incorrect checksum for freed object 0x1309d4e00:
+                probably modified after being freed
+        Corrupt value: 0xffffffff00000000
+        zsh: abort
+
+    When XSDK_OpenEx fails, check_result raises and the half-built object is
+    collected - so __del__ calls close(), and close() runs a full teardown
+    (Release, drain, SetPriorityMode, Close) on a handle the SDK never gave
+    out.  The process aborts, past the reach of any handler, and retrying a
+    failed open turned it from occasional into repeatable.
+    """
+    import gc
+
+    from fujixsdk import _constants as C
+    from fujixsdk._errors import XSDKError
+    from fujixsdk.camera import Camera
+
+    class _FailingLib:
+        def __init__(self):
+            self.teardown = []
+
+        def XSDK_Detect(self, *a):
+            return C.COMPLETE
+
+        def XSDK_OpenEx(self, *a):
+            return -1
+
+        def XSDK_Release(self, *a):
+            self.teardown.append("Release")
+            return C.COMPLETE
+
+        def XSDK_Close(self, *a):
+            self.teardown.append("Close")
+            return C.COMPLETE
+
+        def XSDK_SetPriorityMode(self, *a):
+            self.teardown.append("SetPriorityMode")
+            return C.COMPLETE
+
+        def XSDK_GetBufferCapacity(self, *a):
+            return C.COMPLETE
+
+    lib = _FailingLib()
+    original = Camera._ensure_lib
+    Camera._ensure_lib = classmethod(lambda cls, path: lib)
+    try:
+        try:
+            Camera("/nowhere", "ENUM:0")
+        except XSDKError:
+            pass
+        gc.collect()
+    finally:
+        Camera._ensure_lib = original
+
+    assert lib.teardown == [], \
+        "closed a session that was never opened: %s" % lib.teardown

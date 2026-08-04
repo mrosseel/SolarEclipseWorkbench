@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
-from PyQt6.QtGui import QFontDatabase, QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
+from PyQt6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
 QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
 QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter, QDockWidget, QMenu, \
@@ -1040,6 +1040,21 @@ class SolarEclipseView(QMainWindow, Observable):
         """
         strip = QHBoxLayout()
         strip.setContentsMargins(6, 0, 6, 2)
+
+        # Fixed width digits, or the strip twitches once a second: in a
+        # proportional face a 1 is narrower than a 0, so every value beside the
+        # clock shifts as it ticks.  The captions stay proportional - they do
+        # not change, and monospaced words are harder to read.
+        digits = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        for value in (self.date_label_local, self.time_label_local,
+                      self.longitude_label, self.latitude_label,
+                      self.altitude_label, self.eclipse_date,
+                      self.eclipse_type):
+            # Keep whatever weight the label already had: the eclipse type is
+            # bold on purpose, and setting a plain fixed font would undo it.
+            fixed = QFont(digits)
+            fixed.setBold(value.font().bold())
+            value.setFont(fixed)
         strip.addWidget(self.date_label_local)
         strip.addSpacing(12)
         strip.addWidget(self.time_label_local)

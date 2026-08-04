@@ -336,6 +336,23 @@ class Camera:
             ctypes.byref(self._camera_mode),
             None,
         )
+        if rc != C.COMPLETE:
+            # Nothing was opened, so there is nothing to close.  Without this
+            # the exception below abandons a half-built object, __del__ calls
+            # close(), and close() runs a full teardown - Release, drain,
+            # SetPriorityMode, Close - on a handle the SDK never gave us.
+            #
+            # That is the heap corruption:
+            #
+            #     malloc: Incorrect checksum for freed object 0x1309d4e00:
+            #             probably modified after being freed
+            #     Corrupt value: 0xffffffff00000000
+            #
+            # which aborts the process outright, past the reach of any handler.
+            # It appeared whenever an open failed, and retrying a failed open -
+            # three times, with the daemons killed between - turned it from
+            # occasional into repeatable.
+            self._closed = True
         check_result(rc)
 
         # Clean up any stale state from a previous crashed session.
@@ -420,6 +437,23 @@ class Camera:
             ctypes.byref(self._camera_mode),
             None,
         )
+        if rc != C.COMPLETE:
+            # Nothing was opened, so there is nothing to close.  Without this
+            # the exception below abandons a half-built object, __del__ calls
+            # close(), and close() runs a full teardown - Release, drain,
+            # SetPriorityMode, Close - on a handle the SDK never gave us.
+            #
+            # That is the heap corruption:
+            #
+            #     malloc: Incorrect checksum for freed object 0x1309d4e00:
+            #             probably modified after being freed
+            #     Corrupt value: 0xffffffff00000000
+            #
+            # which aborts the process outright, past the reach of any handler.
+            # It appeared whenever an open failed, and retrying a failed open -
+            # three times, with the daemons killed between - turned it from
+            # occasional into repeatable.
+            self._closed = True
         check_result(rc)
         log.info("Camera reconnected successfully")
 
