@@ -82,18 +82,40 @@ except ImportError as _exc:
 # good at: exposure and draining.  Measured on the bench, 1 August 2026.
 # ======================================================================
 
-# Measured 3 August: a burst asked to hold 1.9s holds 2.05s and queues 30 of the
-# 32 slots.  The cap stays where it is - it is two slots inside the buffer and
-# the beads are worth those frames - but only because the queue is guaranteed
-# empty before the contact closes (see `ensure_room_for`).
-MAX_BURST_S = 1.9
+# The longest hold a burst may ask for.  It was 1.9 s, chosen when the body was
+# on CH at 15 fps so that 30 frames stayed inside the 32-slot transfer queue.
+# Two things changed on 4 August.
+#
+# The beads windows here are 3.25 s and 4.05 s, so a 1.9 s cap photographed less
+# than half of them however well the contact times were solved - the cap, not the
+# eclipse, decided what was on the card.
+#
+# And the queue is not the limit it was taken for.  A held burst fired 61 frames
+# in 2.15 s on the bench with nothing draining, and every one reached the card:
+# the body records to it while tethered (MediaRecord reads RAW+JPEG), so the
+# transfer queue only decides what the PC can pull afterwards.  It is bounded by
+# the body's own buffer and the card, not by 32 slots.
+#
+# 5 s covers the widest window here with margin at both ends.
+MAX_BURST_S = 5.0
 
-# The effective rate climbs with the length of the hold as the body's release lag
-# is amortised: 11.4 fps over 0.35s, 13.0 over 0.85s, 14.3 over 1.54s, 14.7 over
-# 2.05s.  15 is the steady-state figure those approach, so it stays as the number
-# a frame count is converted with, and is deliberately the ceiling used when
-# working out whether a burst will fit.
-CH_FPS = 15
+# Frames per second under a held contact, measured on this body on 4 August:
+#
+#     CL, menu set to 8 fps    32 frames in 4.15 s   7.7 fps
+#     CH, menu as found        61 frames in 2.15 s  28.4 fps
+#
+# CL is what the eclipse scripts are built for: at 28 fps a bead window wants
+# more than a hundred frames and the body hits its own buffer partway through,
+# so the burst slows exactly where the diamond ring is.
+#
+# The dial cannot be read back - GetDriveMode answers 0x0004 wherever it is
+# pointing - so this number cannot be checked against the camera.  It is the
+# figure a frame count is converted with, and it is only right if the dial is on
+# CL and CL LOW SPEED BURST is set to 8 fps.  Both are pre-flight eye checks.
+RELAY_FPS = 7.7
+
+#: The old name, kept because a burst is still a burst at whatever the dial says.
+CH_FPS = RELAY_FPS
 
 
 # Closing and opening the relay costs this much on top of whatever hold is asked

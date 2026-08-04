@@ -8,8 +8,8 @@
 #   too small  you lose a few seconds of corona at the end of totality
 #   too large  the last ladder is still exposing after C3, filter off
 #
-# 12 corona ladders.  The planned site has 97 s, which makes
-# 20260812_production_090s.txt the one to load unless you have moved.
+# 12 corona ladders.  The planned site has 100 s, which makes
+# 20260812_production_100s.txt the one to load unless you have moved.
 # ##########################################################################
 #
 # Solar Eclipse Workbench PRODUCTION script - total solar eclipse of 12 August 2026
@@ -29,10 +29,10 @@
 # the X-T4 reaches at its 1/8000 ceiling.
 #
 # Site   : Palencia, N Spain  42.0095 N, -4.5289 E, 740 m
-# Type   : Total, magnitude 1.0119, totality 97 s
+# Type   : Total, magnitude 1.0119, totality 100 s
 #
 #   C1     17:33:56 UTC   sun  18.9 deg
-#   C2     18:29:10 UTC   sun   8.7 deg
+#   C2     18:29:07 UTC   sun   8.7 deg
 #   MAX    18:30:00 UTC   sun   8.6 deg
 #   C3     18:30:47 UTC   sun   8.4 deg
 #   C4     19:22:34 UTC   sun  -0.8 deg
@@ -47,7 +47,7 @@
 #   corona ladders  take_hdr ramps the shutter between frames on gphoto2, but on the
 #                   Fuji SDK path it fires 2*stops+1 frames at ONE speed.  The X-T4
 #                   uses take_bracket (wired to the SDK bracket_no_download) instead.
-#   contact bursts  the relay on the remote jack free-runs CH at ~15 fps, which the
+#   contact bursts  the relay on the remote jack free-runs CH at ~8 fps, which the
 #                   SDK cannot do at all: it returns 0x1008 with the dial on CH.
 #
 # Atmospheric dimming
@@ -143,12 +143,12 @@ take_picture, C1, +, 0:33:00.0, Fuji Fujifilm X-T4, 1/6400, -, 100, "Partial C1-
 take_picture, C1, +, 0:36:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial C1-C2 @ 18:09:56, sun 12.3 deg, X=4.6"
 take_picture, C1, +, 0:39:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial C1-C2 @ 18:12:56, sun 11.7 deg, X=4.8"
 take_picture, C1, +, 0:42:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial C1-C2 @ 18:15:56, sun 11.2 deg, X=5.0"
-take_picture, C2, -, 0:12:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial approaching C2 @ 18:17:10, sun 10.9 deg, X=5.1"
-take_picture, C2, -, 0:09:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial approaching C2 @ 18:20:10, sun 10.4 deg, X=5.4"
-take_picture, C2, -, 0:06:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial approaching C2 @ 18:23:10, sun 9.8 deg, X=5.7"
-take_picture, C2, -, 0:04:00.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:25:10, sun 9.5 deg, X=5.9"
-take_picture, C2, -, 0:02:00.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:27:10, sun 9.1 deg, X=6.1"
-take_picture, C2, -, 0:00:50.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:28:20, sun 8.9 deg, X=6.2"
+take_picture, C2, -, 0:12:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial approaching C2 @ 18:17:07, sun 10.9 deg, X=5.1"
+take_picture, C2, -, 0:09:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial approaching C2 @ 18:20:07, sun 10.4 deg, X=5.4"
+take_picture, C2, -, 0:06:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial approaching C2 @ 18:23:07, sun 9.8 deg, X=5.7"
+take_picture, C2, -, 0:04:00.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:25:07, sun 9.5 deg, X=5.9"
+take_picture, C2, -, 0:02:00.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:27:07, sun 9.1 deg, X=6.1"
+take_picture, C2, -, 0:00:50.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:28:17, sun 8.9 deg, X=6.2"
 
 # --- Countdown to totality ---
 voice_prompt, C2, -, 0:50:00.0, C2_IN_50_MINUTES, "50 minutes to totality"
@@ -196,17 +196,20 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # installed and the correction switched on; without it they are skipped, and
 # Solar Eclipse Workbench says so when the script is loaded.
 #
-# The beads run 3.25 s at C2 and 4.05 s at C3, against a hold of 1.9 s, so the burst
-# cannot cover the whole window.  It is pinned to the contact-side edge, where the
-# diamond ring is: the C2 burst ends at BEADS_C2_END, the C3 burst starts at
-# BEADS_C3_START, both with 0.3 s of margin towards totality.
+# The beads run 3.25 s at C2 and 4.05 s at C3, and the bursts hold 3.9 s and 4.6 s -
+# the whole window each, plus 0.3 s at each end.  Nothing is pinned to an edge any
+# more: a burst that spans the window does not have to guess where inside it to sit,
+# and being a few tenths out no longer costs the diamond ring.
 #
-# The hold is 1.9 s because 28 frames at 15 fps is all the 32-slot transfer queue
-# takes; a full queue stops the body dead.  Covering the whole window needs a pulsed
-# burst at ~8.6 fps instead of a held one, which is not yet measured on this body.
+# 30 and 36 frames, at the 7.7 fps measured on this body with the drive dial on CL
+# and CL LOW SPEED BURST set to 8 fps.  Both are menu settings on a dial position
+# that cannot be read back - GetDriveMode answers the same wherever the dial is - so
+# the pre-flight checks them by eye.  On CH as found (28 fps) the window would want
+# 115 frames and the body would hit its own buffer a second in, slowing the burst
+# exactly where the diamond ring is.
 take_picture, BEADS_C2, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Load the beads exposure before the relay burst @ BEADS_C2-6.0 s, sun 8.6 deg"
 relay_arm, BEADS_C2, -, 0:00:04.0, "Pre-arm S1 for the C2 burst @ BEADS_C2-4.0 s, sun 8.6 deg"
-relay_burst, BEADS_C2_END, -, 0:00:01.6, 1.9, "Diamond ring and Baily's beads at C2, relay at 15 fps @ BEADS_C2_END-1.6 s, sun 8.6 deg"
+relay_burst, BEADS_C2_END, -, 0:00:03.6, 3.85, "Diamond ring and Baily's beads at C2, relay at 8 fps @ BEADS_C2_END-3.6 s, sun 8.6 deg"
 relay_release, BEADS_C2_END, +, 0:00:01.5, "Open every contact after the C2 burst @ BEADS_C2_END+1.5 s, sun 8.6 deg"
 voice_prompt, C2, -, 0:00:00.0, C2, "Second contact - filters off, totality has begun"
 take_bracket, C2, +, 0:00:06.0, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 1 of 12, inner edge to outer streamers @ C2+6.0 s, sun 8.6 deg"
@@ -215,13 +218,8 @@ voice_prompt, C2, +, 0:00:30.0, C2_PLUS_30_SECONDS, "Thirty seconds into totalit
 take_bracket, C2, +, 0:00:31.4, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 3 of 12, inner edge to outer streamers @ C2+31.4 s, sun 8.6 deg"
 take_bracket, C2, +, 0:00:44.1, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 4 of 12, inner edge to outer streamers @ C2+44.1 s, sun 8.6 deg"
 take_bracket, C2, +, 0:00:56.8, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 5 of 12, inner edge to outer streamers @ C2+56.8 s, sun 8.6 deg"
-take_bracket, C2, +, 0:01:09.5, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 6 of 12, inner edge to outer streamers @ C2+69.5 s, sun 8.6 deg"
-voice_prompt, MAX, -, 0:00:10.0, MAX_IN_10_SECONDS, "Ten seconds to maximum eclipse"
-voice_prompt, MAX, -, 0:00:05.0, MAX_IN_5_SECONDS, "5 to maximum eclipse"
-voice_prompt, MAX, -, 0:00:04.0, MAX_IN_4_SECONDS, "4 to maximum eclipse"
-voice_prompt, MAX, -, 0:00:03.0, MAX_IN_3_SECONDS, "3 to maximum eclipse"
-voice_prompt, MAX, -, 0:00:02.0, MAX_IN_2_SECONDS, "2 to maximum eclipse"
-voice_prompt, MAX, -, 0:00:01.0, MAX_IN_1_SECOND, "1 to maximum eclipse"
+take_bracket, C2, +, 0:01:09.4, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 6 of 12, inner edge to outer streamers @ C2+69.4 s, sun 8.6 deg"
+voice_prompt, MAX, -, 0:00:05.0, MAX_IN_5_SECONDS, "Five seconds to maximum eclipse"
 voice_prompt, MAX, -, 0:00:00.0, MAX, "Maximum eclipse"
 take_bracket, C2, +, 0:01:22.1, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 7 of 12, inner edge to outer streamers @ C2+82.1 s, sun 8.6 deg"
 take_bracket, C2, +, 0:01:34.8, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 8 of 12, inner edge to outer streamers @ C2+94.8 s, sun 8.6 deg"
@@ -234,8 +232,8 @@ take_bracket, C2, +, 0:02:25.6, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/20
 take_picture, BEADS_C3, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Load the beads exposure before the relay burst @ BEADS_C3-6.0 s, sun 8.6 deg"
 voice_prompt, C3, -, 0:00:08.0, C3_IN_8_SECONDS, "Eight seconds - look away from the eyepiece"
 relay_arm, BEADS_C3, -, 0:00:04.0, "Pre-arm S1 for the C3 burst @ BEADS_C3-4.0 s, sun 8.6 deg"
-relay_burst, BEADS_C3_START, -, 0:00:00.3, 1.9, "Baily's beads and diamond ring at C3, relay at 15 fps @ BEADS_C3_START-0.3 s, sun 8.6 deg"
-relay_release, BEADS_C3_START, +, 0:00:03.4, "Open every contact after the C3 burst @ BEADS_C3_START+3.4 s, sun 8.6 deg"
+relay_burst, BEADS_C3_START, -, 0:00:00.3, 4.6499999999999995, "Baily's beads and diamond ring at C3, relay at 8 fps @ BEADS_C3_START-0.3 s, sun 8.6 deg"
+relay_release, BEADS_C3_START, +, 0:00:06.1, "Open every contact after the C3 burst @ BEADS_C3_START+6.1 s, sun 8.6 deg"
 voice_prompt, C3, -, 0:00:05.0, C3_IN_5_SECONDS, "5 to third contact"
 voice_prompt, C3, -, 0:00:04.0, C3_IN_4_SECONDS, "4 to third contact"
 voice_prompt, C3, -, 0:00:03.0, C3_IN_3_SECONDS, "3 to third contact"

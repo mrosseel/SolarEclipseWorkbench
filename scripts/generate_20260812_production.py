@@ -114,7 +114,22 @@ EOS_MAX_SHUTTER = 1 / 4000.0
 
 # Measured/rated throughput used for the frame budget in the header.
 XT4_SDK_FPS = 1.8          # USB PTP round-trip ceiling, measured on this body
-XT4_RELAY_FPS = 15.0       # CH drive, shutter held closed by the relay
+# Measured on the body, 4 August, with the relay holding a full press (S1 then
+# S2) and frames counted from the shutter counter:
+#
+#     CL, menu set to 8 fps   32 frames in 4.15 s   7.7 fps
+#     CH, menu as found       61 frames in 2.15 s  28.4 fps
+#
+# CL is what this script is built for.  At 28 fps the beads window cannot be
+# covered at all - 4 s of it wants 113 frames - and the body hits its own
+# buffer a second in, so the burst decelerates exactly where the diamond ring
+# is.  At 7.7 fps one held contact covers the whole window in 32 frames.
+#
+# This is a menu setting (DRIVE SETTING -> CL LOW SPEED BURST) on a dial
+# position that cannot be read back: GetDriveMode answers 0x0004 wherever the
+# dial is, so neither the rate nor the mode can be checked in software.  Both
+# are eye checks in the pre-flight.
+XT4_RELAY_FPS = 7.7        # CL drive at 8 fps, shutter held closed by the relay
 EOS_BURST_FPS = 6.0
 
 # ISO 100 for the filtered partials: with photographic film at f/6 the sun wants
@@ -417,11 +432,34 @@ def totality_tail_s() -> float:
     first_c3_command = moment_time("BEADS_C3", "-", 6.0)
     return (c3 - first_c3_command).total_seconds() + TOTALITY_TAIL_MARGIN_S
 
-# The hold is bounded by the transfer queue, not by the card: every frame taken
-# with the SDK session open holds one of 32 slots until the drain that follows
-# can run, and a full queue stops the body dead.  At 15 fps that is a little over
-# two seconds, so the burst is held to MAX_BURST_S (fuji_camera) with a margin.
-RELAY_C2_S, RELAY_C3_S = 1.9, 1.9
+# How wide the beads actually are here, from the limb profile rather than
+# assumed: the bursts are sized off these.
+BEADS_C2_S = (MOMENTS["BEADS_C2_END"].time_utc
+              - MOMENTS["BEADS_C2_START"].time_utc).total_seconds()
+BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
+              - MOMENTS["BEADS_C3_START"].time_utc).total_seconds()
+
+# The margin carries the burst a little past each solved edge.  The error is
+# asymmetric: overshooting costs a few black frames at beads exposure, and
+# undershooting loses the diamond ring, of which there is one.
+RELAY_EDGE_MARGIN_S = 0.3
+
+# Cover the whole window, with a margin at each end.
+#
+# The hold used to be 1.9 s against windows of 0.00 s and 0.00 s, so even with
+# perfect contact times less than half the beads were photographed.  That is
+# why the burst had to be pinned to the contact-side edge, and why undershooting
+# cost the diamond ring: a burst that cannot span the window has to gamble on
+# where inside it to sit.  At the measured CL rate it spans the window, so it
+# does not have to gamble, and the timing error the pinning was guarding
+# against stops mattering.
+#
+# One hold is also one buffer: 32 frames covered 4.15 s on the bench, and the
+# card keeps every frame regardless, since the body records RAW+JPEG to it
+# while tethered (MediaRecord reads 0x0001).  The transfer queue only decides
+# what the PC can pull afterwards, not what is photographed.
+RELAY_C2_S = BEADS_C2_S + 2 * RELAY_EDGE_MARGIN_S
+RELAY_C3_S = BEADS_C3_S + 2 * RELAY_EDGE_MARGIN_S
 
 # Trigger latency, measured on the bench 1 August 2026, and it depends entirely on
 # the path: S1 pre-armed and held gives 43-48 ms, S2 alone with S1 never asserted
@@ -429,22 +467,13 @@ RELAY_C2_S, RELAY_C3_S = 1.9, 1.9
 # closes.  So the bursts below pre-arm with relay_arm and take the fast path, which
 # both shrinks the lead and stops it depending on how the release cable is wired.
 RELAY_LATENCY_S = 0.045
-RELAY_C2_N = int(RELAY_C2_S * XT4_RELAY_FPS)
-RELAY_C3_N = int(RELAY_C3_S * XT4_RELAY_FPS)
+# Rounded up, not down.  The runtime converts the frame count back into a hold
+# time, so truncating here shortens the burst - by 0.08 s at C2, which comes off
+# the end of the window where the diamond ring is.  A frame too many costs one
+# black frame at beads exposure.
+RELAY_C2_N = math.ceil(RELAY_C2_S * XT4_RELAY_FPS)
+RELAY_C3_N = math.ceil(RELAY_C3_S * XT4_RELAY_FPS)
 
-# The burst is shorter than the window it has to cover, so where it sits inside
-# that window decides what is on the card.  Measured for this site: the beads run
-# 3.25 s at C2 and 4.05 s at C3, against a hold of 1.9 s.
-#
-# The diamond ring is the last bead before totality at C2 and the first one after
-# it at C3, so at both contacts it sits against the contact rather than in the
-# middle of the window.  The burst is therefore pinned to the contact-side edge:
-# it ends at BEADS_C2_END and starts at BEADS_C3_START.
-#
-# The margin pushes it a little further towards totality than the solved edge.
-# The error is asymmetric: overshooting costs a handful of black frames at beads
-# exposure, undershooting loses the diamond ring, and there is no second one.
-RELAY_EDGE_MARGIN_S = 0.3
 EOS_C2_BURST_S, EOS_C3_BURST_S = 3, 5
 
 # --------------------------------------------------------------------------
@@ -680,20 +709,21 @@ def _totality_block(target_s: float) -> None:
     emit("# installed and the correction switched on; without it they are skipped, and")
     emit("# Solar Eclipse Workbench says so when the script is loaded.")
     emit("#")
-    emit("# The beads run %.2f s at C2 and %.2f s at C3, against a hold of %.1f s, so the burst"
-         % ((MOMENTS["BEADS_C2_END"].time_utc - MOMENTS["BEADS_C2_START"].time_utc).total_seconds(),
-            (MOMENTS["BEADS_C3_END"].time_utc - MOMENTS["BEADS_C3_START"].time_utc).total_seconds(),
-            RELAY_C2_S))
-    emit("# cannot cover the whole window.  It is pinned to the contact-side edge, where the")
-    emit("# diamond ring is: the C2 burst ends at BEADS_C2_END, the C3 burst starts at")
-    emit("# BEADS_C3_START, both with %.1f s of margin towards totality." % RELAY_EDGE_MARGIN_S)
+    emit("# The beads run %.2f s at C2 and %.2f s at C3, and the bursts hold %.1f s and %.1f s -"
+         % (BEADS_C2_S, BEADS_C3_S, RELAY_C2_S, RELAY_C3_S))
+    emit("# the whole window each, plus %.1f s at each end.  Nothing is pinned to an edge any"
+         % RELAY_EDGE_MARGIN_S)
+    emit("# more: a burst that spans the window does not have to guess where inside it to sit,")
+    emit("# and being a few tenths out no longer costs the diamond ring.")
     emit("#")
-    emit("# The hold is %.1f s because %d frames at %.0f fps is all the 32-slot transfer queue"
-         % (RELAY_C2_S, RELAY_C2_N, XT4_RELAY_FPS))
-    emit("# takes; a full queue stops the body dead.  Covering the whole window needs a pulsed")
-    emit("# burst at ~%.1f fps instead of a held one, which is not yet measured on this body."
-         % (RELAY_C2_N / (MOMENTS["BEADS_C2_END"].time_utc
-                          - MOMENTS["BEADS_C2_START"].time_utc).total_seconds()))
+    emit("# %d and %d frames, at the %.1f fps measured on this body with the drive dial on CL"
+         % (RELAY_C2_N, RELAY_C3_N, XT4_RELAY_FPS))
+    emit("# and CL LOW SPEED BURST set to 8 fps.  Both are menu settings on a dial position")
+    emit("# that cannot be read back - GetDriveMode answers the same wherever the dial is - so")
+    emit("# the pre-flight checks them by eye.  On CH as found (28 fps) the window would want")
+    emit("# %d frames and the body would hit its own buffer a second in, slowing the burst"
+         % round(BEADS_C3_S * 28.4))
+    emit("# exactly where the diamond ring is.")
 
     picture(XT4, "BEADS_C2", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
     relay_arm("BEADS_C2", "-", 4.0, "Pre-arm S1 for the C2 burst")
@@ -721,12 +751,12 @@ def _totality_block(target_s: float) -> None:
     if inside(30.0, target_s):
         timeline.append((30.0, announce,
                          ("C2", "+", 30, "C2_PLUS_30_SECONDS", "Thirty seconds into totality")))
-    timeline.append((middle - 10.0, announce,
-                     ("MAX", "-", 10, "MAX_IN_10_SECONDS", "Ten seconds to maximum eclipse")))
-    for n, name in ((5, "MAX_IN_5_SECONDS"), (4, "MAX_IN_4_SECONDS"), (3, "MAX_IN_3_SECONDS"),
-                    (2, "MAX_IN_2_SECONDS"), (1, "MAX_IN_1_SECOND")):
-        timeline.append((middle - n, announce,
-                         ("MAX", "-", n, name, "%d to maximum eclipse" % n)))
+    # Five seconds out, then the moment itself.  The count from ten down to one
+    # filled the middle of totality with talking, and mid-totality is the one
+    # stretch where nothing needs saying: nothing is about to change, the
+    # frames are already scheduled, and the observer is looking up.
+    timeline.append((middle - 5.0, announce,
+                     ("MAX", "-", 5, "MAX_IN_5_SECONDS", "Five seconds to maximum eclipse")))
     timeline.append((middle, announce, ("MAX", "-", 0, "MAX", "Maximum eclipse")))
     # The parked body's mid-totality singles hang off MAX rather than off C2, so
     # they stay centred on totality instead of walking off the end of a short one.
