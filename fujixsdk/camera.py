@@ -63,6 +63,21 @@ class CameraInfo:
     device_name: str
 
 
+def _resolve_param(api_code: int, api_param, args: tuple):
+    """Work out the api_param, tolerating a caller that omitted it.
+
+    The parameter used to be positional and mandatory, so a value meant as the
+    first variadic argument can arrive in its place.  Anything that is not a
+    plain int is therefore treated as the argument it is, and the number is
+    looked up.
+    """
+    if api_param is None:
+        return C.api_param(api_code), args
+    if not isinstance(api_param, int):
+        return C.api_param(api_code), (api_param,) + args
+    return api_param, args
+
+
 class Camera:
     """Pythonic interface to a Fujifilm X Series camera via the Shooting SDK.
 
@@ -805,24 +820,33 @@ class Camera:
     # ------------------------------------------------------------------
     # Extended properties (model-dependent via CapProp/SetProp/GetProp)
     # ------------------------------------------------------------------
-    def set_prop(self, api_code: int, api_param: int, *args):
+    def set_prop(self, api_code: int, api_param: int | None = None, *args):
         """Call XSDK_SetProp with variadic arguments.
 
+        api_param is looked up from the API when not given, which is what
+        callers should do: every call site here passed 0 by hand and 25 of the
+        28 were wrong, so the body answered 0x1002 to most of them.  Pass one
+        explicitly only to override the table.
+
         Pass ctypes-typed values for additional arguments, e.g.:
-            cam.set_prop(API_CODE_SetFilmSimulationMode, 0, ctypes.c_long(mode))
+            cam.set_prop(API_CODE_SetFilmSimulationMode, ctypes.c_long(mode))
         """
+        api_param, args = _resolve_param(api_code, api_param, args)
         rc = self._lib_inst.XSDK_SetProp(
             self._handle, ctypes.c_long(api_code), ctypes.c_long(api_param), *args
         )
         self._check(rc)
 
-    def get_prop(self, api_code: int, api_param: int, *args):
+    def get_prop(self, api_code: int, api_param: int | None = None, *args):
         """Call XSDK_GetProp with variadic arguments.
+
+        api_param is looked up from the API when not given; see set_prop.
 
         Pass ctypes pointer arguments for output, e.g.:
             val = ctypes.c_long()
-            cam.get_prop(API_CODE_GetFilmSimulationMode, 0, ctypes.byref(val))
+            cam.get_prop(API_CODE_GetFilmSimulationMode, ctypes.byref(val))
         """
+        api_param, args = _resolve_param(api_code, api_param, args)
         rc = self._lib_inst.XSDK_GetProp(
             self._handle, ctypes.c_long(api_code), ctypes.c_long(api_param), *args
         )
@@ -846,65 +870,65 @@ class Camera:
     # ------------------------------------------------------------------
     def get_focus_mode(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetFocusMode, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetFocusMode, ctypes.byref(val))
         return val.value
 
     def set_focus_mode(self, mode: int):
-        self.set_prop(C.API_CODE_SetFocusMode, 0, ctypes.c_long(mode))
+        self.set_prop(C.API_CODE_SetFocusMode, ctypes.c_long(mode))
 
     # ------------------------------------------------------------------
     # Image quality (extended API)
     # ------------------------------------------------------------------
     def get_image_quality(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetImageQuality, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetImageQuality, ctypes.byref(val))
         return val.value
 
     def set_image_quality(self, quality: int):
-        self.set_prop(C.API_CODE_SetImageQuality, 0, ctypes.c_long(quality))
+        self.set_prop(C.API_CODE_SetImageQuality, ctypes.c_long(quality))
 
     # ------------------------------------------------------------------
     # Long exposure NR (extended API)
     # ------------------------------------------------------------------
     def get_long_exposure_nr(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetLongExposureNR, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetLongExposureNR, ctypes.byref(val))
         return val.value
 
     def set_long_exposure_nr(self, mode: int):
-        self.set_prop(C.API_CODE_SetLongExposureNR, 0, ctypes.c_long(mode))
+        self.set_prop(C.API_CODE_SetLongExposureNR, ctypes.c_long(mode))
 
     # ------------------------------------------------------------------
     # IS mode (image stabilization, extended API)
     # ------------------------------------------------------------------
     def get_is_mode(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetISMode, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetISMode, ctypes.byref(val))
         return val.value
 
     def set_is_mode(self, mode: int):
-        self.set_prop(C.API_CODE_SetISMode, 0, ctypes.c_long(mode))
+        self.set_prop(C.API_CODE_SetISMode, ctypes.c_long(mode))
 
     # ------------------------------------------------------------------
     # Live View (extended API)
     # ------------------------------------------------------------------
     def start_live_view(self):
-        self.set_prop(C.API_CODE_StartLiveView, 0)
+        self.set_prop(C.API_CODE_StartLiveView)
 
     def stop_live_view(self):
-        self.set_prop(C.API_CODE_StopLiveView, 0)
+        self.set_prop(C.API_CODE_StopLiveView)
 
     def set_live_view_size(self, size: int):
-        self.set_prop(C.API_CODE_SetLiveViewImageSize, 0, ctypes.c_long(size))
+        self.set_prop(C.API_CODE_SetLiveViewImageSize, ctypes.c_long(size))
 
     def get_live_view_size(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetLiveViewImageSize, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetLiveViewImageSize, ctypes.byref(val))
         return val.value
 
     def get_live_view_status(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetLiveViewStatus, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetLiveViewStatus, ctypes.byref(val))
         return val.value
 
     # ------------------------------------------------------------------
@@ -912,11 +936,11 @@ class Camera:
     # ------------------------------------------------------------------
     def get_mf_assist_mode(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetMFAssistMode, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetMFAssistMode, ctypes.byref(val))
         return val.value
 
     def set_mf_assist_mode(self, mode: int):
-        self.set_prop(C.API_CODE_SetMFAssistMode, 0, ctypes.c_long(mode))
+        self.set_prop(C.API_CODE_SetMFAssistMode, ctypes.c_long(mode))
 
     def get_supported_mf_assist_modes(self) -> list[int]:
         num = ctypes.c_long()
@@ -929,11 +953,11 @@ class Camera:
     # ------------------------------------------------------------------
     def get_focus_check_mode(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetFocusCheckMode, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetFocusCheckMode, ctypes.byref(val))
         return val.value
 
     def set_focus_check_mode(self, mode: int):
-        self.set_prop(C.API_CODE_SetFocusCheckMode, 0, ctypes.c_long(mode))
+        self.set_prop(C.API_CODE_SetFocusCheckMode, ctypes.c_long(mode))
 
     def get_supported_focus_check_modes(self) -> list[int]:
         num = ctypes.c_long()
@@ -946,22 +970,22 @@ class Camera:
     # ------------------------------------------------------------------
     def get_focus_pos(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetFocusPos, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetFocusPos, ctypes.byref(val))
         return val.value
 
     def set_focus_pos(self, pos: int):
-        self.set_prop(C.API_CODE_SetFocusPos, 0, ctypes.c_long(pos))
+        self.set_prop(C.API_CODE_SetFocusPos, ctypes.c_long(pos))
 
     # ------------------------------------------------------------------
     # Through-Image Zoom (extended API)
     # ------------------------------------------------------------------
     def get_through_image_zoom(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetThroughImageZoom, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetThroughImageZoom, ctypes.byref(val))
         return val.value
 
     def set_through_image_zoom(self, zoom: int):
-        self.set_prop(C.API_CODE_SetThroughImageZoom, 0, ctypes.c_long(zoom))
+        self.set_prop(C.API_CODE_SetThroughImageZoom, ctypes.c_long(zoom))
 
     def get_supported_through_image_zoom(self) -> list[int]:
         num = ctypes.c_long()
@@ -974,11 +998,11 @@ class Camera:
     # ------------------------------------------------------------------
     def get_live_view_quality(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetLiveViewImageQuality, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetLiveViewImageQuality, ctypes.byref(val))
         return val.value
 
     def set_live_view_quality(self, quality: int):
-        self.set_prop(C.API_CODE_SetLiveViewImageQuality, 0, ctypes.c_long(quality))
+        self.set_prop(C.API_CODE_SetLiveViewImageQuality, ctypes.c_long(quality))
 
     # ------------------------------------------------------------------
     # Battery info (extended API)
@@ -992,7 +1016,7 @@ class Camera:
         a = ctypes.c_long()
         b = ctypes.c_long()
         self.get_prop(
-            C.API_CODE_CheckBatteryInfo, 0,
+            C.API_CODE_CheckBatteryInfo,
             ctypes.byref(level), ctypes.byref(a), ctypes.byref(b),
         )
         return level.value, a.value, b.value
@@ -1002,13 +1026,13 @@ class Camera:
     # ------------------------------------------------------------------
     def get_media_status(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetMediaStatus, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetMediaStatus, ctypes.byref(val))
         return val.value
 
     def get_media_capacity(self) -> int:
         """Returns free capacity in KB."""
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetMediaCapacity, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetMediaCapacity, ctypes.byref(val))
         return val.value
 
     # ------------------------------------------------------------------
@@ -1016,7 +1040,7 @@ class Camera:
     # ------------------------------------------------------------------
     def get_shutter_count(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetShutterCount, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetShutterCount, ctypes.byref(val))
         return val.value
 
     # ------------------------------------------------------------------
@@ -1024,5 +1048,5 @@ class Camera:
     # ------------------------------------------------------------------
     def get_command_dial_status(self) -> int:
         val = ctypes.c_long()
-        self.get_prop(C.API_CODE_GetCommandDialStatus, 0, ctypes.byref(val))
+        self.get_prop(C.API_CODE_GetCommandDialStatus, ctypes.byref(val))
         return val.value

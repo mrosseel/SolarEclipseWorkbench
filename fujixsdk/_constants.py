@@ -915,15 +915,25 @@ IMAGE_QUALITY_NORMAL_PLUS_RAW = 0x0005
 # --------------------------------------------------------------------------
 # Live view sizes
 # --------------------------------------------------------------------------
-LIVEVIEW_SIZE_XGA = 0x0001   # 1024x768
-LIVEVIEW_SIZE_VGA = 0x0002   # 640x480
-LIVEVIEW_SIZE_QVGA = 0x0003  # 320x240
+# The SDK calls these L, M and S, and its own sample gives the widths: the
+# names here said XGA/VGA/QVGA with resolutions to match, which are not the
+# sizes the body produces.  The numbers were right, so this is what was on
+# screen all along - it was only ever described wrongly.
+LIVEVIEW_SIZE_L = 0x0001     # L, 1280 wide
+LIVEVIEW_SIZE_M = 0x0002     # M, 800 wide
+LIVEVIEW_SIZE_S = 0x0003     # S, 640 wide
+
+#: Kept so existing callers and saved settings keep working.
+LIVEVIEW_SIZE_XGA = LIVEVIEW_SIZE_L
+LIVEVIEW_SIZE_VGA = LIVEVIEW_SIZE_M
+LIVEVIEW_SIZE_QVGA = LIVEVIEW_SIZE_S
 
 # --------------------------------------------------------------------------
 # Live view quality
 # --------------------------------------------------------------------------
 LIVEVIEW_QUALITY_FINE = 0x0001
 LIVEVIEW_QUALITY_NORMAL = 0x0002
+LIVEVIEW_QUALITY_BASIC = 0x0003
 
 # --------------------------------------------------------------------------
 # MF Assist modes
@@ -1120,3 +1130,154 @@ SHUTTER_SPEED_NAMES: dict[int, str] = {
     SHUTTER_60M: '60min',
     SHUTTER_BULB: 'BULB',
 }
+
+# --------------------------------------------------------------------------
+# API parameter numbers
+# --------------------------------------------------------------------------
+# XSDK_SetProp and XSDK_GetProp take an api_param alongside the api_code, and
+# it is not free-form: each API has one value the body expects, listed per
+# model in the SDK's own headers as <MODEL>_API_PARAM_<Api>.  Passing 0 for
+# everything - which this wrapper did - is answered 0x1002 "Invalid parameter"
+# by every API whose number is not 0, which is most of them.  That is what made
+# the focus mode and the live view size unreadable and unsettable.
+#
+# Confirmed against the vendor's own LiveView sample, which passes 1 for the
+# size and quality and 0 for the start:
+#     set_prop_l(handle, API_CODE_SetLiveViewImageSize, 1, SDK_LIVEVIEW_SIZE_L)
+#     set_prop(handle, API_CODE_StartLiveView, 0)
+#
+# Generated from HEADERS/X-T4.h.  The numbers are mostly a property of the API
+# rather than the body - eighteen model headers agree on the live view and
+# focus ones - but not always: CheckBatteryInfo is 6 here and 8 on eleven other
+# models, so this table is the X-T4's and a different body needs its own.
+API_PARAM: dict[int, int] = {
+    API_CODE_CapFocusMode: 2,
+    API_CODE_CapFocusPos: 2,
+    API_CODE_CapLensISSwitch: 2,
+    API_CODE_CheckBatteryInfo: 6,
+    API_CODE_GetAFIlluminator: 1,
+    API_CODE_GetAFMode: 2,
+    API_CODE_GetAFStatus: 1,
+    API_CODE_GetBlackImageTone: 1,
+    API_CODE_GetCaptureDelay: 1,
+    API_CODE_GetClarityMode: 1,
+    API_CODE_GetColorChromeBlue: 1,
+    API_CODE_GetColorMode: 1,
+    API_CODE_GetColorSpace: 1,
+    API_CODE_GetCommandDialStatus: 4,
+    API_CODE_GetComment: 1,
+    API_CODE_GetCopyright: 2,
+    API_CODE_GetCropMode: 2,
+    API_CODE_GetCustomWBArea: 2,
+    API_CODE_GetDateTime: 6,
+    API_CODE_GetDetectedFaceFrame: 2,
+    API_CODE_GetEyeAFMode: 1,
+    API_CODE_GetFaceDetectionMode: 1,
+    API_CODE_GetFilenamePrefix: 2,
+    API_CODE_GetFilmSimulationMode: 1,
+    API_CODE_GetFocusArea: 2,
+    API_CODE_GetFocusCheckMode: 1,
+    API_CODE_GetFocusLimiterIndicator: 1,
+    API_CODE_GetFocusLimiterMode: 1,
+    API_CODE_GetFocusLimiterRange: 2,
+    API_CODE_GetFocusMode: 1,
+    API_CODE_GetFocusPoints: 1,
+    API_CODE_GetFocusPos: 1,
+    API_CODE_GetFullTimeManualFocus: 1,
+    API_CODE_GetFunctionLock: 1,
+    API_CODE_GetGrainEffect: 1,
+    API_CODE_GetHighLightTone: 1,
+    API_CODE_GetISMode: 1,
+    API_CODE_GetImageQuality: 1,
+    API_CODE_GetImageSize: 1,
+    API_CODE_GetInstantAFMode: 1,
+    API_CODE_GetInterlockAEAFArea: 1,
+    API_CODE_GetLMOMode: 1,
+    API_CODE_GetLensISSwitch: 1,
+    API_CODE_GetLiveViewImageQuality: 1,
+    API_CODE_GetLiveViewImageSize: 1,
+    API_CODE_GetLongExposureNR: 1,
+    API_CODE_GetMFAssistMode: 1,
+    API_CODE_GetMediaCapacity: 5,
+    API_CODE_GetMediaRecord: 1,
+    API_CODE_GetMediaStatus: 2,
+    API_CODE_GetMonochromaticColor: 2,
+    API_CODE_GetNoiseReduction: 1,
+    API_CODE_GetPreAFMode: 1,
+    API_CODE_GetRAWCompression: 1,
+    API_CODE_GetShadowTone: 1,
+    API_CODE_GetShadowing: 1,
+    API_CODE_GetSharpness: 1,
+    API_CODE_GetShutterCount: 3,
+    API_CODE_GetShutterPriorityMode: 2,
+    API_CODE_GetSmoothSkinEffect: 1,
+    API_CODE_GetThroughImageZoom: 1,
+    API_CODE_GetWhiteBalanceTune: 3,
+    API_CODE_GetWideDynamicRange: 1,
+    API_CODE_ResetSetting: 1,
+    API_CODE_SetAFIlluminator: 1,
+    API_CODE_SetAFMode: 2,
+    API_CODE_SetBlackImageTone: 1,
+    API_CODE_SetCaptureDelay: 1,
+    API_CODE_SetClarityMode: 1,
+    API_CODE_SetColorChromeBlue: 1,
+    API_CODE_SetColorMode: 1,
+    API_CODE_SetColorSpace: 1,
+    API_CODE_SetComment: 1,
+    API_CODE_SetCopyright: 2,
+    API_CODE_SetCropMode: 1,
+    API_CODE_SetCustomWBArea: 2,
+    API_CODE_SetDateTime: 6,
+    API_CODE_SetDetectedFaceFrame: 1,
+    API_CODE_SetEyeAFMode: 1,
+    API_CODE_SetFaceDetectionMode: 1,
+    API_CODE_SetFilenamePrefix: 2,
+    API_CODE_SetFilmSimulationMode: 1,
+    API_CODE_SetFocusArea: 2,
+    API_CODE_SetFocusCheckMode: 1,
+    API_CODE_SetFocusLimiterMode: 1,
+    API_CODE_SetFocusLimiterPos: 2,
+    API_CODE_SetFocusMode: 1,
+    API_CODE_SetFocusPoints: 1,
+    API_CODE_SetFocusPos: 1,
+    API_CODE_SetFullTimeManualFocus: 1,
+    API_CODE_SetFunctionLock: 1,
+    API_CODE_SetGrainEffect: 1,
+    API_CODE_SetHighLightTone: 1,
+    API_CODE_SetISMode: 1,
+    API_CODE_SetImageQuality: 1,
+    API_CODE_SetImageSize: 1,
+    API_CODE_SetInstantAFMode: 1,
+    API_CODE_SetInterlockAEAFArea: 1,
+    API_CODE_SetLMOMode: 1,
+    API_CODE_SetLensISSwitch: 1,
+    API_CODE_SetLiveViewImageQuality: 1,
+    API_CODE_SetLiveViewImageSize: 1,
+    API_CODE_SetLongExposureNR: 1,
+    API_CODE_SetMFAssistMode: 1,
+    API_CODE_SetMediaRecord: 1,
+    API_CODE_SetMonochromaticColor: 2,
+    API_CODE_SetNoiseReduction: 1,
+    API_CODE_SetPreAFMode: 1,
+    API_CODE_SetRAWCompression: 1,
+    API_CODE_SetShadowTone: 1,
+    API_CODE_SetShadowing: 1,
+    API_CODE_SetSharpness: 1,
+    API_CODE_SetShutterPriorityMode: 2,
+    API_CODE_SetSmoothSkinEffect: 1,
+    API_CODE_SetThroughImageZoom: 1,
+    API_CODE_SetWhiteBalanceTune: 3,
+    API_CODE_SetWideDynamicRange: 1,
+    API_CODE_StartLiveView: 0,
+    API_CODE_StopLiveView: 0,
+}
+
+
+def api_param(api_code: int) -> int:
+    """The parameter number this API expects, defaulting to 0.
+
+    0 is the right answer for the handful that take it (StartLiveView and
+    StopLiveView among them) and the only answer available for an API missing
+    from the table, which is where the wrapper was before.
+    """
+    return API_PARAM.get(api_code, 0)
