@@ -1664,10 +1664,14 @@ class SolarEclipseController(Observer):
             gap = self._seconds_to_next_frame()
             frame_imminent = gap is not None and gap < LIVE_VIEW_CLEAR_BEFORE_S
             self._live_view_window.set_totality_paused(in_totality or frame_imminent)
-            # While a script is loaded it owns the exposure; the preview must
-            # not stop the stream to write one behind its back.
-            owns = bool(getattr(self, 'scheduler', None)
-                        and self.scheduler.get_jobs())
+            # Only while a frame is close.  Greying the controls out for the
+            # whole run was the same mistake as refusing to open live view for
+            # the whole run: it blocks the case it exists for, which is looking
+            # at the exposure between frames.  A write stops and restarts the
+            # stream, so it must not land on a camera that is about to shoot -
+            # and that is a question about the next few seconds, not about
+            # whether a script is loaded at all.
+            owns = frame_imminent or in_totality
             setter = getattr(self._live_view_window, 'set_schedule_owns_exposure', None)
             if setter is not None:
                 setter(owns)

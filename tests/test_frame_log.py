@@ -531,11 +531,15 @@ def test_a_bare_sdk_camera_still_gets_unblocked():
     assert called == [(bare, False)]
 
 
-def test_the_script_owns_the_exposure_while_it_is_loaded():
+def test_the_controls_lock_only_while_a_frame_is_due():
     """An exposure write stops and restarts the stream, and the restart is what
     killed the session on 4 August: refused 0x1006 because a frame had the
-    camera, then 0x2001 on everything after.  With a script loaded the write is
-    also pointless - the script sets every exposure it takes.
+    camera, then 0x2001 on everything after.
+
+    So the lock is about the next few seconds, not about whether a script is
+    loaded.  Locking them for the whole run made the controls useless for what
+    they are for - looking at the exposure between frames - which is the same
+    mistake as refusing to open live view for a whole eclipse.
     """
     from solareclipseworkbench.liveview import LiveViewWindow
 

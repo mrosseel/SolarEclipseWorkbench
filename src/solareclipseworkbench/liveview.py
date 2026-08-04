@@ -1020,10 +1020,10 @@ class LiveViewWindow(QDockWidget):
         the PC priority and the worker thread all stay as they were.
         """
         if getattr(self, '_schedule_owns_exposure', False):
-            log.info("Ignored a %s change: a script is loaded and sets its own "
-                     "exposures", what)
+            log.info("Ignored a %s change: a frame is due and the write would "
+                     "stop the stream on top of it", what)
             self._status_bar.showMessage(
-                "The loaded script sets the exposure", 5000)
+                "A frame is due - try again straight after it", 5000)
             self._refresh_exposure()
             return False
 
@@ -1216,7 +1216,7 @@ class LiveViewWindow(QDockWidget):
         self._schedule_owns_exposure = owned
         for combo in (self._shutter_combo, self._iso_combo):
             combo.setEnabled(not owned)
-            combo.setToolTip("The loaded script sets the exposure" if owned else "")
+            combo.setToolTip("A frame is due; the script is shooting" if owned else "")
 
     def set_totality_paused(self, paused: bool):
         """Stop streaming when the camera is needed, and stay stopped.
