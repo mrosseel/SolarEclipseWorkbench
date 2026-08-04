@@ -88,3 +88,34 @@ def test_the_beads_load_and_arm_precede_the_burst_by_construction():
             "%s: load/arm/burst out of order (bigger offset = earlier)" % script.name
         assert offsets["load"] - offsets["burst"] >= 2.0, \
             "%s: the load is too close to the burst" % script.name
+
+
+def test_the_safety_release_fires_after_the_hold_lets_go():
+    """A release inside the hold is not a safety net but a guillotine: it
+    opens the contacts under a running burst.  Nearly shipped twice - once at
+    C3 when the tail grew, once at C2 when the margins were reallocated - so
+    it is pinned in the emitted artifact for both contacts, every duration.
+    """
+    import pathlib
+    import re
+
+    def offset(text, pattern):
+        m = re.search(pattern, text)
+        assert m, pattern
+        return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+
+    for script in pathlib.Path("scripts/real").glob("20260812_production_*s.txt"):
+        text = script.read_text()
+        c2_hold = float(re.search(
+            r'relay_burst, BEADS_C2_END, -, \d+:\d+:[\d.]+, ([\d.]+)', text).group(1))
+        c2_start = offset(text, r'relay_burst, BEADS_C2_END, -, (\d+):(\d+):([\d.]+)')
+        c2_release = offset(text, r'relay_release, BEADS_C2_END, \+, (\d+):(\d+):([\d.]+)')
+        assert c2_release > c2_hold - c2_start + 0.5, \
+            "%s: the C2 release fires inside the hold" % script.name
+
+        c3_hold = float(re.search(
+            r'relay_burst, BEADS_C3_START, -, \d+:\d+:[\d.]+, ([\d.]+)', text).group(1))
+        c3_start = offset(text, r'relay_burst, BEADS_C3_START, -, (\d+):(\d+):([\d.]+)')
+        c3_release = offset(text, r'relay_release, BEADS_C3_START, \+, (\d+):(\d+):([\d.]+)')
+        assert c3_release > c3_hold - c3_start + 0.5, \
+            "%s: the C3 release fires inside the hold" % script.name

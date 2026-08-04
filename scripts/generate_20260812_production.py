@@ -461,10 +461,6 @@ BEADS_C2_S = (MOMENTS["BEADS_C2_END"].time_utc
 BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
               - MOMENTS["BEADS_C3_START"].time_utc).total_seconds()
 
-# The margin carries the burst a little past each solved edge.  The error is
-# asymmetric: overshooting costs a few black frames at beads exposure, and
-# undershooting loses the diamond ring, of which there is one.
-RELAY_EDGE_MARGIN_S = 0.3
 
 # Cover the whole window, with a margin at each end.
 #
@@ -760,12 +756,15 @@ def _totality_block(target_s: float) -> None:
     emit("# installed and the correction switched on; without it they are skipped, and")
     emit("# Solar Eclipse Workbench says so when the script is loaded.")
     emit("#")
-    emit("# The beads run %.2f s at C2 and %.2f s at C3, and the bursts hold %.1f s and %.1f s -"
+    emit("# The beads run %.2f s at C2 and %.2f s at C3, and the bursts hold %.1f s and %.1f s."
          % (BEADS_C2_S, BEADS_C3_S, RELAY_C2_S, RELAY_C3_S))
-    emit("# the whole window each, plus %.1f s at each end.  Nothing is pinned to an edge any"
-         % RELAY_EDGE_MARGIN_S)
-    emit("# more: a burst that spans the window does not have to guess where inside it to sit,")
-    emit("# and being a few tenths out no longer costs the diamond ring.")
+    emit("# The margins are asymmetric because the diamond ring is: at C2 the beads wink out")
+    emit("# one by one and the LAST survivor is the ring, at C3 the FIRST re-emerging point is.")
+    emit("# So the generous margin sits on the totality side each time - C2 head %.1f / tail %.1f,"
+         % (RELAY_C2_HEAD_S, RELAY_C2_TAIL_S))
+    emit("# C3 head %.1f / tail %.1f - where a limb-solve error would cost the one photograph"
+         % (RELAY_C3_HEAD_S, RELAY_C3_TAIL_S))
+    emit("# that cannot be retaken.")
     emit("#")
     emit("# %d and %d frames, at the %.1f fps measured on this body with the drive dial on CL"
          % (RELAY_C2_N, RELAY_C3_N, XT4_RELAY_FPS))
@@ -791,7 +790,11 @@ def _totality_block(target_s: float) -> None:
     relay_burst("BEADS_C2_END", "-", _c2_burst_off,
                 RELAY_C2_S, RELAY_C2_N,
                 "Diamond ring and Baily's beads at C2, relay at %.0f fps" % XT4_RELAY_FPS)
-    relay_release("BEADS_C2_END", "+", 1.5, "Open every contact after the C2 burst")
+    # Tracks the tail: the safety release must fire AFTER the hold lets go, or
+    # it is not a safety net but a guillotine - at tail 2.0 a release at +1.5
+    # would open the contacts half a second before the ring was done.
+    relay_release("BEADS_C2_END", "+", RELAY_C2_TAIL_S + 1.2,
+                  "Open every contact after the C2 burst")
     announce("C2", "-", 0, "C2", "Second contact - filters off, totality has begun")
     if inside(4.0, target_s):
         picture(EOS, "C2", "+", 4.0, chromo, ISO_BEADS, "Chromosphere")
