@@ -265,26 +265,44 @@ class Camera:
         check_result(rc)
 
         # Clean up any stale state from a previous crashed session.
-        # SetPriorityMode fails with BusyError while images are pending,
-        # and sometimes the camera's internal pipeline is stuck from a
-        # previous session. Strategy: cancel, drain, try priority; if still
-        # blocked, fire a shot to flush the pipeline, drain again, retry.
+        # SetPriorityMode fails with BusyError while live view is running or
+        # while images are pending.  Strategy: stop live view, cancel, drain,
+        # try priority; only if still blocked, fire a shot to flush the
+        # pipeline, drain again, retry.
         self._cleanup_stale_state()
 
     def _cleanup_stale_state(self):
         """Reset camera to a clean state on session open.
 
         The camera may retain release/priority state from a crashed session.
-        SetPriorityMode fails while images are in the buffer or while the
-        internal processing pipeline has unfinished work. To clear this:
-        1. RELEASE_CANCEL to clear any half-press state
-        2. Drain pending images from the volatile buffer
-        3. Try SetPriorityMode(CAMERA)
-        4. If still blocked, fire a dummy shot to flush the pipeline,
+        SetPriorityMode fails while live view is running, while images are in
+        the buffer, or while the internal processing pipeline has unfinished
+        work. To clear this:
+        1. Stop live view, which a crashed session leaves running
+        2. RELEASE_CANCEL to clear any half-press state
+        3. Drain pending images from the volatile buffer
+        4. Try SetPriorityMode(CAMERA)
+        5. If still blocked, fire a dummy shot to flush the pipeline,
            drain the resulting images, and retry
         """
         shot_opt = ctypes.c_long(1)
         af_status = ctypes.c_long()
+
+        # Step 0: Stop live view.  A process that dies with a stream open
+        # leaves the body in live view, and a body in live view refuses to
+        # hand over priority - in either direction - while answering every
+        # read normally.  That reads as a wedged camera needing a power cycle,
+        # and it was diagnosed as one repeatedly.  Measured on 4 August: an
+        # X-T4 that had refused SetPriorityMode(CAMERA) and (PC) for twenty
+        # seconds took CAMERA priority immediately after one StopLiveView.
+        #
+        # It goes first because it is free when live view is not running, and
+        # because the flush shot below cannot fix this and costs a shutter
+        # actuation to find out.
+        try:
+            self.stop_live_view()
+        except XSDKError:
+            log.debug("No live view to stop on session open", exc_info=True)
 
         # Step 1: Cancel any pending release
         self._lib_inst.XSDK_Release(
