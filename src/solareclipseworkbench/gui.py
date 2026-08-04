@@ -890,7 +890,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.eclipse_visualization.setMinimumWidth(240)
 
         global_layout = QVBoxLayout()
-        global_layout.addLayout(self.status_strip())
+        global_layout.addWidget(self.status_strip())
         # show reminder banner at top
         global_layout.addWidget(self.sony_banner_label)
         global_layout.addLayout(input_hbox)
@@ -1036,7 +1036,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.panels_button.setToolTip("Show or hide the panels")
         self.toolbar.addWidget(self.panels_button)
 
-    def status_strip(self) -> QHBoxLayout:
+    def status_strip(self) -> QWidget:
         """The clock, the place and the eclipse, in one line under the toolbar.
 
         All of it monospaced: a proportional 1 is narrower than a 0, so a
@@ -1088,28 +1088,25 @@ class SolarEclipseView(QMainWindow, Observable):
         strip.addWidget(self.eclipse_type)
         strip.addStretch(1)
 
-        # What is not ready yet, at a glance.  An em dash in amber is a quiet
-        # "not set"; it turns into the normal-coloured value when it is.  Camera
-        # and relay and script live here too because those three questions -
-        # is a body connected, will the shutter fire, is anything scheduled -
-        # are the whole pre-flight, and each has cost a rehearsal this week.
-        self.camera_state_label = QLabel("\u2014")
-        self.relay_state_label = QLabel("\u2014")
-        self.script_state_label = QLabel("\u2014")
-        for name, label in (("Cam", self.camera_state_label),
-                            ("Relay", self.relay_state_label),
-                            ("Script", self.script_state_label)):
-            label.setFont(mono)
-            strip.addWidget(caption(name))
-            strip.addWidget(label)
-            strip.addSpacing(14)
+        # In a widget whose minimum width is nothing, so however long its text
+        # gets it can only ever be clipped, never widen the window.  A QLabel's
+        # text is a minimum width, and one long value here once pushed the
+        # toolbar's right end out of view.
+        holder = QWidget()
+        holder.setLayout(strip)
+        holder.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+
+        # Camera, relay and script are NOT on the strip.  They were, briefly:
+        # a camera name plus "HID relay 16c0:05df - dual channel" plus a job
+        # count made the line wider than the window, and a QLabel's text is a
+        # minimum width, so the strip pushed the toolbar's right end - the
+        # Panels button - out of view.  The amber dots on the toolbar icons
+        # carry the same answers without costing an inch of width.
         self._readiness_labels = (
             self.longitude_label, self.latitude_label, self.altitude_label,
-            self.eclipse_date, self.eclipse_type,
-            self.camera_state_label, self.relay_state_label,
-            self.script_state_label)
+            self.eclipse_date, self.eclipse_type)
         self.refresh_readiness_colours()
-        return strip
+        return holder
 
     #: Quietly amber, not red: half of these stay unset in a legitimate run -
     #: no mount, no relay on the parked body - and a row of red reads as a
@@ -2439,17 +2436,9 @@ class SolarEclipseController(Observer):
             overview = getattr(self.model, 'camera_overview', None)
             cameras = getattr(overview, 'camera_overview_dict', None) or {}
             names = {getattr(cam, 'name', str(name)) for name, cam in cameras.items()}
-            self.view.camera_state_label.setText(
-                ", ".join(sorted(names)) if names else "\u2014")
-
             trigger = getattr(self, 'relay_trigger', None)
-            self.view.relay_state_label.setText(
-                trigger.describe() if trigger is not None else "\u2014")
-
             scheduler = getattr(self, 'scheduler', None)
             jobs = len(scheduler.get_jobs()) if scheduler is not None else 0
-            self.view.script_state_label.setText(
-                "%d jobs" % jobs if jobs else "\u2014")
 
             self.view.refresh_readiness_colours()
             for action, unset in (
