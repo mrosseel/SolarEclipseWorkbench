@@ -490,7 +490,7 @@ class SolarEclipseView(QMainWindow, Observable):
         # The window is a time and a length.  Kept apart so each sits under the
         # header it belongs to; as one string spanning two columns it ran across
         # the table and made every column look ragged.
-        self.totality_label = QLabel()
+
         self.beads_c2_duration_label = QLabel()
         self.beads_c2_duration_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.beads_c3_duration_label = QLabel()
@@ -588,6 +588,9 @@ class SolarEclipseView(QMainWindow, Observable):
         self.altitude_label = QLabel()
 
         self.eclipse_type = QLabel()
+        _type_font = self.eclipse_type.font()
+        _type_font.setBold(True)
+        self.eclipse_type.setFont(_type_font)
 
         self.camera_overview = QTableView()
 
@@ -647,7 +650,7 @@ class SolarEclipseView(QMainWindow, Observable):
         # of them can be dragged to another edge, tabbed onto another by dropping
         # it on top, floated onto a second screen for totality, or closed; Qt
         # tracks whatever you end up with through toggleViewAction and saveState.
-        self.geometry_dock = QDockWidget("Eclipse geometry", self)
+        self.geometry_dock = QDockWidget("Sun View", self)
         self.geometry_dock.setObjectName("geometry_dock")
         self.geometry_dock.setWidget(self.eclipse_visualization)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.geometry_dock)
@@ -693,29 +696,19 @@ class SolarEclipseView(QMainWindow, Observable):
 
         vbox_left = QVBoxLayout()
 
-        place_time_group_box = QGroupBox()
-        place_time_grid_layout = QGridLayout()
-
-        # No "Local" header: it labelled one of two columns and there is one now.
-        # No UTC column here either - it is on the local value as a tooltip.
-
-        place_time_grid_layout.addWidget(self.date_label, 1, 0)
-        place_time_grid_layout.addWidget(self.date_label_local, 1, 1)
-
-        place_time_grid_layout.addWidget(QLabel("Time"), 2, 0)
-        place_time_grid_layout.addWidget(self.time_label_local, 2, 1)
-
-        place_time_group_box.setLayout(place_time_grid_layout)
-        place_time_group_box.setMinimumWidth(250)
-        vbox_left.addWidget(place_time_group_box)
+        # The date and the time are one line of text between them, and a group
+        # box two hundred and fifty pixels wide to hold it pushed everything
+        # below it down.  They live in a strip under the toolbar now, where a
+        # clock belongs - see status_strip() - and the space goes to the panels
+        # that need it.
 
         location_group_box = QGroupBox()
         location_grid_layout = QGridLayout()
-        location_grid_layout.addWidget(QLabel("Longitude [°]"), 0, 0)
+        location_grid_layout.addWidget(QLabel("Lon [°]"), 0, 0)
         location_grid_layout.addWidget(self.longitude_label, 0, 1)
-        location_grid_layout.addWidget(QLabel("Latitude [°]"), 1, 0)
+        location_grid_layout.addWidget(QLabel("Lat [°]"), 1, 0)
         location_grid_layout.addWidget(self.latitude_label, 1, 1)
-        location_grid_layout.addWidget(QLabel("Altitude [m]"), 2, 0)
+        location_grid_layout.addWidget(QLabel("Alt [m]"), 2, 0)
         location_grid_layout.addWidget(self.altitude_label, 2, 1)
         location_group_box.setLayout(location_grid_layout)
         location_group_box.setMinimumWidth(250)
@@ -776,25 +769,17 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_grid_layout.addWidget(QLabel("Fourth contact (C4)"), 5, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunrise"), 6, 0)
         reference_moments_grid_layout.addWidget(QLabel("Sunset"), 7, 0)
-        # Totality, beside the contacts it is computed from.  It is the number
-        # a run is chosen by - on 4 August a script written for a longer
-        # totality held the camera past third contact and the bead exposure
-        # never loaded - and it used to sit in a box beside the eclipse date,
-        # true and easy to read past.
-        reference_moments_grid_layout.addWidget(QLabel("Totality"), 8, 0)
-        reference_moments_grid_layout.addWidget(self.totality_label, 8, 1)
-
-        reference_moments_grid_layout.addWidget(QLabel("Beads window (C2)"), 9, 0)
-        reference_moments_grid_layout.addWidget(self.beads_c2_label, 9, 1)
-        reference_moments_grid_layout.addWidget(self.beads_c2_duration_label, 9, 3)
-        reference_moments_grid_layout.addWidget(QLabel("Beads window (C3)"), 10, 0)
-        reference_moments_grid_layout.addWidget(self.beads_c3_label, 10, 1)
-        reference_moments_grid_layout.addWidget(self.beads_c3_duration_label, 10, 3)
+        reference_moments_grid_layout.addWidget(QLabel("Beads window (C2)"), 8, 0)
+        reference_moments_grid_layout.addWidget(self.beads_c2_label, 8, 1)
+        reference_moments_grid_layout.addWidget(self.beads_c2_duration_label, 8, 3)
+        reference_moments_grid_layout.addWidget(QLabel("Beads window (C3)"), 9, 0)
+        reference_moments_grid_layout.addWidget(self.beads_c3_label, 9, 1)
+        reference_moments_grid_layout.addWidget(self.beads_c3_duration_label, 9, 3)
 
         # The correction belongs with the numbers it changes: it moves C2 and C3
         # by seconds, which is more than a bead burst is long.  Default on — the
         # corrected contacts are the real ones, a smooth Moon is the approximation.
-        reference_moments_grid_layout.addWidget(self.limb_correction_checkbox, 11, 0, 1, 6)
+        reference_moments_grid_layout.addWidget(self.limb_correction_checkbox, 10, 0, 1, 6)
         # Somewhere for the slack to go.  Without these the grid stretches to
         # fill a full-height dock: ten rows spread seventy pixels apart and four
         # columns spread across five hundred, which is the "waaaay too much
@@ -896,6 +881,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.eclipse_visualization.setMinimumWidth(240)
 
         global_layout = QVBoxLayout()
+        global_layout.addLayout(self.status_strip())
         # show reminder banner at top
         global_layout.addWidget(self.sony_banner_label)
         global_layout.addLayout(input_hbox)
@@ -1017,6 +1003,21 @@ class SolarEclipseView(QMainWindow, Observable):
                 if widget.defaultAction() is self.problems_dock_action:
                     widget.setStyleSheet("")
 
+    def status_strip(self) -> QHBoxLayout:
+        """The clock, in one line under the toolbar.
+
+        Date and time in a group box of their own cost a quarter of the left
+        column to say two things that fit on one line.  Here they read at a
+        glance without taking room from the contact times.
+        """
+        strip = QHBoxLayout()
+        strip.setContentsMargins(6, 0, 6, 2)
+        strip.addWidget(self.date_label_local)
+        strip.addSpacing(12)
+        strip.addWidget(self.time_label_local)
+        strip.addStretch(1)
+        return strip
+
     def add_toolbar(self):
         """ Create the toolbar of the UI.
 
@@ -1123,7 +1124,7 @@ class SolarEclipseView(QMainWindow, Observable):
 
         # Qt's own toggles, so closing a dock by its X keeps the button in step.
         self.geometry_dock_action = self.geometry_dock.toggleViewAction()
-        self.geometry_dock_action.setText("Eclipse geometry")
+        self.geometry_dock_action.setText("Sun View")
         self.geometry_dock_action.setStatusTip("Show the eclipse geometry")
         self.toolbar.addAction(self.geometry_dock_action)
 
@@ -1281,10 +1282,9 @@ class SolarEclipseView(QMainWindow, Observable):
             total = round(reference_moments["duration"].total_seconds())
             minutes, seconds = divmod(reference_moments["duration"].seconds, 60)
             self.eclipse_type.setText(f"{eclipse_type} ({minutes}:{seconds:02} = {total} s)")
-            # The duration, not advice about it: the scripts people bring are
-            # their own, and one named for a duration is a local habit rather
-            # than something the program should assume.
-            self.totality_label.setText(f"{minutes}:{seconds:02}  =  {total} s")
+            # The duration lives with the eclipse type, in bold, and nowhere
+            # else: it was in the moments dock too, which is a table of moments
+            # rather than of how long they are apart.
 
         # First contact
 
