@@ -246,6 +246,12 @@ class LcusSerialBackend(Backend):
 
         These boards answer nothing, so they cannot be probed — the only way to
         confirm one is to pulse a channel and listen for the click.
+
+        A CP2102 is identifiably something else: LCUS boards are CH340-based,
+        while DSD TECH builds on the CP2102 — an SH-UR04A offered as LCUS here
+        cost a bench evening on 4 August 2026.  Numato has its own vendor id.
+        Both are left to their own backends; an explicitly configured port
+        still opens as LCUS regardless.
         """
         candidates = []
         for port in usb_serial_ports():
@@ -253,6 +259,8 @@ class LcusSerialBackend(Backend):
             if any(vendor in _port_text(port) for vendor in ("numato", "dsd")):
                 continue
             adapter = KNOWN_SERIAL_ADAPTERS.get((port.vid, port.pid))
+            if adapter in ("CP2102", "Numato"):
+                continue
             candidates.append(Candidate(
                 kind="relay", driver=cls.name, target=port.device,
                 description=f"{adapter} — {description}" if adapter else description,

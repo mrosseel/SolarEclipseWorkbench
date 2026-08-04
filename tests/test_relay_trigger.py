@@ -223,6 +223,25 @@ def test_a_backend_without_its_own_name_is_refused():
         register_backend(Unnamed)
 
 
+def test_lcus_discovery_leaves_cp2102_ports_to_the_dsd_backend(monkeypatch):
+    # LCUS boards are CH340-based; DSD TECH builds on the CP2102.  An SH-UR04A
+    # offered as LCUS got the wrong protocol and never fired.
+    from solareclipseworkbench import relay_trigger
+
+    cp2102 = MagicMock(device="/dev/cu.SLAB_USBtoUART", vid=0x10C4, pid=0xEA60,
+                       description="CP2102 USB to UART Bridge Controller",
+                       manufacturer="Silicon Labs")
+    ch340 = MagicMock(device="/dev/cu.wchusbserial1", vid=0x1A86, pid=0x7523,
+                      description="USB Serial", manufacturer=None)
+    monkeypatch.setattr(relay_trigger, "usb_serial_ports", lambda: [cp2102, ch340])
+
+    lcus_targets = [c.target for c in relay_trigger.LcusSerialBackend.discover()]
+    assert lcus_targets == ["/dev/cu.wchusbserial1"]
+
+    dsd_targets = [c.target for c in relay_trigger.DsdSerialBackend.discover()]
+    assert dsd_targets == ["/dev/cu.SLAB_USBtoUART"]
+
+
 def test_simulated_backend_is_never_offered_by_discovery():
     # A real board must never be silently replaced by a simulated one, or a
     # script would appear to run while firing nothing.
