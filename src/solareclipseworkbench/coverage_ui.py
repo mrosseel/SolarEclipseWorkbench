@@ -21,7 +21,8 @@ from typing import Optional
 
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen
-from PyQt6.QtWidgets import QDockWidget, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QVBoxLayout,
+                             QWidget)
 
 from solareclipseworkbench.hardware_registry import JOB_COMMANDS
 
@@ -46,16 +47,24 @@ _CONTACTS = ("C1", "C2", "MAX", "C3", "C4")
 
 
 class CoverageView(QWidget):
-    """One or two timelines of the scheduled frames."""
+    """Two timelines of the scheduled frames, with an axis and a key.
 
-    ROW_HEIGHT = 34
-    LABEL_HEIGHT = 14
+    A row is a span of time drawn left to right: a clock along the bottom, a
+    lane of single frames, and above it a lane of everything that holds the
+    shutter for a stretch.  Separating the two matters - a bracket and a frame
+    are both "a command" and one of them is seven frames over six seconds.
+    """
+
+    LANE = 13                 # a bar's height
+    HEADER = 15               # the row's title line
+    AXIS = 13                 # the clock under it
+    GAP = 8
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._events: list = []          # (when, command, seconds)
         self._moments: dict = {}
-        self.setMinimumHeight(2 * (self.ROW_HEIGHT + self.LABEL_HEIGHT) + 8)
+        self.setMinimumHeight(2 * (self.HEADER + 2 * self.LANE + self.AXIS + self.GAP))
 
     def set_schedule(self, jobs, moments: dict) -> None:
         """Take the jobs as they are now; the panel does not poll."""
@@ -86,14 +95,33 @@ class CoverageView(QWidget):
             return
 
         rows = [("Whole eclipse", self._span_of("C1", "C4"))]
-        totality = self._span_of("C2", "C3")
+        totality = self._totality_span()
         if totality:
-            rows.append(("Totality", totality))
+            rows.append(("Totality and the beads", totality))
 
-        height = (self.height() - 6) // len(rows)
+        height = self.height() // len(rows)
         for index, (title, span) in enumerate(rows):
-            top = 3 + index * height
-            self._draw_row(painter, title, span, top, height - 6)
+            self._draw_row(painter, title, span, index * height, height)
+
+    def _totality_span(self):
+        """C2 to C3, widened to take in the bead bursts either side.
+
+        The C2 burst starts before second contact - the diamond ring is the
+        last bead before totality - so a row that begins exactly at C2 leaves
+        out the most important command in the script.
+        """
+        span = self._span_of("C2", "C3")
+        if span is None:
+            return None
+        start, end = span
+        margin = datetime.timedelta(seconds=8)
+        beads_start = self._moments.get("BEADS_C2_START")
+        beads_end = self._moments.get("BEADS_C3_END")
+        if beads_start is not None:
+            start = min(start, beads_start.time_utc)
+        if beads_end is not None:
+            end = max(end, beads_end.time_utc)
+        return (start - margin, end + margin)
 
     def _span_of(self, first: str, last: str):
         start, end = self._moments.get(first), self._moments.get(last)
@@ -102,63 +130,81 @@ class CoverageView(QWidget):
         return (start.time_utc, end.time_utc)
 
     def _draw_row(self, painter, title, span, top, height) -> None:
-        left, right = 6, self.width() - 6
+        left, right = 8, self.width() - 8
         width = max(right - left, 1)
-        baseline = top + self.LABEL_HEIGHT + height // 3
 
         if span is None:
             span = (self._events[0][0], self._events[-1][0])
         start, end = span
         seconds = max((end - start).total_seconds(), 1.0)
+        inside = [e for e in self._events if start <= e[0] <= end]
 
         small = QFont(self.font())
-        small.setPointSizeF(max(7.5, small.pointSizeF() - 2))
+        small.setPointSizeF(max(7.5, small.pointSizeF() - 2.0))
         painter.setFont(small)
-        painter.setPen(QColor("#7f8c8d"))
-        # Counted within this row, not across the script: on the totality row
-        # "46 commands" meant the whole eclipse and made a hundred seconds look
-        # as busy as two hours.
-        frames = sum(1 for when, command, _ in self._events
-                     if command in FRAME_COMMANDS and start <= when <= end)
-        painter.drawText(left, top + self.LABEL_HEIGHT - 2,
-                         "%s  -  %s, %d commands" % (title, _duration(seconds), frames))
-
-        painter.setPen(QPen(QColor("#bdc3c7"), 1))
-        painter.drawLine(left, baseline + height // 3, right, baseline + height // 3)
 
         def x_of(when):
             return left + width * ((when - start).total_seconds() / seconds)
 
-        # Totality shaded, so the dense part is visible on the wide row too.
+        held_top = top + self.HEADER
+        single_top = held_top + self.LANE + 2
+        axis_y = single_top + self.LANE + 4
+
+        # Header: what this row is, and what is on it.
+        frames = sum(1 for _, command, _ in inside if command in FRAME_COMMANDS)
+        held = sum(1 for _, command, _ in inside
+                   if command in FRAME_COMMANDS and STYLES[command][1] > 1.0)
+        painter.setPen(QColor("#2c3e50"))
+        bold = QFont(small)
+        bold.setBold(True)
+        painter.setFont(bold)
+        painter.drawText(left, top + self.HEADER - 3, title)
+        # Measured in the font it was drawn in.  Measuring the bold title with
+        # the regular metrics understates it, and the line that follows lands on
+        # top of the last few letters.
+        title_width = painter.fontMetrics().horizontalAdvance(title)
+        painter.setFont(small)
+        painter.setPen(QColor("#7f8c8d"))
+        painter.drawText(left + title_width + 12,
+                         top + self.HEADER - 3,
+                         "%s   %d commands, %d of them bursts or brackets"
+                         % (_duration(seconds), frames, held))
+
+        # Totality shaded behind everything, so the dense stretch is findable
+        # on a row two hours wide.
         shade = self._span_of("C2", "C3")
         if shade and shade != span:
             x1, x2 = x_of(shade[0]), x_of(shade[1])
-            if x2 > x1:
-                painter.fillRect(QRectF(x1, baseline - height // 3,
-                                        max(x2 - x1, 1.0), height),
-                                 QColor(44, 62, 80, 28))
+            painter.fillRect(QRectF(x1, held_top, max(x2 - x1, 1.5),
+                                    axis_y - held_top),
+                             QColor(230, 126, 34, 40))
 
-        for when, command, hold in self._events:
-            if not (start <= when <= end):
-                continue
+        # The axis, with real clock times.
+        painter.setPen(QPen(QColor("#bdc3c7"), 1))
+        painter.drawLine(left, axis_y, right, axis_y)
+        painter.setPen(QColor("#95a5a6"))
+        for when in _ticks(start, end):
+            x = int(x_of(when))
+            painter.drawLine(x, axis_y, x, axis_y + 3)
+            label = when.astimezone().strftime("%H:%M:%S" if seconds < 600 else "%H:%M")
+            painter.drawText(x - painter.fontMetrics().horizontalAdvance(label) // 2,
+                             axis_y + self.AXIS, label)
+
+        # The frames themselves, in two lanes.
+        for when, command, hold in inside:
             colour, _ = STYLES[command]
             x = x_of(when)
             if command not in FRAME_COMMANDS:
-                painter.setPen(QPen(QColor(colour), 1))
-                painter.drawLine(int(x), baseline + height // 4,
-                                 int(x), baseline + height // 3)
                 continue
-            # A block as wide as the command holds the camera, never thinner
-            # than a line - at an hour across, six seconds is a fraction of a
-            # pixel and would vanish.
-            block = max(width * (hold / seconds), 1.5)
-            painter.fillRect(QRectF(x, baseline - height // 3, block, height * 0.55),
-                             QColor(colour))
+            if hold > 1.0:
+                block = max(width * (hold / seconds), 2.0)
+                painter.fillRect(QRectF(x, held_top, block, self.LANE - 2),
+                                 QColor(colour))
+            else:
+                painter.fillRect(QRectF(x, single_top, 2.0, self.LANE - 2),
+                                 QColor(colour))
 
-        # The lines always; the names only where they will not run into each
-        # other.  On the whole-eclipse row C2, MAX and C3 fall within a hundred
-        # seconds of a two hour span - three pixels apart - and printed on top
-        # of one another.
+        # Contacts on top, named where the names fit.
         painter.setPen(QPen(QColor("#2c3e50"), 1, Qt.PenStyle.DashLine))
         placed = []
         for name in _CONTACTS:
@@ -166,14 +212,32 @@ class CoverageView(QWidget):
             if moment is None or not (start <= moment.time_utc <= end):
                 continue
             x = int(x_of(moment.time_utc))
-            painter.drawLine(x, baseline - height // 3, x, baseline + height // 3)
-            room = painter.fontMetrics().horizontalAdvance(name) + 6
+            painter.drawLine(x, held_top - 3, x, axis_y)
+            room = painter.fontMetrics().horizontalAdvance(name) + 8
             if any(abs(x - other) < room for other in placed):
                 continue
             placed.append(x)
             painter.setPen(QColor("#2c3e50"))
-            painter.drawText(x + 2, baseline + height // 3 + 11, name)
+            # Inside the edge: a name drawn past the right of the widget is
+            # clipped to its first letter, which is how C3 and C4 both read "C".
+            text_width = painter.fontMetrics().horizontalAdvance(name)
+            painter.drawText(min(x + 2, right - text_width), held_top - 4, name)
             painter.setPen(QPen(QColor("#2c3e50"), 1, Qt.PenStyle.DashLine))
+
+
+def _ticks(start, end, count: int = 8) -> list:
+    """Round-ish times across the span, so the axis reads as a clock."""
+    seconds = max((end - start).total_seconds(), 1.0)
+    for step in (10, 20, 30, 60, 120, 300, 600, 900, 1800, 3600):
+        if seconds / step <= count:
+            break
+    first = start + datetime.timedelta(
+        seconds=(step - start.timestamp() % step) % step)
+    ticks, when = [], first
+    while when <= end:
+        ticks.append(when)
+        when += datetime.timedelta(seconds=step)
+    return ticks
 
 
 def _duration(seconds: float) -> str:
@@ -198,8 +262,22 @@ class CoverageDock(QDockWidget):
         layout.setContentsMargins(4, 2, 4, 4)
         self.view = CoverageView()
         layout.addWidget(self.view, 1)
+        legend = QHBoxLayout()
+        legend.setSpacing(10)
+        for command, caption in (("take_picture", "single frame"),
+                                 ("take_bracket", "bracket"),
+                                 ("relay_burst", "burst")):
+            swatch = QLabel()
+            swatch.setFixedSize(10, 10)
+            swatch.setStyleSheet("background: %s; border-radius: 2px;"
+                                 % STYLES[command][0])
+            legend.addWidget(swatch)
+            legend.addWidget(QLabel(caption))
+        legend.addSpacing(14)
         self.summary = QLabel("No script loaded")
-        layout.addWidget(self.summary)
+        legend.addWidget(self.summary)
+        legend.addStretch(1)
+        layout.addLayout(legend)
         self.setWidget(body)
 
     def set_schedule(self, scheduler, moments: dict) -> None:
