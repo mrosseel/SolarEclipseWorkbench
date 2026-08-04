@@ -69,6 +69,31 @@ _STREAM_SETUP_WAIT_S = 3.0
 #: means the read is not coming back at all.
 _FRAME_READ_WAIT_S = 6.0
 
+# How long to wait before asking the body for another frame.  Measured on the
+# X-T4: it emits a frame every ~200 ms and will not be hurried - polling with no
+# gap at all, or at 5, 20, 40 or 80 ms, returned the same 40 frames in eight
+# seconds, and the frame size (L, M or S) made no difference either.  Five
+# frames a second is simply what the body gives.
+#
+# So the old 5/10 ms loop asked five times per frame and threw four answers
+# away, each one a USB round trip taken with the camera lock held.  That is the
+# traffic the shooting path had to compete with, and the pressure that let a
+# waiting thread starve.  Measured side by side over twelve seconds:
+#
+#     5 / 10 ms     299 polls    61 frames    4.9 polls per frame
+#     120 / 40 ms    60 polls    60 frames    1.0 polls per frame
+#
+# The cost is latency: a frame can now sit up to ~40 ms longer before being
+# collected.  On a preview watched by eye that is invisible, and it buys back
+# four fifths of the USB traffic during a run.
+_POLL_AFTER_FRAME_MS = 120
+_POLL_WHEN_EMPTY_MS = 40
+
+#: Once several polls running have come back empty the stream is not producing,
+#: so there is nothing to be gained by asking briskly.
+_POLL_WHEN_QUIET_MS = 200
+_QUIET_AFTER_EMPTY_POLLS = 5
+
 # Focus peaking: edge threshold and overlay colour
 _PEAKING_THRESHOLD = 30
 _PEAKING_COLOR = QColor(255, 0, 0, 180)  # semi-transparent red
@@ -443,10 +468,14 @@ class _FrameWorker(QObject):
             if data:
                 self.frame_ready.emit(data)
                 idle_count = 0
-                QThread.msleep(5)
+                # A frame just arrived, so the next is ~200 ms away.  Asking
+                # before then only produces empty answers.
+                QThread.msleep(_POLL_AFTER_FRAME_MS)
             else:
                 idle_count += 1
-                QThread.msleep(30 if idle_count > 5 else 10)
+                QThread.msleep(_POLL_WHEN_QUIET_MS
+                               if idle_count > _QUIET_AFTER_EMPTY_POLLS
+                               else _POLL_WHEN_EMPTY_MS)
 
     def stop(self):
         self._running = False

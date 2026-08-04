@@ -449,3 +449,23 @@ def test_a_worker_is_not_resumed_onto_a_stream_that_is_gone():
 
     assert "resume" not in calls, "resumed onto a stopped stream"
     assert "stop" in calls
+
+
+def test_the_frame_loop_waits_for_the_body_rather_than_spinning():
+    """Measured: the X-T4 emits a frame every ~200 ms and will not be hurried.
+
+    Polling with no gap, or at 5, 20, 40 or 80 ms, all returned the same 40
+    frames in eight seconds, at every frame size.  The old 5/10 ms loop
+    therefore asked five times per frame and discarded four answers, each a USB
+    round trip taken with the camera lock held - the traffic the shooting path
+    competed with, and the pressure that let a waiting thread starve.
+    """
+    from solareclipseworkbench import liveview
+
+    # Anything much below the frame interval is back to spinning.
+    assert liveview._POLL_AFTER_FRAME_MS >= 100
+    # ...and anything at or above it starts dropping frames: at 150/60 the
+    # same twelve seconds yielded 52 frames instead of 60.
+    assert liveview._POLL_AFTER_FRAME_MS < 150
+    assert liveview._POLL_WHEN_EMPTY_MS < liveview._POLL_AFTER_FRAME_MS
+    assert liveview._POLL_WHEN_QUIET_MS > liveview._POLL_WHEN_EMPTY_MS
