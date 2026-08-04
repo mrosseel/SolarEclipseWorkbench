@@ -134,6 +134,28 @@ class BaseCamera(ABC):
         # public capture function ensures jobs queue up rather than crash.
         self._usb_lock = threading.RLock()
 
+    def ensure_ready(self, priority=None, allow_shot: bool = True,
+                     why: str = "") -> bool:
+        """Clear whatever is stopping the body from taking commands.
+
+        "Camera is busy" is rarely one condition, and on bodies that can say
+        why - see fujixsdk.recovery - the remedy differs per cause: stopping a
+        live view left running by a crashed run is free, while firing a shot to
+        flush the pipeline costs a shutter actuation and fixes something else
+        entirely.
+
+        The default is to say yes and do nothing, which is right for a camera
+        with no such notion: a caller that has nothing to clear is ready by
+        definition.  So callers may call this unconditionally rather than
+        asking what kind of camera they hold - which is the point of it living
+        here rather than only on the Fuji adapter.
+
+        allow_shot=False forbids any remedy that would fire the shutter.  Pass
+        it wherever a frame going off unbidden is worse than failing; during an
+        eclipse that is always.
+        """
+        return True
+
     @abstractmethod
     def connect(self) -> None:
         pass

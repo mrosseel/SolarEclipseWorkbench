@@ -46,6 +46,8 @@ try:
         SHUTTER_SPEED_NAMES,
         SDK_FOCUS_MANUAL,
     )
+    from fujixsdk import recovery as sdk_recovery
+    from fujixsdk._constants import PRIORITY_CAMERA, PRIORITY_PC
     from fujixsdk._errors import BusyError, CommunicationError
     # The buffer belongs to the body, so its size and the fraction of it
     # that may fill live with the SDK wrapper rather than being restated here.
@@ -169,14 +171,36 @@ def _through_busy(action, what: str, deadline: float, recover=None):
                 raise
             logging.warning('%s: the camera session was rebuilt; retrying', what)
             return action()
-        except BusyError:
+        except BusyError as exc:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                logging.warning('%s: body still busy at its deadline; moving on '
-                                'rather than delaying the next frame', what)
+                # The exact code and what the body says is blocking it, because
+                # this is the line that gets read the next day: 0x1006 while
+                # live view runs is a different fault from 0x1006 with a frame
+                # still transferring, and "busy" alone cannot tell them apart.
+                logging.warning('%s: body still busy at its deadline (%s%s); '
+                                'moving on rather than delaying the next frame',
+                                what, exc, _busy_detail(recover))
                 raise
-            logging.debug('%s: body busy, %.1fs of budget left', what, remaining)
+            logging.debug('%s: body busy (%s), %.1fs of budget left',
+                          what, exc, remaining)
             time.sleep(min(BUSY_BACKOFF_S, remaining))
+
+
+def _busy_detail(recover) -> str:
+    """What the body says is blocking it, for the log.  Never raises.
+
+    Diagnosis only - nothing is cleared here.  A frame is in flight and the
+    remedies cost time this path does not have.
+    """
+    camera = getattr(recover, '__self__', None)
+    sdk_cam = getattr(camera, '_sdk_cam', None)
+    if sdk_cam is None:
+        return ''
+    try:
+        return ', blocked by %s' % sdk_recovery.read_blockers(sdk_cam).describe()
+    except Exception:
+        return ''
 
 
 def _retry_busy(action, what: str, deadline: float, recover=None) -> bool:
@@ -769,6 +793,29 @@ class FujiCamera(BaseCamera):
             logging.debug('%s: buffer unreadable', self.name, exc_info=True)
             return False
         return captured >= BUFFER_SLOTS * DRAIN_AT
+
+    def ensure_ready(self, priority: int = None, allow_shot: bool = True,
+                     why: str = "") -> bool:
+        """Clear whatever is stopping the body and take the given priority.
+
+        The generic form of what used to happen only on session open.  Live
+        view left running by a crashed process, a half press that never
+        released, frames still in the buffer - each is a different remedy, and
+        the body is asked which applies before any of them is tried.  See
+        fujixsdk.recovery.
+
+        Worth calling anywhere "camera is busy" would otherwise be reported to
+        the user as a dead camera: bringing the body up, starting live view,
+        or after a scheduled command was refused.
+
+        allow_shot=False forbids the last-resort flush shot, which actuates the
+        shutter.  Pass it whenever a frame firing unbidden would be worse than
+        failing - during an eclipse, that is always.
+        """
+        if priority is None:
+            priority = PRIORITY_CAMERA
+        return sdk_recovery.unblock(self._sdk, priority, allow_shot=allow_shot,
+                                    why=why or self.name)
 
     def recover_session(self) -> bool:
         """Rebuild the USB session after it has been lost, and say whether it worked.

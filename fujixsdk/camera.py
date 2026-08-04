@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import _constants as C
+from . import recovery
 from ._errors import (BusyError, LDPathError, XSDKError, check_result,
                       raise_for_error_code)
 
@@ -272,73 +273,15 @@ class Camera:
         self._cleanup_stale_state()
 
     def _cleanup_stale_state(self):
-        """Reset camera to a clean state on session open.
+        """Get the body to a state where it will take commands, on open.
 
-        The camera may retain release/priority state from a crashed session.
-        SetPriorityMode fails while live view is running, while images are in
-        the buffer, or while the internal processing pipeline has unfinished
-        work. To clear this:
-        1. Stop live view, which a crashed session leaves running
-        2. RELEASE_CANCEL to clear any half-press state
-        3. Drain pending images from the volatile buffer
-        4. Try SetPriorityMode(CAMERA)
-        5. If still blocked, fire a dummy shot to flush the pipeline,
-           drain the resulting images, and retry
+        A session inherits whatever the last one left: a live view still
+        running, a release that never completed, frames still in the buffer.
+        The work is in recovery.unblock, which asks the body what is wrong
+        before doing anything about it - see there for why the order matters
+        and why the shutter is the last resort rather than the first.
         """
-        shot_opt = ctypes.c_long(1)
-        af_status = ctypes.c_long()
-
-        # Step 0: Stop live view.  A process that dies with a stream open
-        # leaves the body in live view, and a body in live view refuses to
-        # hand over priority - in either direction - while answering every
-        # read normally.  That reads as a wedged camera needing a power cycle,
-        # and it was diagnosed as one repeatedly.  Measured on 4 August: an
-        # X-T4 that had refused SetPriorityMode(CAMERA) and (PC) for twenty
-        # seconds took CAMERA priority immediately after one StopLiveView.
-        #
-        # It goes first because it is free when live view is not running, and
-        # because the flush shot below cannot fix this and costs a shutter
-        # actuation to find out.
-        try:
-            self.stop_live_view()
-        except XSDKError:
-            log.debug("No live view to stop on session open", exc_info=True)
-
-        # Step 1: Cancel any pending release
-        self._lib_inst.XSDK_Release(
-            self._handle, ctypes.c_long(C.RELEASE_CANCEL),
-            ctypes.byref(shot_opt), ctypes.byref(af_status))
-
-        # Step 2: Drain + try priority (may succeed on first try)
-        self.drain_buffer()
-        rc = self._lib_inst.XSDK_SetPriorityMode(
-            self._handle, ctypes.c_long(C.PRIORITY_CAMERA))
-        if rc == C.COMPLETE:
-            log.debug("Session opened, stale state cleared")
-            return
-
-        # Step 3: Pipeline is stuck — fire a shot to flush it
-        log.info("Priority blocked; firing flush shot to clear pipeline")
-        self._lib_inst.XSDK_Release(
-            self._handle, ctypes.c_long(C.RELEASE_S1ON),
-            ctypes.byref(shot_opt), ctypes.byref(af_status))
-        time.sleep(0.15)
-        self._lib_inst.XSDK_Release(
-            self._handle, ctypes.c_long(C.RELEASE_S2_S1OFF),
-            ctypes.byref(shot_opt), ctypes.byref(af_status))
-        time.sleep(0.5)
-
-        # Step 4: Drain the flush shot images + retry priority
-        for attempt in range(20):
-            self.drain_buffer()
-            rc = self._lib_inst.XSDK_SetPriorityMode(
-                self._handle, ctypes.c_long(C.PRIORITY_CAMERA))
-            if rc == C.COMPLETE:
-                log.debug("Session opened, stale state cleared (after flush shot)")
-                return
-            time.sleep(0.5)
-
-        log.warning("Could not reset priority after flush; camera may need power cycle")
+        recovery.unblock(self, C.PRIORITY_CAMERA, why="session open")
 
     def wait_ready(self, timeout_s: float = 10.0, poll_interval_s: float = 0.3) -> bool:
         """Wait until the camera is no longer busy.

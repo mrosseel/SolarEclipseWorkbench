@@ -663,11 +663,14 @@ class LiveViewWindow(QDockWidget):
 
     def _start_stream_locked(self):
 
-        # Camera may be busy from session init -- drain and wait
-        try:
-            self._camera.drain_buffer()
-        except Exception:
-            pass
+        # Whatever the body is holding on to, clear it and take PC priority in
+        # one step.  This used to drain, wait five seconds, then set the
+        # priority and hope - which failed with "camera is busy" whenever the
+        # blocker was something a drain does not fix, such as a live view left
+        # running by a crashed run.  No flush shot: a shutter firing because
+        # somebody opened a preview is never what was wanted.
+        self._camera.ensure_ready(PRIORITY_PC, allow_shot=False,
+                                  why="live view")
 
         try:
             ready = self._camera.wait_ready(timeout_s=5.0)
