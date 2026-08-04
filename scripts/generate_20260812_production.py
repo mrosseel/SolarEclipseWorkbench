@@ -480,21 +480,27 @@ RELAY_EDGE_MARGIN_S = 0.3
 # card keeps every frame regardless, since the body records RAW+JPEG to it
 # while tethered (MediaRecord reads 0x0001).  The transfer queue only decides
 # what the PC can pull afterwards, not what is photographed.
-# The C3 hold runs long at the tail, deliberately asymmetric.  Measured on
-# the 4 August rehearsal: the contact opened 0.3 s past the solved window end
-# and the diamond ring was still brightening in front of an idle camera.  The
-# solve marks where the BEADS fade; the ring it hands over to grows for
-# seconds more, and it is the one photograph people frame.  Three extra
-# seconds at 7.7 fps is 23 frames, and the burst still fits the 60-frame cap.
-RELAY_C3_TAIL_S = 3.25
-RELAY_C3_S = BEADS_C3_S + RELAY_EDGE_MARGIN_S + RELAY_C3_TAIL_S
-
-# And the same asymmetry mirrored at C2, where the ring comes BEFORE the
-# window: the old 0.3 s lead gave the C2 diamond ring two frames.  Three
-# seconds of head is ~23 frames of ring into beads, and the burst grows to
-# about 53 of the 60-frame cap - which is what "is CL fully utilised" asked.
-RELAY_C2_HEAD_S = 4.1
-RELAY_C2_S = BEADS_C2_S + RELAY_C2_HEAD_S + RELAY_EDGE_MARGIN_S
+# Where the margins go follows where the diamond ring is, and the ring sits
+# at the edge NEAREST totality at both contacts.  At C2 the beads wink out
+# one by one and the LAST survivor is the ring - multiple beads must precede
+# a final single one, which is arithmetic, not lore.  At C3 the FIRST point
+# to re-emerge is the ring, then the other beads join.  (An earlier version
+# of these comments had that inverted; the burst margins built on it put
+# 3.25 s of tail at C3 buying crescent frames while the ring sat behind
+# 0.3 s of head.)
+#
+# So the generous margin goes on the totality side each time - it is also the
+# side where a limb-solve error costs the one unrepeatable photograph - and
+# the far side gets what the 60-frame buffer has left over:
+#
+#     C2:  head 2.5 (beads forming)  window  tail 2.0 (ring + solve error)
+#     C3:  head 2.2 (solve error + ring)  window  tail 1.5 (beads fading)
+RELAY_C2_HEAD_S = 2.5
+RELAY_C2_TAIL_S = 2.0
+RELAY_C3_HEAD_S = 2.2
+RELAY_C3_TAIL_S = 1.5
+RELAY_C2_S = BEADS_C2_S + RELAY_C2_HEAD_S + RELAY_C2_TAIL_S
+RELAY_C3_S = BEADS_C3_S + RELAY_C3_HEAD_S + RELAY_C3_TAIL_S
 
 # Trigger latency, measured on the bench 1 August 2026, and it depends entirely on
 # the path: S1 pre-armed and held gives 43-48 ms, S2 alone with S1 never asserted
@@ -776,7 +782,7 @@ def _totality_block(target_s: float) -> None:
     # head: the shutter-speed write landed half a second INTO the held burst,
     # on a body in continuous drive, and the burst died - "C2 seemed to have
     # no burst" was exactly right.
-    _c2_burst_off = RELAY_C2_S + RELAY_LATENCY_S - RELAY_EDGE_MARGIN_S
+    _c2_burst_off = RELAY_C2_S + RELAY_LATENCY_S - RELAY_C2_TAIL_S
     picture(XT4, "BEADS_C2_END", "-", _c2_burst_off + 2.5, beads_x, ISO_BEADS,
             "Load the beads exposure before the relay burst")
     relay_arm("BEADS_C2_END", "-", _c2_burst_off + 1.2, "Pre-arm S1 for the C2 burst")
@@ -874,7 +880,7 @@ def _totality_block(target_s: float) -> None:
     relay_arm("BEADS_C3", "-", 4.0, "Pre-arm S1 for the C3 burst")
     burst(EOS, "BEADS_C3", "-", EOS_C3_BURST_S / 2, beads_e, ISO_BEADS, EOS_C3_BURST_S,
           int(EOS_C3_BURST_S * EOS_BURST_FPS), "Baily's beads and diamond ring at C3")
-    relay_burst("BEADS_C3_START", "-", RELAY_LATENCY_S + RELAY_EDGE_MARGIN_S,
+    relay_burst("BEADS_C3_START", "-", RELAY_LATENCY_S + RELAY_C3_HEAD_S,
                 RELAY_C3_S, RELAY_C3_N,
                 "Baily's beads and diamond ring at C3, relay at %.0f fps" % XT4_RELAY_FPS)
     relay_release("BEADS_C3_START", "+", RELAY_C3_S + 1.5,
