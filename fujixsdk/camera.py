@@ -225,7 +225,8 @@ class Camera:
                 cls._init_count = 0
 
     @staticmethod
-    def detect(sdk_path: str | Path, interface: int = C.IF_USB) -> list[CameraInfo]:
+    def detect(sdk_path: str | Path, interface: int = C.IF_USB,
+               with_info: bool = True) -> list[CameraInfo]:
         """Detect connected cameras.
 
         For USB cameras, returns one CameraInfo per detected camera with
@@ -253,6 +254,23 @@ class Camera:
             return []
 
         # For USB, the SDK uses "ENUM:N" as device identifiers.
+        #
+        # with_info=False stops here, with the names and nothing else.  Reading
+        # the product means opening a session and closing it again, and a
+        # caller that is about to open the camera properly does not need this
+        # one: it can read the same information from the session it keeps.
+        # Every open/close cycle is exposure - the SDK corrupted the heap
+        # during this sequence on 4 August when the device went away mid-call:
+        #
+        #     malloc: Incorrect checksum for freed object ...
+        #             probably modified after being freed
+        #
+        # which aborts the process outright, past the reach of any handler.
+        if not with_info:
+            return [CameraInfo(product="(unknown)", serial_no="", ip_address="",
+                               framework="USB", device_name=f"ENUM:{i}")
+                    for i in range(count.value)]
+
         # We open each camera briefly to read its device info.
         results = []
         for i in range(count.value):

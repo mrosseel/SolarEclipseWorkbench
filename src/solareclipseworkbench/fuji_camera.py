@@ -1362,7 +1362,12 @@ def detect_fuji(sdk_path: str) -> FujiDetection:
             _reset_mac_camera_stack()
             time.sleep(3.0)
         try:
-            cameras = SDKCamera.detect(sdk_path)
+            # Names only.  Opening each body to read its product string, then
+            # closing it, then opening it again to use it, is three sessions
+            # where one will do - and every extra open/close is another chance
+            # for the SDK to corrupt the heap if the device moves.  The product
+            # name comes off the session that is kept, below.
+            cameras = SDKCamera.detect(sdk_path, with_info=False)
             logging.info('Fuji SDK detect attempt %d returned %d camera(s)',
                          attempt + 1, len(cameras))
             if cameras:
@@ -1386,6 +1391,16 @@ def detect_fuji(sdk_path: str) -> FujiDetection:
         name = f"Fuji Fujifilm {info.product}" if info.product != "(unknown)" else f"Fuji Camera ({info.device_name})"
         try:
             sdk_cam = _open_through_the_daemon(sdk_path, info.device_name)
+            # The product name from the session just opened, so the camera is
+            # still called "Fuji Fujifilm X-T4" - the name scripts use - without
+            # a second session having been opened to find that out.
+            try:
+                product = sdk_cam.device_info.product
+                if product:
+                    name = f"Fuji Fujifilm {product}"
+            except Exception:
+                logging.debug('Could not read the product name for %s',
+                              info.device_name, exc_info=True)
             fuji_cam = FujiCamera(sdk_cam, name, sdk_path, info.device_name)
             result[name] = fuji_cam
             # The relay commands in a script get a trigger, not a camera, so the
