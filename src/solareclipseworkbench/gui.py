@@ -1676,6 +1676,7 @@ class SolarEclipseController(Observer):
             self.sim_reference_moment = changed_object.reference_moment_combobox.currentText()
             self.sim_offset_minutes = (int(changed_object.offset_minutes.text())
                                        * BEFORE_AFTER[changed_object.before_after_combobox.currentText()])
+            self._apply_simulation_offset()
             return
 
         elif isinstance(changed_object, SettingsPopup):
@@ -2218,6 +2219,28 @@ class SolarEclipseController(Observer):
             return True
 
         return False
+
+    def _apply_simulation_offset(self):
+        """Move the countdowns onto the simulated clock straight away.
+
+        The offset was only ever set when a schedule was started, so choosing a
+        different reference moment left every countdown on the previous one -
+        or, before any run, on the real time to an eclipse days away.  The
+        contact times themselves do not change: they depend on a place and a
+        date, and the simulator changes neither.  What moves is now.
+        """
+        from solareclipseworkbench.utils import simulation_offset
+
+        moments = self.model.reference_moments
+        if not moments:
+            return
+        offset = simulation_offset(moments, self.sim_reference_moment,
+                                   self.sim_offset_minutes)
+        self.view.eclipse_visualization.set_offset(offset)
+        logging.info('Simulating %s%+d minutes: the clock reads %s ahead',
+                     self.sim_reference_moment or 'nothing',
+                     self.sim_offset_minutes or 0, offset)
+        self.update_time()
 
     def _moments_if_ready(self):
         """Work out the contact times as soon as both halves of the question exist.

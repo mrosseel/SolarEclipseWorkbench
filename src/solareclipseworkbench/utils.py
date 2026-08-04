@@ -94,8 +94,8 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
     if reference_moment:
         now = datetime.now(pytz.utc)
         simulated_start = now + timedelta(minutes=minutes_to_reference_moment)
-
-        offset = ref_moments[reference_moment].time_utc - timedelta(minutes=minutes_to_reference_moment) - now
+        offset = simulation_offset(ref_moments, reference_moment,
+                                   minutes_to_reference_moment, now)
     else:
         simulated_start = None
         offset = timedelta(minutes=0)
@@ -110,6 +110,25 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
                                 simulated_start, gps_time_offset=gps_time_offset)
 
     return scheduler, unknown
+
+
+def simulation_offset(ref_moments: dict, reference_moment: str,
+                      minutes_to_reference_moment: float, now=None) -> timedelta:
+    """How far the simulated clock runs ahead of the real one.
+
+    Add it to the real time to get the moment the schedule is pretending it
+    is.  Zero when nothing is being simulated.
+
+    Lives here, and is used both when the schedule is built and when the
+    countdowns are drawn, because those two disagreeing is exactly the bug it
+    was written for: changing the simulator left the countdowns on the offset
+    from the previous run.
+    """
+    if not reference_moment or reference_moment not in ref_moments:
+        return timedelta(0)
+    now = now or datetime.now(pytz.utc)
+    return (ref_moments[reference_moment].time_utc
+            - timedelta(minutes=minutes_to_reference_moment or 0) - now)
 
 
 def start_scheduler():
