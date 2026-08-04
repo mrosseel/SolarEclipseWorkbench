@@ -164,3 +164,50 @@ def test_session_open_uses_the_shared_recovery(monkeypatch):
 
     assert seen["priority"] == C.PRIORITY_CAMERA
     assert seen["why"] == "session open"
+
+
+def test_the_camera_and_live_view_share_one_lock():
+    """The last unknown: why the USB link stalled.
+
+    BaseCamera makes _usb_lock and FujiCamera used to make a second lock of its
+    own, so the two names were two objects.  Every method on the adapter
+    serialised on one; live view, which takes the camera's _usb_lock,
+    serialised on the other.  Neither excluded the other and the SDK is not
+    thread-safe.
+
+    That is a frame worker inside read_image while a scheduled command is
+    inside set_shutter_speed - and it is the only condition under which the
+    link has ever stalled: twice, both times with live view running, both
+    ending in 0x2001 with the session gone.
+
+    Counted against a stand-in for the SDK, 400 rounds each: two locks let 797
+    overlapping calls through, one lock lets none.
+    """
+    import threading
+
+    from solareclipseworkbench.camera import BaseCamera
+    from solareclipseworkbench.fuji_camera import FujiCamera
+
+    camera = object.__new__(FujiCamera)
+    BaseCamera.__init__(camera, name="X-T4")
+    camera._lock = camera._usb_lock          # what __init__ now does
+
+    assert camera._lock is camera._usb_lock, \
+        "two names for two locks lets two threads into the SDK"
+    # Reentrant, because a public method may call another that also locks.
+    assert camera._lock.acquire(blocking=False)
+    assert camera._lock.acquire(blocking=False)
+    camera._lock.release()
+    camera._lock.release()
+
+
+def test_the_adapter_does_not_make_a_lock_of_its_own():
+    # The regression is a single line: self._lock = threading.RLock().
+    import inspect
+
+    from solareclipseworkbench.fuji_camera import FujiCamera
+
+    source = inspect.getsource(FujiCamera.__init__)
+    assert "self._lock = self._usb_lock" in source
+    assert "self._lock = threading.RLock()" not in source, \
+        "a second lock is a second door into the SDK"

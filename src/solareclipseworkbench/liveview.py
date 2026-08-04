@@ -534,6 +534,8 @@ class LiveViewWindow(QDockWidget):
         # rest of the workbench's camera contract.  Calling an adapter method on
         # the unwrapped handle is what took the GUI down on 4 August.
         self.write_finished.connect(self._on_write_finished)
+        #: The last exposure read from the body, for when it is too busy to ask.
+        self._last_exposure = None
         self._write_thread = None
         self._adapter = camera
         self._camera = getattr(camera, "_sdk_cam", camera)
@@ -972,14 +974,35 @@ class LiveViewWindow(QDockWidget):
         self._refresh_exposure()
 
     def _refresh_exposure(self):
-        """Read the body's exposure and show it, without firing the signals."""
-        try:
-            speed, _bulb = self._camera.get_shutter_speed()
-            iso = self._camera.get_iso()
-        except Exception as exc:
-            log.debug("Could not read the exposure: %s", exc)
-            self._exposure_label.setText("Exposure: unreadable")
-            return
+        """Read the body's exposure and show it, without firing the signals.
+
+        Under the camera lock, like everything else that talks to the SDK.  It
+        ran without it - two reads from the GUI thread while the frame worker
+        was inside read_image - which is a second thread in a library that
+        cannot take one.  Skipped rather than waited for: this only updates a
+        label, and the next call is a second away.
+        """
+        if self._usb_lock.acquire(timeout=0.2):
+            try:
+                speed, _bulb = self._camera.get_shutter_speed()
+                iso = self._camera.get_iso()
+                self._last_exposure = (speed, iso)
+            except Exception as exc:
+                log.debug("Could not read the exposure: %s", exc)
+                self._exposure_label.setText("Exposure: unreadable")
+                return
+            finally:
+                self._usb_lock.release()
+        else:
+            # Busy: show the last exposure actually read rather than reading
+            # anyway.  The controls still have to be put back - a refused write
+            # leaves the dropdown showing what was clicked, which is the lie
+            # this method exists to correct - and the last known value is a
+            # better answer to "what is the camera on" than the one it refused.
+            if getattr(self, '_last_exposure', None) is None:
+                log.debug("Skipped an exposure read: the camera was busy")
+                return
+            speed, iso = self._last_exposure
 
         name = SHUTTER_SPEED_NAMES.get(speed, f"{speed}us")
         self._exposure_label.setText(f"Exposure: {name}  ISO {iso}")

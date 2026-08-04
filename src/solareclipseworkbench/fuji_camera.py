@@ -697,7 +697,19 @@ class FujiCamera(BaseCamera):
         self._sdk_path = sdk_path
         self._device_name = device_name
         self._shooter: Optional[EclipseShooter] = None
-        self._lock = threading.RLock()
+        # The same lock, under both names.  BaseCamera makes _usb_lock and this
+        # class used to make a second one of its own, so the two names were two
+        # objects: every method here serialised on one while live view - which
+        # takes the camera's _usb_lock - serialised on the other.  Neither
+        # excluded the other, and the SDK is not thread-safe.
+        #
+        # That is a frame worker inside read_image while a scheduled command is
+        # inside set_shutter_speed, and it is the only condition under which the
+        # USB link has ever stalled: twice, both times with live view running,
+        # each time ending in 0x2001 with the session gone.
+        #
+        # An RLock, so a public method calling another still works.
+        self._lock = self._usb_lock
         self._connected = True
         # The ISO this session last wrote successfully; see configure().
         self._applied_iso: Optional[int] = None
