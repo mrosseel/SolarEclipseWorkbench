@@ -82,22 +82,19 @@ except ImportError as _exc:
 # good at: exposure and draining.  Measured on the bench, 1 August 2026.
 # ======================================================================
 
-# The longest hold a burst may ask for.  It was 1.9 s, chosen when the body was
-# on CH at 15 fps so that 30 frames stayed inside the 32-slot transfer queue.
-# Two things changed on 4 August.
+# How many frames one held contact may ask for.
 #
-# The beads windows here are 3.25 s and 4.05 s, so a 1.9 s cap photographed less
-# than half of them however well the contact times were solved - the cap, not the
-# eclipse, decided what was on the card.
+# The limit is a number of frames, not a length of time: it is the body's own
+# buffer and how fast the card drains it.  Measured 4 August, a held burst with
+# nothing draining took 61 frames in 2.15 s and every one reached the card.  60
+# is that, less one, and it is the figure to revisit if the card or the image
+# quality changes - not the seconds below.
 #
-# And the queue is not the limit it was taken for.  A held burst fired 61 frames
-# in 2.15 s on the bench with nothing draining, and every one reached the card:
-# the body records to it while tethered (MediaRecord reads RAW+JPEG), so the
-# transfer queue only decides what the PC can pull afterwards.  It is bounded by
-# the body's own buffer and the card, not by 32 slots.
-#
-# 5 s covers the widest window here with margin at both ends.
-MAX_BURST_S = 5.0
+# It used to be expressed as 1.9 seconds, which tied the cap to a frame rate
+# that was never checked.  Against bead windows of 3.25 s and 4.05 s that
+# photographed less than half of them however well the contacts were solved:
+# the cap decided what was on the card, not the eclipse.
+MAX_BURST_FRAMES = 60
 
 # Frames per second under a held contact, measured on this body on 4 August:
 #
@@ -116,6 +113,13 @@ RELAY_FPS = 7.7
 
 #: The old name, kept because a burst is still a burst at whatever the dial says.
 CH_FPS = RELAY_FPS
+
+#: The longest hold, derived rather than chosen: the frames the body will take,
+#: at the rate it takes them.  Changing the drive speed moves this by itself,
+#: which is the point - the two were free to disagree while both were constants,
+#: and a cap that quietly contradicts the rate is how a burst ends up covering
+#: half of what it was asked to.
+MAX_BURST_S = MAX_BURST_FRAMES / RELAY_FPS
 
 
 # Closing and opening the relay costs this much on top of whatever hold is asked

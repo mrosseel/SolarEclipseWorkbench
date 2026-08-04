@@ -342,3 +342,34 @@ def test_the_signal_handler_does_no_work_of_its_own():
         "the handler does USB work; that is what wedged the interface"
     assert "atexit.register(_release_all_contacts)" in source, \
         "nothing would open the contacts at all"
+
+
+def test_the_burst_cap_follows_the_drive_rate():
+    """The cap is a frame count; the seconds are derived from it.
+
+    Both used to be constants, free to disagree - and they did: the hold was
+    capped at 1.9 s for a 15 fps assumption while the body ran at 7.7.  A cap
+    that quietly contradicts the rate is how a burst covers half of what it was
+    asked for, which against a 4 s bead window is half the beads.
+    """
+    from solareclipseworkbench import fuji_camera
+
+    assert fuji_camera.MAX_BURST_S == (fuji_camera.MAX_BURST_FRAMES
+                                       / fuji_camera.RELAY_FPS)
+
+    # The windows this was built for, at this site, plus their margins.
+    assert fuji_camera.MAX_BURST_S >= 4.7, \
+        "a C3 bead burst would be cut short"
+
+
+def test_the_bead_windows_fit_in_one_burst():
+    # 3.25 s at C2 and 4.05 s at C3 for this site, plus 0.3 s at each end.
+    from solareclipseworkbench import fuji_camera
+
+    for window in (3.25, 4.05):
+        hold = window + 0.6
+        frames = hold * fuji_camera.RELAY_FPS
+        assert hold <= fuji_camera.MAX_BURST_S
+        assert frames <= fuji_camera.MAX_BURST_FRAMES, \
+            "%.1f s window wants %.0f frames, cap is %d" % (
+                window, frames, fuji_camera.MAX_BURST_FRAMES)
