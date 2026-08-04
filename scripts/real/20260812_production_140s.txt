@@ -213,8 +213,8 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # the pre-flight checks them by eye.  On CH as found (28 fps) the window would want
 # 115 frames and the body would hit its own buffer a second in, slowing the burst
 # exactly where the diamond ring is.
-take_picture, BEADS_C2, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Load the beads exposure before the relay burst @ BEADS_C2-6.0 s, sun 8.6 deg"
-relay_arm, BEADS_C2, -, 0:00:08.0, "Pre-arm S1 for the C2 burst @ BEADS_C2-8.0 s, sun 8.6 deg"
+take_picture, BEADS_C2_END, -, 0:00:09.9, Fuji Fujifilm X-T4, 1/4000, -, 100, "Load the beads exposure before the relay burst @ BEADS_C2_END-9.9 s, sun 8.6 deg"
+relay_arm, BEADS_C2_END, -, 0:00:08.6, "Pre-arm S1 for the C2 burst @ BEADS_C2_END-8.6 s, sun 8.6 deg"
 relay_burst, BEADS_C2_END, -, 0:00:07.4, 7.65, "Diamond ring and Baily's beads at C2, relay at 8 fps @ BEADS_C2_END-7.4 s, sun 8.6 deg"
 relay_release, BEADS_C2_END, +, 0:00:01.5, "Open every contact after the C2 burst @ BEADS_C2_END+1.5 s, sun 8.6 deg"
 voice_prompt, C2, -, 0:00:00.0, C2, "Second contact - filters off, totality has begun"

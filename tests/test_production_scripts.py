@@ -62,3 +62,29 @@ def test_longer_totality_than_claimed_is_always_safe():
         ran, dropped, notes = validate_totality.simulate(shortest, duration, False)
         assert dropped == 0, f"{shortest.name} loses commands at {duration:.0f}s"
         assert not [note for _, _, note in notes if "after C3" in note]
+
+
+def test_the_beads_load_and_arm_precede_the_burst_by_construction():
+    """5 August: the exposure load fired half a second INTO the held C2 burst
+    - a shutter-speed write on a body in continuous drive - and the burst
+    died.  The load was anchored to a different moment than the burst, so
+    widening the burst head reordered them.  All three now share one anchor
+    and one base offset; this pins the order in the emitted script itself.
+    """
+    import pathlib
+    import re
+
+    for script in pathlib.Path("scripts/real").glob("20260812_production_*s.txt"):
+        text = script.read_text()
+        offsets = {}
+        for kind, pattern in (
+                ("load", r'take_picture, BEADS_C2_END, -, (\d+):(\d+):([\d.]+).*Load the beads'),
+                ("arm", r'relay_arm, BEADS_C2_END, -, (\d+):(\d+):([\d.]+)'),
+                ("burst", r'relay_burst, BEADS_C2_END, -, (\d+):(\d+):([\d.]+)')):
+            m = re.search(pattern, text)
+            assert m, "%s missing the %s" % (script.name, kind)
+            offsets[kind] = int(m.group(1))*3600 + int(m.group(2))*60 + float(m.group(3))
+        assert offsets["load"] > offsets["arm"] > offsets["burst"], \
+            "%s: load/arm/burst out of order (bigger offset = earlier)" % script.name
+        assert offsets["load"] - offsets["burst"] >= 2.0, \
+            "%s: the load is too close to the burst" % script.name

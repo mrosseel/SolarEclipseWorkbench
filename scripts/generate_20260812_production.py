@@ -770,11 +770,19 @@ def _totality_block(target_s: float) -> None:
          % round(BEADS_C3_S * 28.4))
     emit("# exactly where the diamond ring is.")
 
-    picture(XT4, "BEADS_C2", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
-    relay_arm("BEADS_C2", "-", 8.0, "Pre-arm S1 for the C2 burst")
+    # Load, arm and burst share one anchor and one base offset, so no future
+    # widening of the head can reorder them.  On 5 August the load was anchored
+    # to BEADS_C2 while the burst start had moved out past it with the 4.1 s
+    # head: the shutter-speed write landed half a second INTO the held burst,
+    # on a body in continuous drive, and the burst died - "C2 seemed to have
+    # no burst" was exactly right.
+    _c2_burst_off = RELAY_C2_S + RELAY_LATENCY_S - RELAY_EDGE_MARGIN_S
+    picture(XT4, "BEADS_C2_END", "-", _c2_burst_off + 2.5, beads_x, ISO_BEADS,
+            "Load the beads exposure before the relay burst")
+    relay_arm("BEADS_C2_END", "-", _c2_burst_off + 1.2, "Pre-arm S1 for the C2 burst")
     burst(EOS, "BEADS_C2", "-", EOS_C2_BURST_S / 2, beads_e, ISO_BEADS, EOS_C2_BURST_S,
           int(EOS_C2_BURST_S * EOS_BURST_FPS), "Diamond ring and Baily's beads at C2")
-    relay_burst("BEADS_C2_END", "-", RELAY_C2_S + RELAY_LATENCY_S - RELAY_EDGE_MARGIN_S,
+    relay_burst("BEADS_C2_END", "-", _c2_burst_off,
                 RELAY_C2_S, RELAY_C2_N,
                 "Diamond ring and Baily's beads at C2, relay at %.0f fps" % XT4_RELAY_FPS)
     relay_release("BEADS_C2_END", "+", 1.5, "Open every contact after the C2 burst")
