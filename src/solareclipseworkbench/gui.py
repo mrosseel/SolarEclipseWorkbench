@@ -1116,6 +1116,39 @@ class SolarEclipseView(QMainWindow, Observable):
     #: fault, which "not filled in yet" is not.
     UNSET_COLOUR = "color: #b98514;"
 
+    def _remember_base_icon(self, action) -> None:
+        if not hasattr(self, '_base_icons'):
+            self._base_icons = {}
+            self._badge_state = {}
+        self._base_icons[action] = action.icon()
+
+    def set_action_unset(self, action, unset: bool) -> None:
+        """A small amber dot on a toolbar icon whose thing is not set yet.
+
+        On the icon itself, not only in the strip: the buttons are what the eye
+        goes to during setup, and the dot disappearing as each one is dealt
+        with is the checklist working itself off.
+        """
+        if getattr(self, '_badge_state', {}).get(action) is unset:
+            return
+        self._badge_state[action] = unset
+        base = self._base_icons.get(action)
+        if base is None:
+            return
+        if not unset:
+            action.setIcon(base)
+            return
+        size = 32
+        pixmap = base.pixmap(size, size)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#e6a817"))
+        dot = size * 0.34
+        painter.drawEllipse(int(size - dot), int(size - dot), int(dot), int(dot))
+        painter.end()
+        action.setIcon(QIcon(pixmap))
+
     def refresh_readiness_colours(self) -> None:
         """Amber for the em dashes, the normal palette for real values."""
         for label in self._readiness_labels:
@@ -1148,6 +1181,7 @@ class SolarEclipseView(QMainWindow, Observable):
 
         self.location_action.setStatusTip("Location")
         self.location_action.setIcon(QIcon(str(ICON_PATH / "location.png")))
+        self._remember_base_icon(self.location_action)
         self.location_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.location_action)
 
@@ -1157,6 +1191,7 @@ class SolarEclipseView(QMainWindow, Observable):
         # The drawn diamond ring, not a calendar: the button chooses an
         # eclipse, and the calendar glyph made it read as a date-format thing.
         self.date_action.setIcon(QIcon(beads_icon(32)))
+        self._remember_base_icon(self.date_action)
         self.date_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.date_action)
 
@@ -1167,6 +1202,7 @@ class SolarEclipseView(QMainWindow, Observable):
 
         self.camera_action.setStatusTip("Camera(s)")
         self.camera_action.setIcon(QIcon(str(ICON_PATH / "camera.png")))
+        self._remember_base_icon(self.camera_action)
         self.camera_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.camera_action)
 
@@ -1174,6 +1210,7 @@ class SolarEclipseView(QMainWindow, Observable):
 
         self.relay_action.setStatusTip("Relay shutter trigger")
         self.relay_action.setIcon(QIcon(str(ICON_PATH / "relay.png")))
+        self._remember_base_icon(self.relay_action)
         self.relay_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.relay_action)
 
@@ -1187,6 +1224,7 @@ class SolarEclipseView(QMainWindow, Observable):
 
         self.file_action.setStatusTip("File")
         self.file_action.setIcon(QIcon(str(ICON_PATH / "folder.png")))
+        self._remember_base_icon(self.file_action)
         self.file_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.file_action)
 
@@ -2414,6 +2452,13 @@ class SolarEclipseController(Observer):
                 "%d jobs" % jobs if jobs else "\u2014")
 
             self.view.refresh_readiness_colours()
+            for action, unset in (
+                    (self.view.location_action, not self.model.is_location_set),
+                    (self.view.date_action, not self.model.is_eclipse_date_set),
+                    (self.view.camera_action, not names),
+                    (self.view.relay_action, trigger is None),
+                    (self.view.file_action, not jobs)):
+                self.view.set_action_unset(action, unset)
         except Exception:
             logging.debug("Could not refresh the readiness strip", exc_info=True)
 

@@ -1726,44 +1726,6 @@ def detect_fuji(sdk_path: str) -> FujiDetection:
     return FujiDetection(result, len(cameras))
 
 
-#: How many times to race macOS for the camera before giving up.
-_OPEN_ATTEMPTS = 3
-
-#: How long to let the kill settle before opening.  Long enough for the daemons
-#: to actually be gone, short enough to open before they are back.
-_AFTER_KILL_S = 1.0
-
-
-def _open_through_the_daemon(sdk_path: str, device_name: str) -> "SDKCamera":
-    """Open the session, retrying against macOS reclaiming the device.
-
-    Detection was retried three times with a daemon reset between attempts, but
-    opening - the step that actually fails - was tried once.  That is the wrong
-    way round, and it lost a whole run on 4 August:
-
-        12:05:14  detect attempt 1 returned 0 camera(s)
-        12:05:16  Reset macOS camera daemons
-        12:05:34  detect attempt 2 returned 1 camera(s)
-        12:05:49  Failed to open ENUM:0
-
-    ptpcamerad respawns within seconds of being killed and takes the device
-    back, and an open that is going to fail takes about fifteen seconds to say
-    so - so by the time we asked, macOS had it again.  Killing the daemons
-    immediately before each attempt, rather than once before detection, is what
-    closes that window.
-    """
-    last = None
-    for attempt in range(_OPEN_ATTEMPTS):
-        if attempt:
-            logging.info('Open attempt %d for %s failed (%s); clearing the macOS '
-                         'daemons and trying again', attempt, device_name, last)
-            _reset_mac_camera_stack()
-            time.sleep(_AFTER_KILL_S)
-        try:
-            return SDKCamera(sdk_path, device_name)
-        except Exception as exc:
-            last = exc
-    raise last
 
 
 def detect_fuji_cameras(sdk_path: str) -> dict[str, FujiCamera]:
