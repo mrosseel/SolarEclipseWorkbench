@@ -720,16 +720,8 @@ class SolarEclipseView(QMainWindow, Observable):
         # fifty pixels wide, holding three numbers, under a strip that already
         # said where and when.
 
-        eclipse_date_group_box = QGroupBox()
-        eclipse_date_grid_layout = QGridLayout()
-        eclipse_date_grid_layout.addWidget(self.eclipse_date_label, 0, 0)
-        eclipse_date_grid_layout.addWidget(self.eclipse_date, 0, 1)
-        eclipse_date_grid_layout.addWidget(QLabel("Eclipse type"), 1, 0)
-        eclipse_date_grid_layout.addWidget(self.eclipse_type, 1, 1)
-
-        eclipse_date_group_box.setLayout(eclipse_date_grid_layout)
-        eclipse_date_group_box.setMinimumWidth(250)
-        vbox_left.addWidget(eclipse_date_group_box)
+        # The eclipse date and type are on the strip with the rest of it.  This
+        # was the last box in the column, and a column of one box is a margin.
 
         reference_moments_group_box = QGroupBox()
         reference_moments_grid_layout = QGridLayout()
@@ -1058,6 +1050,10 @@ class SolarEclipseView(QMainWindow, Observable):
             strip.addWidget(QLabel(caption))
             strip.addWidget(value)
             strip.addSpacing(12)
+        strip.addSpacing(8)
+        strip.addWidget(self.eclipse_date)
+        strip.addSpacing(12)
+        strip.addWidget(self.eclipse_type)
         strip.addStretch(1)
         return strip
 

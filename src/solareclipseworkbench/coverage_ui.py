@@ -45,6 +45,74 @@ FRAME_COMMANDS = frozenset(
 
 _CONTACTS = ("C1", "C2", "MAX", "C3", "C4")
 
+#: Seconds a bracket spends between rungs beyond the exposure itself: the new
+#: speed goes over USB and the body has to finish writing.  Measured with the
+#: ladders on 4 August, which ran 6.4-6.8 s for seven rungs.
+_RUNG_OVERHEAD_S = 0.6
+
+#: Frames a second under a held contact, measured on this body at CL 8 fps.
+#: The burst commands carry a duration, not a frame count.
+_BURST_FPS = 7.7
+
+
+def _exposure_seconds(text) -> float:
+    """A shutter speed as written in a script, in seconds."""
+    if text is None:
+        return 0.0
+    text = str(text).strip().rstrip('"')
+    try:
+        if text.startswith("1/"):
+            return 1.0 / float(text[2:])
+        return float(text)
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def frames_of(job, command: str) -> list:
+    """Every frame a job will take, as (when, exposure seconds).
+
+    A command is not a frame: a bracket is seven of them over six seconds and a
+    bead burst is thirty over four.  Drawing one stripe per command shows when
+    something happened; drawing one per frame shows what is actually
+    photographed, and where nothing is.
+
+    The times within a bracket are modelled, not measured - the body decides
+    them - but the model is the same one the script generator sizes ladders
+    with, and it matched the run to within a few tenths.
+    """
+    when = getattr(job, "next_run_time", None)
+    if when is None:
+        return []
+    args = list(getattr(job, "args", None) or ())
+    settings = next((a for a in args if hasattr(a, "shutter_speed")), None)
+    exposure = _exposure_seconds(getattr(settings, "shutter_speed", None))
+
+    if command in ("take_picture", "relay_shoot"):
+        return [(when, exposure)]
+
+    if command == "take_bracket":
+        ladder = next((a for a in args if isinstance(a, str) and ";" in a), None)
+        if not ladder:
+            return [(when, exposure)]
+        frames, offset = [], 0.0
+        for rung in ladder.split(";"):
+            seconds = _exposure_seconds(rung)
+            frames.append((when + datetime.timedelta(seconds=offset), seconds))
+            offset += seconds + _RUNG_OVERHEAD_S
+        return frames
+
+    if command in ("relay_burst", "take_burst"):
+        held = next((float(a) for a in args
+                     if isinstance(a, (int, float)) and 0.05 < float(a) < 120), 0.0)
+        if held <= 0:
+            return [(when, exposure)]
+        count = max(int(held * _BURST_FPS), 1)
+        step = held / count
+        return [(when + datetime.timedelta(seconds=index * step), exposure)
+                for index in range(count)]
+
+    return [(when, exposure)]
+
 
 class CoverageView(QWidget):
     """Two timelines of the scheduled frames, with an axis and a key.
@@ -62,7 +130,7 @@ class CoverageView(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._events: list = []          # (when, command, seconds)
+        self._events: list = []      # (when, command, hold, [(when, exposure)])
         self._moments: dict = {}
         self.setMinimumHeight(2 * (self.HEADER + 2 * self.LANE + self.AXIS + self.GAP))
 
@@ -77,7 +145,9 @@ class CoverageView(QWidget):
             command = JOB_COMMANDS.get(getattr(job, "id", None), "")
             if command not in STYLES:
                 continue
-            events.append((when, command, STYLES[command][1]))
+            events.append((when, command, STYLES[command][1],
+                           frames_of(job, command)
+                           if command in FRAME_COMMANDS else []))
         self._events = sorted(events)
         self.update()
 
@@ -151,9 +221,12 @@ class CoverageView(QWidget):
         axis_y = single_top + self.LANE + 4
 
         # Header: what this row is, and what is on it.
-        frames = sum(1 for _, command, _ in inside if command in FRAME_COMMANDS)
-        held = sum(1 for _, command, _ in inside
-                   if command in FRAME_COMMANDS and STYLES[command][1] > 1.0)
+        stripes = [(at, exposure, command)
+                   for _, command, _, frames in inside
+                   for at, exposure in frames if start <= at <= end]
+        frames = len(stripes)
+        commands = sum(1 for _, command, _, _ in inside
+                       if command in FRAME_COMMANDS)
         painter.setPen(QColor("#2c3e50"))
         bold = QFont(small)
         bold.setBold(True)
@@ -165,10 +238,10 @@ class CoverageView(QWidget):
         title_width = painter.fontMetrics().horizontalAdvance(title)
         painter.setFont(small)
         painter.setPen(QColor("#7f8c8d"))
-        painter.drawText(left + title_width + 12,
+        painter.drawText(left + title_width + 22,
                          top + self.HEADER - 3,
-                         "%s   %d commands, %d of them bursts or brackets"
-                         % (_duration(seconds), frames, held))
+                         "%s   %d frames from %d commands"
+                         % (_duration(seconds), frames, commands))
 
         # Totality shaded behind everything, so the dense stretch is findable
         # on a row two hours wide.
@@ -190,19 +263,21 @@ class CoverageView(QWidget):
             painter.drawText(x - painter.fontMetrics().horizontalAdvance(label) // 2,
                              axis_y + self.AXIS, label)
 
-        # The frames themselves, in two lanes.
-        for when, command, hold in inside:
-            colour, _ = STYLES[command]
-            x = x_of(when)
-            if command not in FRAME_COMMANDS:
-                continue
-            if hold > 1.0:
-                block = max(width * (hold / seconds), 2.0)
-                painter.fillRect(QRectF(x, held_top, block, self.LANE - 2),
-                                 QColor(colour))
-            else:
-                painter.fillRect(QRectF(x, single_top, 2.0, self.LANE - 2),
-                                 QColor(colour))
+        # One stripe per frame, as wide as the shutter is open.  A command is
+        # not a frame - a bracket is seven over six seconds, a bead burst thirty
+        # over four - and it is the frames that say what is photographed and,
+        # more usefully, where nothing is.
+        #
+        # Most exposures are far thinner than a pixel: 1/8000 on a row two
+        # minutes wide is a ten-thousandth of one.  They are drawn a pixel wide
+        # so they are there to be seen, and the wide ones - half a second, a
+        # second - show as the blocks they are.
+        for at, exposure, command in stripes:
+            colour, hold = STYLES[command]
+            x = x_of(at)
+            bar = max(width * (exposure / seconds), 1.0)
+            lane = held_top if hold > 1.0 else single_top
+            painter.fillRect(QRectF(x, lane, bar, self.LANE - 2), QColor(colour))
 
         # Contacts on top, named where the names fit.
         painter.setPen(QPen(QColor("#2c3e50"), 1, Qt.PenStyle.DashLine))
