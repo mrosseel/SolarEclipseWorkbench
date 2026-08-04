@@ -374,8 +374,19 @@ LADDER_TAP_GAP_S = 0.35
 LADDER_PER_RUNG_USB_S = 0.35
 LADDER_DRAIN_S = 3.0
 # Below this the next ladder is starting while the one before it still has the
-# camera.  Six ladders 12s apart ran clean on 3 August, each taking about 8s.
-LADDER_PITCH_MIN_S = 12.0
+# camera.  Seven ladders ran 6.4-6.9 s each on the 4 August rehearsal against
+# a 13.2 s pitch - which is 47% duty and 6.6 s of idle shutter between
+# ladders, the "density much too low" complaint in one number.  10 s keeps
+# 3 s of clearance over the worst measured ladder and lifts the count.
+# 11.5 rather than 10: the gap single needs the model's ladder cost (8.4 s,
+# deliberately pessimistic) plus its own ~2 s to fit, and at 10 the validator
+# rightly dropped a single at two durations.  Duty measured against the real
+# 6.6 s ladders comes out near 70%.
+LADDER_PITCH_MIN_S = 11.5
+
+#: What a between-ladders single costs end to end: settings over USB, a half
+#: second exposure, the frame written.
+GAP_SINGLE_COST_S = 2.0
 # The first ladder waits for the C2 burst to be released and its frames drained.
 TOTALITY_HEAD_S = 6.0
 # and the last has to be out of the way before the C3 bead sequence loads.
@@ -462,7 +473,14 @@ RELAY_EDGE_MARGIN_S = 0.3
 # while tethered (MediaRecord reads 0x0001).  The transfer queue only decides
 # what the PC can pull afterwards, not what is photographed.
 RELAY_C2_S = BEADS_C2_S + 2 * RELAY_EDGE_MARGIN_S
-RELAY_C3_S = BEADS_C3_S + 2 * RELAY_EDGE_MARGIN_S
+# The C3 hold runs long at the tail, deliberately asymmetric.  Measured on
+# the 4 August rehearsal: the contact opened 0.3 s past the solved window end
+# and the diamond ring was still brightening in front of an idle camera.  The
+# solve marks where the BEADS fade; the ring it hands over to grows for
+# seconds more, and it is the one photograph people frame.  Three extra
+# seconds at 7.7 fps is 23 frames, and the burst still fits the 60-frame cap.
+RELAY_C3_TAIL_S = 3.0
+RELAY_C3_S = BEADS_C3_S + RELAY_EDGE_MARGIN_S + RELAY_C3_TAIL_S
 
 # Trigger latency, measured on the bench 1 August 2026, and it depends entirely on
 # the path: S1 pre-armed and held gives 43-48 ms, S2 alone with S1 never asserted
@@ -751,6 +769,22 @@ def _totality_block(target_s: float) -> None:
     timeline = []
     for index, offset in enumerate(offsets, start=1):
         timeline.append((offset, _ladder, (index, len(offsets), offset)))
+
+    # A deep-corona single in each gap between ladders.  Measured on the
+    # 4 August rehearsal: ladders of 6.4-6.9 s on the old pitch left 6.6 s of
+    # idle shutter between each pair - 47% duty across the part of the eclipse
+    # that cannot be repeated.  The single sits one second after the worst
+    # measured ladder end, which leaves the camera free again well before the
+    # next ladder loads.
+    for first, second in zip(offsets, offsets[1:]):
+        # Anchored to the NEXT ladder, so however long the previous one runs
+        # the single is finished before the next needs the camera; it exists
+        # only when the model - not the happier measurement - leaves room.
+        gap_at = second - GAP_SINGLE_COST_S - 0.5
+        if gap_at > first + LADDER_RUN_S + 0.3:
+            timeline.append((gap_at, picture,
+                             (XT4, "C2", "+", gap_at, deep, ISO_DEEP,
+                              "Deep corona single between ladders")))
     if inside(30.0, target_s):
         timeline.append((30.0, announce,
                          ("C2", "+", 30, "C2_PLUS_30_SECONDS", "Thirty seconds into totality")))
