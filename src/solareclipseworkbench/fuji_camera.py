@@ -96,6 +96,12 @@ except ImportError as _exc:
 # the cap decided what was on the card, not the eclipse.
 MAX_BURST_FRAMES = 60
 
+#: The fastest speed this body will actually take.  Its mechanical shutter stops
+#: at 1/8000; the SDK's table goes to 1/180000 because it covers every model and
+#: the electronic shutter, and nothing in the table says which apply here.
+FASTEST_SHUTTER_S = 1.0 / 8000
+FASTEST_SHUTTER_NAME = '1/8000"' 
+
 # Frames per second under a held contact, measured on this body on 4 August:
 #
 #     CL, menu set to 8 fps    32 frames in 4.15 s   7.7 fps
@@ -437,7 +443,13 @@ def _parse_shutter_speed(speed_str: str) -> Optional[int]:
     clean = speed_str.strip().rstrip('"')
     val = rmap.get(clean)
     if val is not None:
-        return val
+        # An exact name still has to be a speed this body owns.  The table is
+        # every model's, so "1/32000" spells correctly and is refused by the
+        # camera; taking the fast path around the clamp let a script name one
+        # directly and get a frame at the wrong exposure.
+        seconds = _speed_name_seconds(clean)
+        if seconds is None or seconds >= FASTEST_SHUTTER_S:
+            return val
 
     wanted = _speed_name_seconds(clean)
     if wanted is None or wanted <= 0:
@@ -447,6 +459,25 @@ def _parse_shutter_speed(speed_str: str) -> Optional[int]:
     if not grid:
         return None
 
+    # The SDK's table runs to 1/180000, which belongs to other bodies and to the
+    # electronic shutter.  Matching "nearest on the scale" walks straight off the
+    # fast end: a -0.5 EV trim turned 1/6400 into 1/9051, which snapped to
+    # 1/10000 and came back 0x2003 - invalid parameter *combination*, the body
+    # saying its mechanical shutter does not go there.  The frame was then taken
+    # at whatever the body was last set to, which is the failure that does not
+    # look like one afterwards.
+    #
+    # Clamping is the honest response.  A trim that cannot be applied at the fast
+    # end is a trim partly applied, and that is better than a frame at an
+    # exposure nobody chose.
+    if wanted < FASTEST_SHUTTER_S:
+        logging.warning(
+            'Shutter speed %s is faster than this body can take; using %s. '
+            'An exposure trim cannot be applied past the fastest speed',
+            speed_str, FASTEST_SHUTTER_NAME)
+        wanted = FASTEST_SHUTTER_S
+
+    grid = [pair for pair in grid if pair[0] >= FASTEST_SHUTTER_S]
     secs, val = min(grid, key=lambda pair: abs(math.log(pair[0] / wanted)))
     ratio = max(secs, wanted) / min(secs, wanted)
     if ratio > _SPEED_MATCH_TOLERANCE:

@@ -226,3 +226,31 @@ def test_the_focus_mode_keeps_the_same_distinction():
 
     assert focus[0].severity == "info"
     assert focus[0].expected == "MF"
+
+
+def test_a_trim_cannot_ask_for_a_speed_the_body_has_not_got():
+    """4 August, mid-run: a -0.5 EV trim turned 1/6400 into 1/9051.
+
+    That snapped to 1/10000 - nearest on the SDK's table, which runs to
+    1/180000 because it covers every model and the electronic shutter - and the
+    body answered 0x2003, invalid parameter *combination*: its mechanical
+    shutter does not go there.  The frame was then taken at whatever the body
+    was last set to, which is the kind of failure that looks fine until the
+    photographs are reviewed.
+    """
+    from fujixsdk._constants import SHUTTER_SPEED_NAMES
+
+    from solareclipseworkbench.fuji_camera import (FASTEST_SHUTTER_S,
+                                                   _parse_shutter_speed)
+
+    for asked in ("1/9051", "1/11314", "1/32000"):
+        value = _parse_shutter_speed(asked)
+        assert value is not None, "%s was rejected outright" % asked
+        assert SHUTTER_SPEED_NAMES.get(value) == '1/8000"', \
+            "%s gave %s, which the body cannot take" % (
+                asked, SHUTTER_SPEED_NAMES.get(value))
+
+    # Everything inside the range is untouched.
+    assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("1/6400")) == '1/6400"'
+    assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("0.5")) == '1/2"'
+    assert FASTEST_SHUTTER_S == 1.0 / 8000
