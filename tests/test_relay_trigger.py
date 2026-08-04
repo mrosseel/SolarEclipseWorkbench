@@ -101,13 +101,16 @@ def test_contacts_open_when_the_block_raises():
 
 
 def test_release_all_survives_a_backend_that_refuses():
+    # Building the trigger already opens the channels once, and that must not
+    # raise either - the constructor meets whatever the last run left behind.
     trigger = RelayTrigger(_FailingBackend(), Wiring(s2_channel=1))
+    already = trigger.backend.open_attempts
 
     # Must not raise: this runs from atexit and signal handlers, where an
     # exception would stop the remaining contacts from being released.
     trigger.release_all()
 
-    assert trigger.backend.open_attempts == 1
+    assert trigger.backend.open_attempts == already + 1
 
 
 def test_bulb_releases_after_the_exposure():
@@ -294,3 +297,20 @@ def test_a_burst_opens_every_contact_before_it_drains():
     assert order, "the burst never drained"
     _, closed_when_draining = order[0]
     assert closed_when_draining == set()
+
+
+def test_a_latched_contact_is_opened_when_the_trigger_is_built():
+    # 3 August: a segfault ran none of the shutdown guards, the board held the
+    # contact through the crash and the replug, and the next run met a camera
+    # that answered 0x1006 to everything - a shutter held down.
+    backend = make_backend("simulated")
+    wiring = Wiring()
+    for channel in wiring.channels:
+        backend.set_channel(channel, True)
+
+    trigger = RelayTrigger(backend, wiring)
+
+    assert not any(backend.state[c] for c in wiring.channels), \
+        "the trigger adopted a latched board"
+    assert trigger.closed_channels == set()
+    assert trigger.events == [], "inherited state was logged as if commanded"

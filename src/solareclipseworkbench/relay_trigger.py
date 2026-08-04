@@ -583,6 +583,21 @@ class RelayTrigger:
         self._lock = threading.RLock()
         self._closed_channels: set = set()
         _live_triggers.add(self)
+        # A board remembers its contacts.  The shutdown guards cover atexit,
+        # SIGINT and SIGTERM, but a segmentation fault runs none of them - one
+        # on 3 August left a contact latched, and the board held it across the
+        # crash, the replug and into the next run.  A held contact is a shutter
+        # held down: the body then answers 0x1006 to everything, including
+        # SetPriorityMode, and survives every reconnect because the session was
+        # never what was wrong.  Whatever state the board was found in, this run
+        # starts from open.  Not recorded as an event: nothing here was
+        # commanded, and the bench console's log is a record of what the run
+        # did, not of the state it inherited.
+        self.record_events = False
+        try:
+            self._release(self.wiring.channels)
+        finally:
+            self.record_events = True
 
     # ---------------------------------------------------------------- plumbing
 
