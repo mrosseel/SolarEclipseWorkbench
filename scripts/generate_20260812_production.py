@@ -472,7 +472,6 @@ RELAY_EDGE_MARGIN_S = 0.3
 # card keeps every frame regardless, since the body records RAW+JPEG to it
 # while tethered (MediaRecord reads 0x0001).  The transfer queue only decides
 # what the PC can pull afterwards, not what is photographed.
-RELAY_C2_S = BEADS_C2_S + 2 * RELAY_EDGE_MARGIN_S
 # The C3 hold runs long at the tail, deliberately asymmetric.  Measured on
 # the 4 August rehearsal: the contact opened 0.3 s past the solved window end
 # and the diamond ring was still brightening in front of an idle camera.  The
@@ -481,6 +480,13 @@ RELAY_C2_S = BEADS_C2_S + 2 * RELAY_EDGE_MARGIN_S
 # seconds at 7.7 fps is 23 frames, and the burst still fits the 60-frame cap.
 RELAY_C3_TAIL_S = 3.0
 RELAY_C3_S = BEADS_C3_S + RELAY_EDGE_MARGIN_S + RELAY_C3_TAIL_S
+
+# And the same asymmetry mirrored at C2, where the ring comes BEFORE the
+# window: the old 0.3 s lead gave the C2 diamond ring two frames.  Three
+# seconds of head is ~23 frames of ring into beads, and the burst grows to
+# about 53 of the 60-frame cap - which is what "is CL fully utilised" asked.
+RELAY_C2_HEAD_S = 3.0
+RELAY_C2_S = BEADS_C2_S + RELAY_C2_HEAD_S + RELAY_EDGE_MARGIN_S
 
 # Trigger latency, measured on the bench 1 August 2026, and it depends entirely on
 # the path: S1 pre-armed and held gives 43-48 ms, S2 alone with S1 never asserted
@@ -640,8 +646,18 @@ while t < (c2 - c1).total_seconds() - 12 * 60:
     filtered_shot(XT4 if i % 2 == 0 else EOS, "C1", "+", t, "Partial C1-C2")
     t += 90.0
     i += 1
+# The X-T4 shoots every step of the approach; the alternation with the EOS
+# gave half these frames to a parked body, which on the 4 August rehearsal
+# read as "the camera is very idle leading up to C2".  The ramp also tightens
+# towards the contact - a thinning crescent changes faster than it did ten
+# minutes earlier - and the singles keep the transfer queue draining so the
+# burst meets an empty buffer.  It ends at 45 s out: the filters come off at
+# 40, and a filtered exposure of an unfiltered sun is a white frame.
 for j, before in enumerate((720, 630, 540, 450, 360, 300, 240, 180, 120, 75, 50)):
-    filtered_shot(XT4 if j % 2 == 0 else EOS, "C2", "-", before, "Partial approaching C2")
+    if j % 2 == 1:
+        filtered_shot(EOS, "C2", "-", before, "Partial approaching C2")
+for before in (720, 540, 360, 240, 180, 150, 120, 100, 85, 70, 57, 45):
+    filtered_shot(XT4, "C2", "-", before, "Partial approaching C2")
 emit()
 
 emit("# --- Countdown to totality ---")
@@ -747,7 +763,7 @@ def _totality_block(target_s: float) -> None:
     emit("# exactly where the diamond ring is.")
 
     picture(XT4, "BEADS_C2", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
-    relay_arm("BEADS_C2", "-", 4.0, "Pre-arm S1 for the C2 burst")
+    relay_arm("BEADS_C2", "-", 8.0, "Pre-arm S1 for the C2 burst")
     burst(EOS, "BEADS_C2", "-", EOS_C2_BURST_S / 2, beads_e, ISO_BEADS, EOS_C2_BURST_S,
           int(EOS_C2_BURST_S * EOS_BURST_FPS), "Diamond ring and Baily's beads at C2")
     relay_burst("BEADS_C2_END", "-", RELAY_C2_S + RELAY_LATENCY_S - RELAY_EDGE_MARGIN_S,

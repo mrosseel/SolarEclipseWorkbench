@@ -147,8 +147,14 @@ take_picture, C2, -, 0:12:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial app
 take_picture, C2, -, 0:09:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial approaching C2 @ 18:20:07, sun 10.4 deg, X=5.4"
 take_picture, C2, -, 0:06:00.0, Fuji Fujifilm X-T4, 1/5000, -, 100, "Partial approaching C2 @ 18:23:07, sun 9.8 deg, X=5.7"
 take_picture, C2, -, 0:04:00.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:25:07, sun 9.5 deg, X=5.9"
+take_picture, C2, -, 0:03:00.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:26:07, sun 9.3 deg, X=6.0"
+take_picture, C2, -, 0:02:30.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:26:37, sun 9.2 deg, X=6.0"
 take_picture, C2, -, 0:02:00.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:27:07, sun 9.1 deg, X=6.1"
-take_picture, C2, -, 0:00:50.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:28:17, sun 8.9 deg, X=6.2"
+take_picture, C2, -, 0:01:40.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:27:27, sun 9.0 deg, X=6.1"
+take_picture, C2, -, 0:01:25.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:27:42, sun 9.0 deg, X=6.2"
+take_picture, C2, -, 0:01:10.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:27:57, sun 9.0 deg, X=6.2"
+take_picture, C2, -, 0:00:57.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:28:10, sun 8.9 deg, X=6.2"
+take_picture, C2, -, 0:00:45.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Partial approaching C2 @ 18:28:22, sun 8.9 deg, X=6.2"
 
 # --- Countdown to totality ---
 voice_prompt, C2, -, 0:50:00.0, C2_IN_50_MINUTES, "50 minutes to totality"
@@ -196,20 +202,20 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # installed and the correction switched on; without it they are skipped, and
 # Solar Eclipse Workbench says so when the script is loaded.
 #
-# The beads run 3.25 s at C2 and 4.05 s at C3, and the bursts hold 3.9 s and 7.3 s -
+# The beads run 3.25 s at C2 and 4.05 s at C3, and the bursts hold 6.5 s and 7.3 s -
 # the whole window each, plus 0.3 s at each end.  Nothing is pinned to an edge any
 # more: a burst that spans the window does not have to guess where inside it to sit,
 # and being a few tenths out no longer costs the diamond ring.
 #
-# 30 and 57 frames, at the 7.7 fps measured on this body with the drive dial on CL
+# 51 and 57 frames, at the 7.7 fps measured on this body with the drive dial on CL
 # and CL LOW SPEED BURST set to 8 fps.  Both are menu settings on a dial position
 # that cannot be read back - GetDriveMode answers the same wherever the dial is - so
 # the pre-flight checks them by eye.  On CH as found (28 fps) the window would want
 # 115 frames and the body would hit its own buffer a second in, slowing the burst
 # exactly where the diamond ring is.
 take_picture, BEADS_C2, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Load the beads exposure before the relay burst @ BEADS_C2-6.0 s, sun 8.6 deg"
-relay_arm, BEADS_C2, -, 0:00:04.0, "Pre-arm S1 for the C2 burst @ BEADS_C2-4.0 s, sun 8.6 deg"
-relay_burst, BEADS_C2_END, -, 0:00:03.6, 3.85, "Diamond ring and Baily's beads at C2, relay at 8 fps @ BEADS_C2_END-3.6 s, sun 8.6 deg"
+relay_arm, BEADS_C2, -, 0:00:08.0, "Pre-arm S1 for the C2 burst @ BEADS_C2-8.0 s, sun 8.6 deg"
+relay_burst, BEADS_C2_END, -, 0:00:06.3, 6.55, "Diamond ring and Baily's beads at C2, relay at 8 fps @ BEADS_C2_END-6.3 s, sun 8.6 deg"
 relay_release, BEADS_C2_END, +, 0:00:01.5, "Open every contact after the C2 burst @ BEADS_C2_END+1.5 s, sun 8.6 deg"
 voice_prompt, C2, -, 0:00:00.0, C2, "Second contact - filters off, totality has begun"
 take_bracket, C2, +, 0:00:06.0, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 1 of 2, inner edge to outer streamers @ C2+6.0 s, sun 8.6 deg"
