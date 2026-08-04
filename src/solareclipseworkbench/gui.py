@@ -1769,7 +1769,10 @@ class SolarEclipseController(Observer):
             )
             gap = self._seconds_to_next_frame()
             frame_imminent = gap is not None and gap < LIVE_VIEW_CLEAR_BEFORE_S
-            self._live_view_window.set_totality_paused(in_totality or frame_imminent)
+            if getattr(self._live_view_window, 'user_accepts_blocking', False):
+                pass          # their eclipse, their call - see _open_fuji_live_view
+            else:
+                self._live_view_window.set_totality_paused(in_totality or frame_imminent)
             # Only while a frame is close.  Greying the controls out for the
             # whole run was the same mistake as refusing to open live view for
             # the whole run: it blocks the case it exists for, which is looking
@@ -2217,14 +2220,29 @@ class SolarEclipseController(Observer):
         # The clock tick closes the stream before the frame and through totality
         # (see _tick), so this only has to refuse when a frame is imminent.
         gap = self._seconds_to_next_frame()
+        accepts_blocking = False
         if gap is not None and gap < LIVE_VIEW_MIN_GAP_S:
-            logging.info('Live view refused: a frame is due in %.0fs, less than '
-                         'the %.0fs it needs to open and close again',
-                         gap, LIVE_VIEW_MIN_GAP_S)
-            self.view.statusBar().showMessage(
-                f"A frame is due in {gap:.0f}s - try again straight after it",
-                6000)
-            return
+            # A choice, not a refusal.  The guard used to treat the schedule as
+            # sacred, but the schedule exists to photograph a focused sun: if
+            # focus has drifted at C2 minus two minutes, the frames it protects
+            # are worthless, and the person at the telescope is the only one
+            # who can weigh that.  The consequences are stated, not hidden.
+            reply = QMessageBox.question(
+                self.view,
+                "A frame is due in %.0f s" % gap,
+                "The schedule takes its next frame in %.0f seconds.\n\n"
+                "Open live view anyway?  While it stays open, scheduled\n"
+                "frames - including the contact bursts - may be LOST.\n"
+                "It will not close itself; close it as soon as focus is done."
+                % gap,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                logging.info('Live view declined: a frame is due in %.0fs', gap)
+                return
+            accepts_blocking = True
+            logging.warning('Live view is overriding the schedule by choice: '
+                            'frames due while it is open may be lost')
 
         from solareclipseworkbench.liveview import LiveViewWindow
         if self._live_view_window is not None:
@@ -2235,6 +2253,10 @@ class SolarEclipseController(Observer):
 
         # The adapter, not the bare handle: the window needs its lock.
         window = LiveViewWindow(camera, self.view)
+        # Consent travels with this window and dies with it: the clock tick
+        # leaves an overriding live view alone rather than closing it under
+        # the person who just said they need it.
+        window.user_accepts_blocking = accepts_blocking
         self.view.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, window)
         window.setFloating(True)
         window.show()

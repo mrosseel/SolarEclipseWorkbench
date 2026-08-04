@@ -165,16 +165,21 @@ def _scheduler_with_next_frame_in(seconds, command='take_picture'):
     return SimpleNamespace(get_jobs=lambda: [job])
 
 
-def test_live_view_is_refused_when_a_frame_is_imminent(view, monkeypatch):
-    # Not because a script exists - because opening a stream three seconds
-    # before a frame only gets it paused again before anything can be seen.
+def test_an_imminent_frame_asks_instead_of_refusing(view, monkeypatch):
+    """Asked for on 5 August: "sometimes you gotta save C2".
+
+    If focus has drifted, the frames the guard protects are worthless - so
+    the person at the telescope decides, with the consequences stated.
+    Declining keeps the old behaviour.
+    """
     from types import SimpleNamespace
     from solareclipseworkbench import gui as gui_mod
 
-    monkeypatch.setattr(gui_mod.QMessageBox, "warning",
-                        lambda *a, **k: None)
+    asked = []
+    monkeypatch.setattr(
+        gui_mod.QMessageBox, "question",
+        lambda *a, **k: asked.append(a[1]) or gui_mod.QMessageBox.StandardButton.No)
     opened = []
-    monkeypatch.setattr(gui_mod, "QDockWidget", None, raising=False)
     fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
     controller = _controller(view, {"X-T4": fuji},
                              scheduler=_scheduler_with_next_frame_in(3))
@@ -182,7 +187,36 @@ def test_live_view_is_refused_when_a_frame_is_imminent(view, monkeypatch):
 
     gui_mod.SolarEclipseController._open_fuji_live_view(controller, fuji)
 
-    assert opened == [], "opened a preview into a frame three seconds away"
+    assert asked, "never asked"
+    assert opened == [], "declining must keep the frame safe"
+
+
+def test_accepting_the_popup_opens_and_carries_consent(view, monkeypatch):
+    from types import SimpleNamespace
+    from solareclipseworkbench import gui as gui_mod
+    from solareclipseworkbench import liveview as liveview_mod
+
+    monkeypatch.setattr(gui_mod.QMessageBox, "question",
+                        lambda *a, **k: gui_mod.QMessageBox.StandardButton.Yes)
+    built = []
+
+    class _Window(SimpleNamespace):
+        def setFloating(self, *a): pass
+        def show(self): pass
+        def close(self): pass
+
+    monkeypatch.setattr(liveview_mod, "LiveViewWindow",
+                        lambda camera, parent=None: built.append(_Window()) or built[-1])
+    fuji = SimpleNamespace(name="Fuji Fujifilm X-T4", _sdk_cam=object())
+    controller = _controller(view, {"X-T4": fuji},
+                             scheduler=_scheduler_with_next_frame_in(3))
+    controller.view.addDockWidget = lambda *a: None
+
+    gui_mod.SolarEclipseController._open_fuji_live_view(controller, fuji)
+
+    assert built, "accepting did not open live view"
+    assert built[0].user_accepts_blocking is True, \
+        "consent must travel with the window, or the tick closes it anyway"
 
 
 def test_live_view_opens_in_the_last_minute_before_totality(view, monkeypatch):

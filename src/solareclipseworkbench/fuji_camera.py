@@ -1491,13 +1491,21 @@ def detect_fuji(sdk_path: str) -> FujiDetection:
 
     _preload_mac_transport(sdk_path)
 
-    # Retry — after killing ptpcamerad the USB device needs a moment
+    # A body that has just powered on or enumerated often needs a few seconds
+    # before the SDK sees it - that is patience, not a stuck session.  So the
+    # first retry only waits.  The daemon reset is the LAST resort, and after
+    # one the transport needs time to respawn: the 5 August 00:16 failure was
+    # detect killing the daemons and the open starting three seconds later,
+    # straight into the window where the transport was dead - the same
+    # sabotage removed from the open path earlier, one step up the chain.
     cameras = []
+    reset_at = None
     for attempt in range(3):
-        if attempt > 0:
-            # A failed attempt usually means a stale ICA session is holding the
-            # body; forcing fresh daemons is the only recovery that has worked.
+        if attempt == 1:
+            time.sleep(4.0)
+        elif attempt == 2:
             _reset_mac_camera_stack()
+            reset_at = time.monotonic()
             time.sleep(3.0)
         try:
             # Names only.  Opening each body to read its product string, then
@@ -1522,6 +1530,16 @@ def detect_fuji(sdk_path: str) -> FujiDetection:
     if not cameras:
         logging.warning('Fuji SDK found no cameras after retries')
         return FujiDetection({}, 0)
+
+    # If the daemons were reset, nothing opens until the transport has had ten
+    # seconds to come back.  An OpenEx that starts too early does not fail
+    # fast - it dies a fifteen second handshake death and reports -1.
+    if reset_at is not None:
+        settle = 10.0 - (time.monotonic() - reset_at)
+        if settle > 0:
+            logging.info('Waiting %.0f s for the camera transport to respawn '
+                         'before opening', settle)
+            time.sleep(settle)
 
     result = {}
     for info in cameras:
