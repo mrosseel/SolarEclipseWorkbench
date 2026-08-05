@@ -263,8 +263,12 @@ def test_the_shutter_list_is_built_without_asking_the_body():
 
     values = [d for _, d in win._shutter_combo.items]
     assert len(values) > 20
-    assert max(values) <= 30_000_000        # nothing past 30s
-    assert min(values) >= 125               # nothing faster than 1/8000
+    # The endpoints by their table keys: Fuji's labels sit on powers of two,
+    # so 1/8000 is 122 us and 30 seconds is 32_000_000 us.  This test used to
+    # pin the rounded bounds (125 and 30_000_000), which is exactly the bug
+    # that kept 1/8000 off the list.
+    assert max(values) == 32_000_000        # 30", nothing past it
+    assert min(values) == 122               # 1/8000, nothing faster
 
 
 def test_the_iso_list_falls_back_when_the_body_offers_none():

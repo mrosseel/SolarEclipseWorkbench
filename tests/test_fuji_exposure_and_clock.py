@@ -311,3 +311,21 @@ def test_a_short_exposure_does_not_extend_anything(_quick_backoff):
     cam._note_frame_fired()
 
     assert cam._frame_busy_until < fired + fuji_camera.FRAME_WRITE_S + 0.1
+
+
+def test_the_shutter_dropdown_reaches_both_ends_of_the_dial():
+    """Fuji's third-stop table is powers of two underneath the labels.
+
+    1/8000 is keyed 122 us (a true 1/8192) and 30 seconds is 32_000_000 us,
+    so bounds computed as 1_000_000/8000 and 30*1_000_000 excluded both
+    endpoints: the dropdown ran 1/6400 to 25", with 1/8000 - the speed the
+    whole eclipse is shot at - not on the list.
+    """
+    from fujixsdk._constants import SHUTTER_SPEED_NAMES
+    from solareclipseworkbench.liveview import dropdown_shutter_speeds
+
+    names = [SHUTTER_SPEED_NAMES[k] for k in dropdown_shutter_speeds()]
+
+    assert names[0] == '1/8000"', "the fast end lost 1/8000 to rounding"
+    assert names[-1] == '30"', "the slow end lost 30 seconds to rounding"
+    assert '1/10000"' not in names, "electronic-only speeds do not belong on a mechanical shutter"

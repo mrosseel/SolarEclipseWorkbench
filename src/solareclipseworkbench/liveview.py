@@ -45,8 +45,33 @@ log = logging.getLogger(__name__)
 # What the X-T4 can actually be set to, out of the 89 values the SDK names -
 # the table runs from 1/180000" to 60 minutes and neither end exists on this
 # body.  Microseconds, as the SDK counts them.
-_SHUTTER_MIN_US = 1_000_000 // 8000
-_SHUTTER_MAX_US = 30 * 1_000_000
+def _shutter_table_key(name: str) -> int:
+    """The table key for a named speed, because the arithmetic lies.
+
+    Fuji's third-stop values are powers of two underneath the labels: the
+    speed sold as 1/8000 is keyed 122 us (a true 1/8192), and 30 seconds is
+    keyed 32_000_000 us.  Bounds computed as 1_000_000/8000 and 30*1_000_000
+    missed both endpoints, so the dropdown ran 1/6400 to 25" - with 1/8000,
+    the speed the whole eclipse is shot at, not on the list.
+    """
+    return next(k for k, v in SHUTTER_SPEED_NAMES.items() if v == name)
+
+
+#: The X-T4 stills range on the mechanical shutter.  The electronic-only
+#: speeds above 1/8000 stay out: the eclipse body runs MS, which refuses them.
+_SHUTTER_FASTEST_US = _shutter_table_key('1/8000"')
+_SHUTTER_SLOWEST_US = _shutter_table_key('30"')
+
+
+def dropdown_shutter_speeds() -> list[int]:
+    """Every speed the shutter dropdown offers, fastest first.
+
+    Cut from the SDK's name table because the X-T4 answers CapShutterSpeed
+    with an empty list; module-level so a test can hold the endpoints still.
+    """
+    return sorted(k for k in SHUTTER_SPEED_NAMES
+                  if isinstance(k, int)
+                  and _SHUTTER_FASTEST_US <= k <= _SHUTTER_SLOWEST_US)
 
 # The body reports no ISO list on some firmware, so this is the fallback.  These
 # are the native values; the extended ones below 160 and above 12800 are pulled
@@ -1035,8 +1060,7 @@ class LiveViewWindow(QDockWidget):
         CapShutterSpeed, which this body does not implement - it answers with an
         empty list, and a dropdown built from that would be empty too.
         """
-        speeds = sorted(k for k in SHUTTER_SPEED_NAMES
-                        if isinstance(k, int) and _SHUTTER_MIN_US <= k <= _SHUTTER_MAX_US)
+        speeds = dropdown_shutter_speeds()
         self._shutter_combo.blockSignals(True)
         self._shutter_combo.clear()
         for value in speeds:
