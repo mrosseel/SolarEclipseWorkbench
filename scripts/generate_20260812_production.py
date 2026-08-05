@@ -146,7 +146,11 @@ _place = _eph["Earth"] + wgs84.latlon(LAT, LON, OBS_ALT)
 
 
 def sun_altitude(when) -> float:
-    return _place.at(_ts.from_datetime(when)).observe(_eph["Sun"]).apparent().altaz()[0].degrees
+    # Refracted, like the main calculator: the exposure tables key on where the
+    # sun APPEARS.  Geometric altitude underestimates it near the horizon by
+    # over half a degree - more than a stop of airmass for the last brackets.
+    return _place.at(_ts.from_datetime(when)).observe(_eph["Sun"]).apparent().altaz(
+        temperature_C=15.0, pressure_mbar=1013.0)[0].degrees
 
 
 def airmass(alt_deg: float) -> float:
@@ -797,7 +801,15 @@ def _totality_block(target_s: float) -> None:
     # head: the shutter-speed write landed half a second INTO the held burst,
     # on a body in continuous drive, and the burst died - "C2 seemed to have
     # no burst" was exactly right.
+    # The framed big-diamond ring is ~5 EV slower than the beads exposure the
+    # burst runs at (the calculator's own DIAMOND_RING table: ~1/80 here), and
+    # an exposure write into a held burst kills the drive - proven 5 August.
+    # So the ring gets its own bracket where it actually is: the crescent side,
+    # clear of the burst at both contacts.
+    ring_ladder = "1/160;1/80;1/40"
     _c2_burst_off = RELAY_C2_S + RELAY_LATENCY_S - RELAY_C2_TAIL_S
+    bracket(XT4, "BEADS_C2_END", "-", _c2_burst_off + 6.5, "1/160", 100,
+            ring_ladder, 3, "Framed diamond ring, big diamond forming")
     picture(XT4, "BEADS_C2_END", "-", _c2_burst_off + 2.5, beads_x, ISO_BEADS,
             "Load the beads exposure before the relay burst")
     relay_arm("BEADS_C2_END", "-", _c2_burst_off + 1.2, "Pre-arm S1 for the C2 burst")
@@ -902,6 +914,8 @@ def _totality_block(target_s: float) -> None:
     relay_burst("BEADS_C3_START", "-", RELAY_LATENCY_S + RELAY_C3_HEAD_S,
                 RELAY_C3_S, RELAY_C3_N,
                 "Baily's beads and diamond ring at C3, relay at %.0f fps" % XT4_RELAY_FPS)
+    bracket(XT4, "BEADS_C3_START", "+", RELAY_C3_S + 2.0, "1/160", 100,
+            ring_ladder, 3, "Framed diamond ring, big diamond fading")
     relay_release("BEADS_C3_START", "+", RELAY_C3_S + 1.5,
                   "Open every contact after the C3 burst")
     for n, name in ((5, "C3_IN_5_SECONDS"), (4, "C3_IN_4_SECONDS"), (3, "C3_IN_3_SECONDS"),
