@@ -851,45 +851,61 @@ def relay_shoot(trigger: RelayTrigger) -> None:
 
 
 def relay_burst(trigger: RelayTrigger, duration: float, interval: Optional[float] = None) -> None:
-    """Hold the shutter for ``duration`` seconds, or pulse it at ``interval``.
+    """Hold the shutter for ``duration`` seconds, draining the queue as it fills.
 
     Arguments arrive from the script as strings, so they are coerced before use.
 
-    A held burst runs at the body's own continuous rate with the host out of the
-    loop, so it can outrun the transfer queue of an open SDK session — 15 fps
-    fills 32 slots in a little over two seconds, and a full queue stops the
-    camera dead in the middle of totality.  The hold is therefore capped at
-    whatever that session says is safe, and the queue is drained afterwards.
-    Both are no-ops when no SDK session is open: without one there is no queue.
+    A held burst runs at the body's own continuous rate, and with a tether
+    session every frame parks a copy in the 32-slot transfer queue until the
+    PC deletes it - the card writes do NOT free the slots.  At 32 the body
+    hard-stops the burst.  Proven on the bench, 5 August, watching the queue
+    live: 32/32 at five seconds and not one more frame in the next seven.
+    That ceiling silently truncated every scripted burst there has ever been -
+    "C2 stopped too soon" was this, both nights.
+
+    So the queue is drained DURING the hold.  Also proven live: deleting while
+    S1 and S2 are held does not drop the session (the old warning to the
+    contrary was stale), the slots free, and the body just keeps firing -
+    81 frames in a 12 s hold, ~6.9 fps sustained, in backup and sequential
+    card modes alike.  The old cap-and-shorten fallback remains only for a
+    burst with no SDK session, where there is no queue to fill.
     """
     duration = float(duration)
     interval = None if interval in (None, "") else float(interval)
 
     owner = HARDWARE.get('sdk_camera')
-    limit = getattr(owner, 'max_relay_hold_s', None)
-    if limit is not None and interval is None and duration > limit:
-        logger.warning("relay_burst: %.3f s would overrun the %s transfer queue, "
-                       "holding %.3f s instead", duration, getattr(owner, 'name', 'camera'), limit)
-        hardware_problems.report(
-            getattr(owner, 'name', 'camera'),
-            'A relay burst in the script is longer than the camera can buffer',
-            detail=f'{duration:.2f} s shortened to {limit:.2f} s',
-            severity='warning',
-        )
-        duration = limit
 
-    logger.info("relay_burst: %.3f s (interval %s)", duration, interval)
-    pulses = trigger.burst(duration, interval)
-    logger.info("relay_burst issued %d pulse(s)", pulses)
+    if owner is None or interval is not None:
+        logger.info("relay_burst: %.3f s (interval %s), no draining session", duration, interval)
+        pulses = trigger.burst(duration, interval)
+        logger.info("relay_burst issued %d pulse(s)", pulses)
+        return
 
-    if owner is not None:
-        # Every contact open first.  A burst that was pre-armed leaves S1 closed
-        # on the way out — that is the point of pre-arming — but draining with S1
-        # still held drops the USB session for good with 0x2001, proven twice on
-        # the bench.  Re-arming before the next burst is free; losing exposure
-        # control in the middle of totality is not.
+    logger.info("relay_burst: %.3f s with the queue drained live", duration)
+    drained = 0
+    deadline = time.monotonic() + duration
+    lock = getattr(owner, '_usb_lock', None)
+    acquired = bool(lock and lock.acquire(timeout=2.0))
+    try:
+        with trigger.pressed():
+            while time.monotonic() < deadline:
+                try:
+                    drained += owner.drain()
+                except Exception:
+                    logger.warning("relay_burst: mid-hold drain failed; the burst "
+                                   "runs on and may cap at the queue", exc_info=True)
+                    time.sleep(max(0.0, deadline - time.monotonic()))
+                    break
+                time.sleep(0.25)
+    finally:
         trigger.release_all()
-        owner.drain()
+        try:
+            drained += owner.drain()
+        except Exception:
+            logger.warning("relay_burst: final drain failed", exc_info=True)
+        if acquired:
+            lock.release()
+    logger.info("relay_burst drained %d frame(s) across the hold", drained)
 
 
 def relay_bulb(trigger: RelayTrigger, seconds: float) -> None:

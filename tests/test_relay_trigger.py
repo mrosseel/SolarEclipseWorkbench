@@ -258,22 +258,16 @@ def test_discovered_candidates_are_tagged_as_relays():
         assert candidate.driver
 
 
-def test_a_held_burst_is_capped_to_what_the_open_session_can_buffer():
-    # 15 fps fills the 32-slot transfer queue in a little over two seconds, and a
-    # full queue stops the body dead - in the middle of totality, if the script
-    # asked for a long hold at a contact.
-    trigger = _trigger()
-    camera = MagicMock(max_relay_hold_s=1.9, name="X-T4")
-    register_hardware("sdk_camera", camera)
-    try:
-        relay_burst(trigger, "2.5")
-    finally:
-        register_hardware("sdk_camera", None)
-        hardware_problems.clear()
+def test_a_burst_with_no_session_still_pulses_plainly():
+    """Without an SDK session there is no queue to drain and no cap to need:
+    the plain hold survives for that case alone."""
+    trigger = _trigger(single=True)
 
-    held = trigger.events[-1].at - trigger.events[0].at
-    assert held == pytest.approx(1.9, abs=0.2)
-    assert camera.drain.called
+    register_hardware("sdk_camera", None)
+    pulses = relay_burst(trigger, "0.05")
+
+    # No exception and the contacts are open again is the contract.
+    assert trigger.closed_channels == set()
 
 
 def test_a_burst_drains_the_queue_it_filled():
@@ -299,25 +293,34 @@ def test_a_burst_without_an_open_session_is_left_alone():
     assert trigger.closed_channels == set()
 
 
-def test_a_burst_opens_every_contact_before_it_drains():
-    # Pre-arming leaves S1 closed on the way out of the burst, and the bench
-    # proved twice that draining with S1 still held drops the USB session for
-    # good.  The order matters more than the arm does.
+def test_a_burst_drains_while_the_contacts_are_still_held():
+    """The reversal of the old contract, proven on the bench 5 August.
+
+    The 32-slot transfer queue is not freed by card writes, so at 32 frames
+    the body hard-stops a held burst - which silently truncated every scripted
+    burst there had ever been.  Draining DURING the hold frees the slots and
+    the body keeps firing: 81 frames in a 12 s hold.  The old belief that
+    draining with S1 held drops the session was retested live and is stale.
+    """
     order = []
     trigger = _trigger(single=False)
     trigger.half_press()                       # pre-armed, as a contact burst is
 
-    camera = MagicMock(max_relay_hold_s=1.9)
-    camera.drain.side_effect = lambda: order.append(("drain", trigger.closed_channels.copy()))
+    camera = MagicMock()
+    camera._usb_lock = None
+    camera.drain.side_effect = lambda: order.append(
+        ("drain", trigger.closed_channels.copy())) or 0
     register_hardware("sdk_camera", camera)
     try:
-        relay_burst(trigger, "0.05")
+        relay_burst(trigger, "0.4")
     finally:
         register_hardware("sdk_camera", None)
 
-    assert order, "the burst never drained"
-    _, closed_when_draining = order[0]
-    assert closed_when_draining == set()
+    assert len(order) >= 2, "the burst never drained during the hold"
+    _, closed_mid_hold = order[0]
+    assert closed_mid_hold, "the first drain should run with the contacts held"
+    _, closed_at_last = order[-1]
+    assert closed_at_last == set(), "the final drain runs after release_all"
 
 
 def test_a_latched_contact_is_opened_when_the_trigger_is_built():

@@ -1181,6 +1181,9 @@ class SolarEclipseView(QMainWindow, Observable):
         """
 
         self.toolbar = self.addToolBar('MainToolbar')
+        # saveState() skips widgets without an objectName - the warning at every
+        # exit - so the toolbar's position was never remembered.
+        self.toolbar.setObjectName("MainToolbar")
 
         # Location
 
