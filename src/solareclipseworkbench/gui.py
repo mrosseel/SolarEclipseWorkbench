@@ -1624,6 +1624,17 @@ class SolarEclipseController(Observer):
 
         self.scheduler: Union[BackgroundScheduler, None] = None
         self._problem_marker_shown = False
+        # The bead panel redrawn once a second is a slideshow at the exact
+        # moment it matters: the beads live for three or four seconds, so at
+        # 1 Hz the ring is two frames of animation.  A 150 ms timer
+        # extrapolates the (possibly simulated) clock between ticks and only
+        # bothers the panel within two minutes of a contact.
+        self._beads_clock = None
+        self._beads_fast_timer = QTimer()
+        self._beads_fast_timer.setInterval(150)
+        self._beads_fast_timer.timeout.connect(self._animate_beads)
+        self._beads_fast_timer.start()
+
         self.sim_reference_moment: Union[str, None] = None
         self.sim_offset_minutes: Union[int, None] = None
 
@@ -1770,6 +1781,8 @@ class SolarEclipseController(Observer):
         # happening now-ish, and a live view on the real time would sit at
         # "waiting for totality" throughout.
         self.view.beads_panel.set_current_time(reference_now)
+        # The fast animation timer extrapolates from here between ticks.
+        self._beads_clock = (reference_now, time.monotonic())
 
         countdown_c1 = self.model.c1_info.time_utc - reference_now if self.model.c1_info else None
         countdown_c2 = self.model.c2_info.time_utc - reference_now if self.model.c2_info else None
@@ -2502,6 +2515,25 @@ class SolarEclipseController(Observer):
                 self.view.set_action_unset(action, unset)
         except Exception:
             logging.debug("Could not refresh the readiness strip", exc_info=True)
+
+    def _animate_beads(self):
+        """Give the bead panel smooth time near the contacts.
+
+        Extrapolates the last tick's reference clock, so simulation offsets
+        are carried for free, and stays quiet when nothing is within two
+        minutes of a contact - at 1 Hz elsewhere nobody can tell.
+        """
+        try:
+            if self._beads_clock is None:
+                return
+            reference, base = self._beads_clock
+            now = reference + datetime.timedelta(seconds=time.monotonic() - base)
+            for info in (self.model.c2_info, self.model.c3_info):
+                if info is not None and abs((info.time_utc - now).total_seconds()) < 120:
+                    self.view.beads_panel.set_current_time(now)
+                    return
+        except Exception:
+            logging.debug("Bead animation tick failed", exc_info=True)
 
     def _apply_simulation_offset(self):
         """Move the countdowns onto the simulated clock straight away.
