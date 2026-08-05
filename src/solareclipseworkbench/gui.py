@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import pytz
 from PyQt6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
-from PyQt6.QtCore import (QTimer, QRect, Qt, QAbstractTableModel, QModelIndex,
+from PyQt6.QtCore import (QTimer, QPoint, QRect, Qt, QAbstractTableModel, QModelIndex,
                          QSettings, QSignalBlocker, pyqtSignal)
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
 QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
@@ -2311,19 +2311,24 @@ class SolarEclipseController(Observer):
         # the person who just said they need it.
         window.user_accepts_blocking = accepts_blocking
         self.view.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, window)
+        window.setFloating(True)
+        window.show()
         mount = getattr(self.view, 'mount_dock', None)
         if mount is not None and mount.isVisible():
             # Aiming is the one job that needs both at once: the sun on
             # screen while the mount is nudged - and during a run, live view
-            # open is the only time the mount gets touched at all.  A
-            # floating preview covered the mount panel; docked below it,
-            # both stay usable.
-            self.view.splitDockWidget(mount, window, Qt.Orientation.Vertical)
-            self.view.resizeDocks([mount, window], [1, 3],
-                                  Qt.Orientation.Vertical)
-        else:
-            window.setFloating(True)
-        window.show()
+            # open is the only time the mount gets touched at all.  Docking
+            # the preview under the mount was tried and measured: the
+            # preview's 656-pixel minimum crushes the mount to its top two
+            # rows, nudge buttons gone.  So the mount keeps its column and
+            # the preview floats beside it, over the sun map - which nobody
+            # is reading while they are aiming.
+            corner = mount.mapToGlobal(QPoint(0, 0))
+            size = window.frameGeometry().size()
+            screen_left = (self.view.screen().availableGeometry().left()
+                           if self.view.screen() else 0)
+            window.move(max(screen_left, corner.x() - size.width() - 8),
+                        max(0, corner.y()))
         self._live_view_window = window
 
         logging.info('Live view opened for %s', getattr(camera, 'name', 'the Fuji body'))
