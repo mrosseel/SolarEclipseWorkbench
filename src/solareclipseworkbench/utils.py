@@ -261,14 +261,24 @@ def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_m
     script_file.seek(0)
 
     unknown: dict = {}
+    already_past = 0
 
     # Loop over all lines in script file
     for cmd_str in script_file:
         missing = schedule_command(
             scheduler, reference_moments, cmd_str, cameras, controller, reference_moment, simulated_start,
             gps_time_offset=gps_time_offset)
-        if missing is not None:
+        if missing == "__past__":
+            already_past += 1
+        elif missing is not None:
             unknown[missing] = unknown.get(missing, 0) + 1
+
+    if already_past:
+        # One warning, in the shape "x of y skipped because z" - not a
+        # warning per job, which buried real problems in noise.
+        logging.warning("Skipped %d of %d command(s): their times lie before "
+                        "the start, so they could never run",
+                        already_past, already_past + len(scheduler.get_jobs()))
 
     warn_if_script_outlasts_totality(scheduler, reference_moments)
 
@@ -479,6 +489,16 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
         # and would fire the shutter late.  Scheduling earlier on the computer clock
         # by subtracting the offset ensures the action happens at the correct moment.
         execution_time = execution_time - gps_time_offset
+
+        # A command whose moment has already passed is not scheduled at all.
+        # It used to be handed to the scheduler anyway, which fired a missed
+        # warning per job - so starting a simulation two minutes before C2
+        # opened with a hundred warnings about the partials of the last hour,
+        # and a wall of WARN that means "everything is fine" teaches the one
+        # reader it must never teach.  The skipped commands are counted and
+        # said once, by the caller.
+        if execution_time < datetime.now(pytz.utc) - timedelta(seconds=2):
+            return "__past__"
 
         trigger = DateTrigger(run_date=execution_time, timezone=pytz.utc)
 

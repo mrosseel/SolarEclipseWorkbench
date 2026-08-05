@@ -62,3 +62,49 @@ def test_the_scheduler_and_the_countdowns_use_the_same_formula():
     source = inspect.getsource(utils.observe_solar_eclipse)
     assert "simulation_offset(" in source, \
         "the scheduler computes its own offset again"
+
+
+def test_commands_in_the_past_are_skipped_once_not_warned_per_job(caplog):
+    """Starting a simulation two minutes before C2 used to open with a hundred
+    missed-job warnings about the partials of the last hour.  A wall of WARN
+    that means "everything is fine" teaches the reader to skim WARN, which is
+    the one thing it must never teach."""
+    import logging as logging_mod
+    from datetime import datetime, timedelta
+
+    import pytz
+
+    from solareclipseworkbench.utils import schedule_commands, start_scheduler
+
+    now = datetime.now(pytz.utc)
+    moments = {"C1": SimpleNamespace(time_utc=now - timedelta(hours=1)),
+               "C2": SimpleNamespace(time_utc=now + timedelta(seconds=90)),
+               "C3": SimpleNamespace(time_utc=now + timedelta(seconds=194)),
+               "C4": SimpleNamespace(time_utc=now + timedelta(hours=1))}
+
+    import io, textwrap
+    script = io.StringIO(textwrap.dedent("""\
+        voice_prompt, C1, +, 0:00:10.0, C2_IN_50_MINUTES, "long gone"
+        voice_prompt, C1, +, 0:10:00.0, C2_IN_40_MINUTES, "also gone"
+        voice_prompt, C2, -, 0:00:20.0, C2_IN_10_MINUTES, "still to come"
+    """))
+
+    from unittest.mock import patch
+    scheduler = start_scheduler()
+    try:
+        with patch("solareclipseworkbench.utils.scripts.convert_script",
+                   return_value=script):
+            with caplog.at_level(logging_mod.INFO):
+                schedule_commands("ignored", scheduler, moments, {}, None,
+                                  None, None)
+        jobs = scheduler.get_jobs()
+        assert len(jobs) == 1, "the future command must still be scheduled"
+        missed = [r for r in caplog.records if "missed" in r.getMessage()]
+        assert not missed, "the past still warns per job"
+        summaries = [r for r in caplog.records
+                     if "Skipped" in r.getMessage() and "before" in r.getMessage()]
+        assert len(summaries) == 1, "the past should be said once"
+        assert summaries[0].levelno == logging_mod.WARNING
+        assert "Skipped 2 of 3" in summaries[0].getMessage()
+    finally:
+        scheduler.shutdown(wait=False)
