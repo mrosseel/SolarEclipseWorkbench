@@ -400,7 +400,10 @@ LADDER_PITCH_MIN_S = 10.3
 #: third single out of every gap for no measured reason.
 GAP_SINGLE_COST_S = 1.1
 # The first ladder waits for the C2 burst to be released and its frames drained.
-TOTALITY_HEAD_S = 6.0
+# 8.5, was 6.0: the C2 burst with live draining keeps the camera until about
+# C2+7.6 (contact to +3.5, queue tail ~4 s), and ladder 1 at C2+6 was dropped
+# against it on the 5 August run - seven frames of corona.
+TOTALITY_HEAD_S = 8.5
 # and the last has to be out of the way before the C3 bead sequence loads.
 TOTALITY_TAIL_MARGIN_S = 2.0
 
@@ -914,7 +917,7 @@ def _totality_block(target_s: float) -> None:
     relay_burst("BEADS_C3_START", "-", RELAY_LATENCY_S + RELAY_C3_HEAD_S,
                 RELAY_C3_S, RELAY_C3_N,
                 "Baily's beads and diamond ring at C3, relay at %.0f fps" % XT4_RELAY_FPS)
-    bracket(XT4, "BEADS_C3_START", "+", RELAY_C3_S + 2.0, "1/160", 100,
+    bracket(XT4, "BEADS_C3_START", "+", RELAY_C3_S + 5.5, "1/160", 100,
             ring_ladder, 3, "Framed diamond ring, big diamond fading")
     relay_release("BEADS_C3_START", "+", RELAY_C3_S + 1.5,
                   "Open every contact after the C3 burst")

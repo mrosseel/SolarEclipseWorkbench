@@ -149,9 +149,13 @@ def cost_of(command: str, args: list) -> float:
         # It was priced at the 1.0 s default, which let anything scheduled
         # straight after a burst look safe when the camera was still busy.
         try:
-            return float(args[0]) + 2.5
+            # hold + 4.5: measured 5 August with live draining, the burst job
+            # keeps the camera 4.2-5.7 s past the hold to clear the queue tail.
+            # The old +2.5 let ladder 1 sit 0.05 s clear on paper and get
+            # dropped on hardware.
+            return float(args[0]) + 4.5
         except (ValueError, IndexError, TypeError):
-            return 12.0
+            return 14.0
 
     if command == "take_picture":
         # `capture` returns 80ms after the tap, but the body is not free until
