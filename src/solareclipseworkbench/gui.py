@@ -2114,7 +2114,13 @@ class SolarEclipseController(Observer):
                 self.jobs_model.add_observer(self.view.jobs_table)
                 self.view.jobs_table.resizeColumnsToContents()
 
+                # Detection opens SDK sessions and resets the camera daemons -
+                # both proven session-killers - so it is off while a schedule
+                # owns the body.  The button says so, because a greyed button
+                # with no reason just reads as broken.
                 self.view.camera_action.setDisabled(True)
+                self.view.camera_action.setToolTip(
+                    "Detection is off while a script is loaded - press STOP first")
 
                 n_jobs = len(self.scheduler.get_jobs())
                 self._set_limb_correction_locked(n_jobs > 0)
@@ -2678,6 +2684,7 @@ class SolarEclipseController(Observer):
                 if self.jobs_model:
                     self.jobs_model.clear_jobs_overview()
                 self.view.camera_action.setEnabled(True)
+                self.view.camera_action.setToolTip("Detect the connected cameras")
                 LOGGER.info("Scheduler stopped by user")
         except SchedulerNotRunningError:
             pass  # already stopped
