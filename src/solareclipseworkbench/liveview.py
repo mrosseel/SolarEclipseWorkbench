@@ -628,14 +628,23 @@ class LiveViewWindow(QDockWidget):
 
         # Buttons
         btn_bar = QHBoxLayout()
+        # No Start button: opening the window IS starting - nobody opens a
+        # preview in order to not look through it.  The stream begins as soon
+        # as the window is up (deferred one tick so it paints first), and Stop
+        # closes the whole window, so one button does the one thing left.
+        # _start_btn survives as a hidden widget because the stream machinery
+        # reports into it on failure paths; it is never shown.
         self._start_btn = QPushButton("Start")
         self._start_btn.clicked.connect(self.start_stream)
-        btn_bar.addWidget(self._start_btn)
+        self._start_btn.hide()
 
-        self._stop_btn = QPushButton("Stop")
+        self._stop_btn = QPushButton("Stop && Close")
         self._stop_btn.setEnabled(False)
-        self._stop_btn.clicked.connect(self.stop_stream)
-        btn_bar.addWidget(self._stop_btn)
+        self._stop_btn.setMinimumHeight(34)
+        self._stop_btn.clicked.connect(self.close)
+        btn_bar.addWidget(self._stop_btn, 1)
+
+        QTimer.singleShot(200, self._auto_start)
 
         layout.addLayout(btn_bar)
 
@@ -712,6 +721,19 @@ class LiveViewWindow(QDockWidget):
             log.warning("Live view start failed: %s", e)
             self._stream = None
             return False
+
+    def _auto_start(self):
+        """Start streaming the moment the window exists.
+
+        Deferred a tick so the dock is painted before the seconds of camera
+        negotiation begin, and guarded so a window closed in that tick does
+        not start a stream into nowhere.
+        """
+        try:
+            if self.isVisible() and self._thread is None:
+                self.start_stream()
+        except Exception:
+            log.warning("Live view auto-start failed", exc_info=True)
 
     def start_stream(self):
         """Start the live view stream and frame worker thread."""
