@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from fujixsdk import LiveViewStream
 from fujixsdk._constants import (
+    ERRCODE_COMBINATION,
     FOCUS_MODE_NAMES,
     SHUTTER_SPEED_NAMES,
     LIVEVIEW_QUALITY_FINE,
@@ -1198,6 +1199,18 @@ class LiveViewWindow(QDockWidget):
                 f"{what.capitalize()} refused: the camera stayed busy", 6000)
             return False
         except XSDKError as exc:
+            if getattr(exc, 'code', None) == ERRCODE_COMBINATION:
+                # 0x2003 is not "bad value" - it is "this value conflicts with
+                # the mode the body is in".  The T-dial hint sent the 5 August
+                # diagnosis to the wrong dial: the usual culprits are the drive
+                # dial (CL/CH restrict the range) and the MS/ES shutter type.
+                log.warning("Could not set the %s: the body refuses it in its "
+                            "current mode (%s) - check the drive dial and the "
+                            "mechanical/electronic shutter setting", what, exc)
+                self._status_bar.showMessage(
+                    f"{what.capitalize()} refused: the body will not take it "
+                    "in this mode - check drive dial and MS/ES setting", 8000)
+                return False
             # The code matters: 0x1003 on a dead handle is not 0x1002 on a value
             # the body will not take, and both used to read as "check the dial".
             log.warning("Could not set the %s: %s", what, exc, exc_info=True)
@@ -1236,16 +1249,19 @@ class LiveViewWindow(QDockWidget):
         value = self._shutter_combo.currentData()
         if value is None:
             return
+        # The value goes into the name: a refusal logged as "the shutter
+        # speed" left 5 August's 0x2003 undiagnosable - refused at what?
+        name = SHUTTER_SPEED_NAMES.get(value, f"{value}us")
         self._write_in_background(
             lambda: self._camera.set_shutter_speed(value),
-            "shutter speed", "is the shutter dial on T?")
+            f"shutter speed to {name}", "is the shutter dial on T?")
 
     def _on_iso_changed(self, index: int):
         value = self._iso_combo.currentData()
         if value is None:
             return
         self._write_in_background(lambda: self._camera.set_iso(value),
-                                  "ISO", "is the ISO dial on C?")
+                                  f"ISO to {value}", "is the ISO dial on C?")
 
     def _write_in_background(self, action, what: str, dial_hint: str) -> None:
         """Write the setting off the GUI thread.
