@@ -415,7 +415,7 @@ class SonyCamera(GPhotoCameraAdapter):
         try:
             context = gp.gp_context_new()
             target = self._camera
-            _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+            _drain_camera_events(target, context)
         except Exception:
             logging.debug('%s: SonyCamera.disconnect() event drain raised (non-fatal)')
 
@@ -756,8 +756,7 @@ def _serialised_on_camera(func):
 
 
 def _wait_for_capture_complete(target, context, timeout_ms: int = 3000, max_events: int = 30) -> None:
-    """Wait until the camera signals GP_EVENT_CAPTURE_COMPLETE after a trigger_capture
-    call, then flush any remaining queued events (GP_EVENT_OBJECT_ADDED, etc.).
+    """Wait until the camera signals GP_EVENT_CAPTURE_COMPLETE after a trigger_capture call.
 
     This is the correct inter-shot synchronisation point: CAPTURE_COMPLETE means the
     shutter has physically closed and the camera's USB interface is free for the next
@@ -914,11 +913,11 @@ class _SonyBackgroundDownloader(threading.Thread):
                     event_type, event_data = gp.GP_EVENT_TIMEOUT, None
                     error_str = str(e).lower()
                     if any(x in error_str for x in ['-52', 'could not find the requested device']):
-                        logging.info(
+                        logging.warning(
                             "%s Background Downloader: camera got disconnected, shutting down", self.camera_name)
                         self.stop()
                     if any(x in error_str for x in ['-110', 'i/o in progress']):
-                        logging.warning(
+                        logging.info(
                             "%s Background Downloader: camera is busy, safe to ignore", self.camera_name)
 
                 if event_type in (gp.GP_EVENT_FILE_ADDED, gp.GP_EVENT_FOLDER_ADDED) and event_data is not None:
@@ -968,7 +967,7 @@ class _SonyBackgroundDownloader(threading.Thread):
                             retry_base_s * (2 ** min(state["attempts"], 3)),
                         )
                         state["next_try"] = now + delay
-                        logging.info(
+                        logging.warning(
                             "%s Background Downloader: download failed for %s: %s (retry in %.1fs)",
                             self.camera_name,
                             name,
@@ -1252,8 +1251,10 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
         if not (hasattr(camera, '_bg_downloader')
                 and camera._bg_downloader is not None
                 and camera._bg_downloader.is_alive()):
-            _wait_for_capture_complete(target, context)
-            _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+            speed_ms = int(_parse_shutter_speed_seconds(camera_settings.shutter_speed) * 1000)
+            timeout_ms = speed_ms + 3000
+            _wait_for_capture_complete(target, context, timeout_ms = timeout_ms)
+            _drain_camera_events(target, context)
         # First successful trigger_capture: eos_remotemode is now 15 (EOS R) or
         # unchanged (DSLR).  Mark as done so no further PTP session reset is needed.
         if vendor == 'Canon':
@@ -1579,7 +1580,7 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
             # Ensure that the camera truly finished, so it won't affect next commands
             target = camera._camera if hasattr(camera, '_camera') else camera
             _wait_for_capture_complete(target, context)
-            _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+            _drain_camera_events(target, context)
         except gphoto2.GPhoto2Error:
             # If 'eosremoterelease' is not supported (e.g. Canon 1000D), then
             # fallback to just take as number of shots equal to `burst_number`
@@ -1655,7 +1656,7 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
             logging.warning('Could not set Sony capturemode to Continuous: %s', e)
 
         try:
-            _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+            _drain_camera_events(target, context)
             bulb_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'bulb'))
             gp.gp_widget_set_value(bulb_mode, 1)
             _set_gp_config(camera, config, context)
@@ -1667,7 +1668,7 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
             if not (hasattr(camera, '_bg_downloader')
                     and camera._bg_downloader is not None
                     and camera._bg_downloader.is_alive()):
-                _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+                _drain_camera_events(target, context)
         except gphoto2.GPhoto2Error as e:
             logging.warning('Sony burst capture failed: %s', e)
 
@@ -1831,8 +1832,10 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
             except gphoto2.GPhoto2Error as e:
                 logging.warning('%s: take_bracket capture failed at speed %s: %s', camera_name, speed, e)
                 raise
-            _wait_for_capture_complete(target, context)
-            _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+            speed_ms = int(_parse_shutter_speed_seconds(speed) * 1000)
+            timeout_ms = speed_ms + 3000
+            _wait_for_capture_complete(target, context, timeout_ms = timeout_ms)
+            _drain_camera_events(target, context)
 
         # Restore base shutter speed
         gp.gp_widget_set_value(ss_widget, choices[base_idx])
@@ -1960,10 +1963,12 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
                     break
             if final_aeb_bp_choice is None:
                 final_aeb_bp_choice = aeb_bp_choices[-1]
-                logging.warning("%s: failed to set 'aebracketingpattern' at %s, chose %s instead",
+                supported_num_pictures = final_aeb_bp_choice[0]
+                logging.warning("%s: failed to set 'aebracketingpattern' at %s images, chose %s instead",
                                 camera_name,
-                                final_aeb_bp_choice)
-                num_pictures = final_aeb_bp_choice[0]
+                                str(num_pictures),
+                                supported_num_pictures)
+                num_pictures = int(supported_num_pictures)
             gp.gp_widget_set_value(aeb_bp_widget, final_aeb_bp_choice)
             _set_gp_config(camera, config, context)
         except gphoto2.GPhoto2Error as e:
@@ -2027,7 +2032,7 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
             logging.warning('Could not set Sony capturemode to "%s": %s', steps, e)
 
         try:
-            _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+            _drain_camera_events(target, context)
             bulb_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'bulb'))
             gp.gp_widget_set_value(bulb_mode, 1)
             _set_gp_config(camera, config, context)
@@ -2042,7 +2047,7 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
                 # The timeout is longer here because of the Sony A7R IIIA.
                 # If it's shorter than 700ms, the last frame won't be written to SD
                 # and camera will get stuck.
-                _drain_camera_events(target, context, timeout_ms=700, max_events=60)
+                _drain_camera_events(target, context, timeout_ms=700)
         except gphoto2.GPhoto2Error as e:
             logging.warning('Sony burst capture failed: %s', e)
 
@@ -2195,7 +2200,7 @@ def take_hdr(camera: Camera, camera_settings: CameraSettings, stops: int) -> Non
         target = camera._camera if hasattr(camera, '_camera') else camera
 
     # Ensure that no lingering events are left before proceeding with the HDR sequence
-    _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+    _drain_camera_events(target, context)
 
     # Build the ordered shutter-speed list from this camera's actual capabilities
     choices = _get_shutter_speed_choices(config)
@@ -2230,9 +2235,10 @@ def take_hdr(camera: Camera, camera_settings: CameraSettings, stops: int) -> Non
     down = list(range(start_idx, end_idx + 1, full_stop_multiplier))
     up = list(range(end_idx - full_stop_multiplier, start_idx - 1, -full_stop_multiplier))
     indices = down + up
-    logging.info(
-        'take_hdr: %d shots, speeds: %s',
-        len(indices), [choices[i] for i in indices]
+    logging.info('%s: take_hdr will take %d shots, with these speeds: %s',
+                 camera_name,
+                 len(indices),
+                 [choices[i] for i in indices]
     )
 
     for idx in indices:
@@ -2241,12 +2247,12 @@ def take_hdr(camera: Camera, camera_settings: CameraSettings, stops: int) -> Non
             gp.gp_widget_set_value(ss_widget, speed)
             gp.gp_camera_set_config(target, config, context)
             gp.check_result(gp.gp_camera_trigger_capture(target, context))
-            logging.debug('take_hdr: triggered capture at %s', speed)
+            logging.info('%s: take_hdr has triggered capture at %s', camera_name, speed)
             # First successful trigger_capture establishes eos_remotemode=15 on EOS R.
             if getattr(camera, 'vendor', None) == 'Canon':
                 camera._first_capture_done = True
         except gphoto2.GPhoto2Error as e:
-            logging.error('take_hdr: capture failed at speed %s: %s', speed, e)
+            logging.warning('%s: take_hdr has failed capture at speed %s: %s', camera_name, speed, e)
             raise
         # For all cameras except Sony set in PC only mode - wait for
         # the image capture and flush the PTP events.
@@ -2254,10 +2260,12 @@ def take_hdr(camera: Camera, camera_settings: CameraSettings, stops: int) -> Non
         if not (hasattr(camera, '_bg_downloader')
                 and camera._bg_downloader is not None
                 and camera._bg_downloader.is_alive()):
-            _wait_for_capture_complete(target, context)
-            _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+            speed_ms = int(_parse_shutter_speed_seconds(speed) * 1000)
+            timeout_ms = speed_ms + 3000
+            _wait_for_capture_complete(target, context, timeout_ms = timeout_ms)
+            _drain_camera_events(target, context)
 
-    logging.info('take_hdr: HDR sequence complete (%d shots)', len(indices))
+    logging.debug('%s: take_hdr has completed HDR sequence (%d shots)', camera_name, len(indices))
 
 
 def mirror_lock(camera: Camera, camera_settings: CameraSettings) -> None:
