@@ -316,5 +316,10 @@ def sun_radec(when=None, ephemeris: str = "de421.bsp") -> Tuple[float, float]:
     ts = load.timescale()
     t = ts.now() if when is None else ts.from_datetime(when)
     apparent = eph["Earth"].at(t).observe(eph["Sun"]).apparent()
-    ra, dec, _ = apparent.radec()
+    # Equinox of date, not the ICRF/J2000 default: OnStepX works in current
+    # coordinates, and twenty-six years of precession is 22.5 arcminutes on
+    # 12 August 2026 - 1.4 solar radii, the Sun entirely outside where a
+    # J2000 goto points.  The simulator shares this function, which is why no
+    # simulator test could ever catch it.
+    ra, dec, _ = apparent.radec(epoch='date')
     return ra.hours, dec.degrees

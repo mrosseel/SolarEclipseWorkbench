@@ -125,3 +125,52 @@ def test_a_failed_connection_leaves_the_dock_usable(dock, monkeypatch):
     assert dock.status_label.text() == "not connected"
     assert dock.connect_button.isEnabled()
     assert dock.connect_button.text() == "Connect"
+"""The mount dock survives its controller leaving the bus."""
+
+from types import SimpleNamespace
+
+
+def test_a_vanished_controller_disconnects_cleanly_and_says_why(caplog):
+    """5 August: the SAL-33 dropped off USB two seconds into a slew - the
+    motors' current spike browning out the logic - and the dock kept writing
+    into the dead port, one error dialog per attempt."""
+    import logging
+
+    from solareclipseworkbench.gui import MountDock
+    from solareclipseworkbench.mounts import MountError
+
+    from solareclipseworkbench.gui import MountDock as _Dock
+
+    dock = SimpleNamespace(
+        mount=SimpleNamespace(),
+        status_label=SimpleNamespace(setText=lambda t: None),
+        disconnected=[],
+        refresh=lambda: None,
+        _VANISHED=_Dock._VANISHED,
+    )
+    dock.disconnect_mount = lambda: dock.disconnected.append(True)
+
+    def dead_write():
+        raise MountError("write failed on /dev/cu.usbserial-0001: "
+                         "write failed: [Errno 6] Device not configured")
+
+    with caplog.at_level(logging.WARNING):
+        MountDock._guard(dock, "Stop move", dead_write)
+
+    assert dock.disconnected == [True], "kept talking to a dead port"
+    assert any("power" in r.getMessage() for r in caplog.records), \
+        "nothing pointed at the likely cause"
+
+
+def test_goto_sun_is_equinox_of_date():
+    """The P1 from the review: J2000 coordinates sent to a mount that works in
+    current ones - 22.5 arcminutes on eclipse day, 1.4 solar radii.  The
+    simulator shares sun_radec, which is why no simulator test could catch it;
+    this pins the call itself."""
+    import inspect
+
+    from solareclipseworkbench.mounts import base
+
+    source = inspect.getsource(base.sun_radec)
+    assert "epoch='date'" in source or 'epoch="date"' in source, \
+        "goto_sun is aiming 22 arcminutes behind the sun again"

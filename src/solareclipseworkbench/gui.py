@@ -59,7 +59,7 @@ from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wirin
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.limb_correction import (is_enabled as limb_correction_is_enabled,
                                                     set_enabled as set_limb_correction_enabled)
-from solareclipseworkbench.mounts import (MountDriver, MountError, MountNotSupported,
+from solareclipseworkbench.mounts import (MountDriver, MountError, MountNotSupported, mount_track_sun,
                                           connect as connect_mount, discover_mounts,
                                           format_dec, format_ra, list_drivers)
 from solareclipseworkbench.limb_ui import BeadsPanel, beads_icon
@@ -3401,6 +3401,10 @@ class MountDock(QDockWidget):
 
     # ----------------------------------------------------------------- actions
 
+    #: What a serial write says when the device itself has left the bus.
+    _VANISHED = ("device not configured", "errno 6", "device disconnected",
+                 "no such file or directory")
+
     def _guard(self, what: str, action) -> None:
         """Run a mount command, turning a refusal into a message not a crash."""
         if self.mount is None:
@@ -3410,6 +3414,21 @@ class MountDock(QDockWidget):
         except MountNotSupported as exc:
             self.status_label.setText(str(exc))
         except MountError as exc:
+            text = str(exc).lower()
+            if any(marker in text for marker in self._VANISHED):
+                # The controller has dropped off the USB bus - on 5 August it
+                # did so two seconds into a slew, which is the signature of the
+                # motors' current spike browning out the logic.  Retrying
+                # writes into a dead port just repeats the error every poll;
+                # disconnect cleanly, say why once, and leave the Connect
+                # button as the way back.
+                logging.warning("Mount %s failed because the controller left "
+                                "the USB bus - check the mount's power supply, "
+                                "then reconnect", what)
+                self.status_label.setText(
+                    "The mount vanished from USB - check its power, then Connect")
+                self.disconnect_mount()
+                return
             logging.warning('Mount %s failed: %s', what, exc)
             QMessageBox.warning(self, "Mount", f"{what} failed:\n\n{exc}")
         self.refresh()
@@ -3420,7 +3439,8 @@ class MountDock(QDockWidget):
     def toggle_tracking(self) -> None:
         wanted = self.track_button.isChecked()
         self._guard("Tracking",
-                    self.mount.tracking_on if wanted else self.mount.tracking_off)
+                    (lambda: mount_track_sun(self.mount)) if wanted
+                    else self.mount.tracking_off)
 
     def stop(self) -> None:
         self._guard("Stop", self.mount.abort)
