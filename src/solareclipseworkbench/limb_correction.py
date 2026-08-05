@@ -31,14 +31,42 @@ from solareclipseworkbench.lunar_limb import LimbBand
 
 EARTH_RADIUS_KM = EARTH_RADIUS / 1000.0
 
-# Where the blob and the orientation kernels live.  The blob is a 72 MB download
-# rather than part of the checkout, so everything here degrades to None when it
-# is absent and the caller falls back to mean-limb contacts.
-DATA_DIRECTORY = Path(__file__).resolve().parents[2] / "data"
-BAND_FILE = DATA_DIRECTORY / "lunar_limb_band_v1.bin"
-FRAME_KERNEL = DATA_DIRECTORY / "moon_080317.tf"
-ORIENTATION_KERNEL = DATA_DIRECTORY / "moon_pa_de421_1900-2050.bpc"
-EPHEMERIS = Path(__file__).resolve().parent / "de440s.bsp"
+# The two lunar orientation kernels come down from NAIF on first use, the way
+# the ephemeris already does; the limb blob is a 72 MB release asset, so
+# everything here degrades to None when it is absent and the caller falls back
+# to mean-limb contacts.
+BAND_FILE_NAME = "lunar_limb_band_v1.bin"
+FRAME_KERNEL_NAME = "moon_080317.tf"
+ORIENTATION_KERNEL_NAME = "moon_pa_de421_1900-2050.bpc"
+EPHEMERIS_NAME = "de440s.bsp"
+
+PACKAGE_DIRECTORY = Path(__file__).resolve().parent
+DATA_DIRECTORY = PACKAGE_DIRECTORY.parents[1] / "data"
+
+
+def data_path(name: str) -> Path:
+    """Where a data file is.
+
+    A checkout keeps the downloaded kernels and the limb blob in data/, and the
+    ephemeris ships inside the package; anything still missing resolves to
+    skyfield's load path, which is where it gets downloaded to.
+    """
+    for directory in (DATA_DIRECTORY, PACKAGE_DIRECTORY):
+        candidate = directory / name
+        if candidate.exists():
+            return candidate
+    return Path(load.path_to(name))
+
+
+def _open_kernel(name: str):
+    """An open handle on a kernel, downloaded on first use when it is not local."""
+    path = data_path(name)
+    if path.exists():
+        return open(path, "rb")
+    return load(name)
+
+
+BAND_FILE = data_path(BAND_FILE_NAME)
 
 # The reduced mean limb radius the l2 coefficients are built on.  Jubier charts
 # the same value as k2, and it is already the constant used when we generate
@@ -80,16 +108,17 @@ class BeadWindow:
 class LunarLimb:
     """The Moon's true limb, as seen from one place at one time."""
 
-    def __init__(self, band_path, frame_kernel_path, orientation_kernel_path, ephemeris_path):
-        self.band = LimbBand(band_path)
-        self.ephemeris = load(str(ephemeris_path))
+    def __init__(self, band_path=None, frame_kernel_name=FRAME_KERNEL_NAME,
+                 orientation_kernel_name=ORIENTATION_KERNEL_NAME,
+                 ephemeris_name=EPHEMERIS_NAME):
+        self.band = LimbBand(Path(band_path) if band_path else BAND_FILE)
+        self.ephemeris = load(str(data_path(ephemeris_name)))
 
         constants = PlanetaryConstants()
-        with open(frame_kernel_path, "rb") as text_kernel:
-            constants.read_text(text_kernel)
+        constants.read_text(_open_kernel(frame_kernel_name))
         # The binary kernel is read lazily on every rotation_at() call, so the
         # handle has to outlive this constructor.
-        self._orientation_kernel = open(orientation_kernel_path, "rb")
+        self._orientation_kernel = _open_kernel(orientation_kernel_name)
         constants.read_binary(self._orientation_kernel)
         self.frame = constants.build_frame_named("MOON_ME_DE421")
 
@@ -348,14 +377,23 @@ def beads(elements, position_angles, heights_km):
 
 
 def load_default_limb():
-    """The limb model built from the shipped data, or None if it is not installed."""
-    missing = [str(path) for path in (BAND_FILE, FRAME_KERNEL, ORIENTATION_KERNEL, EPHEMERIS)
-               if not path.exists()]
-    if missing:
+    """The limb model, or None when the limb blob has not been installed.
+
+    Only the blob is checked for: it is a 72 MB release asset the user has to
+    fetch or build deliberately, whereas the kernels are small enough that
+    skyfield can download them on the spot.
+    """
+    if not BAND_FILE.exists():
         logging.info("Lunar limb profile unavailable, contacts will use the mean limb. "
-                     "Missing: %s", ", ".join(missing))
+                     "Install %s (see tools/build_limb_blob.py) for limb-corrected "
+                     "contacts and bead windows.", BAND_FILE)
         return None
-    return LunarLimb(BAND_FILE, FRAME_KERNEL, ORIENTATION_KERNEL, EPHEMERIS)
+    try:
+        return LunarLimb()
+    except Exception as exc:
+        logging.warning("Could not load the lunar limb model, contacts will use the "
+                        "mean limb: %s", exc)
+        return None
 
 
 def _refine_internal_contact(elements, evaluate, start_hours, entering):

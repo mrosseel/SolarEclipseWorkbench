@@ -288,17 +288,15 @@ def warn_if_script_outlasts_totality(scheduler, reference_moments: dict) -> floa
     Returns the seconds of overrun, 0.0 when there are none.
 
     Loading the wrong duration is silent and costs the part of the eclipse that
-    cannot be retaken.  On 4 August the 110 s script ran against a 100 s
-    totality: its last corona ladder began at C2+95.6 s and held the camera
-    until about C2+102 s, so the command that loads the bead exposure for third
-    contact waited, was dropped after 1.5 s, and the bead burst fired at the
-    corona ladder's half-second exposure instead.  Fewer frames, none of them
-    beads, and nothing said anything until the photographs were reviewed.
+    cannot be retaken: the last corona ladder of a script written for a longer
+    totality is still running at third contact, so the command that loads the
+    bead exposure waits, is dropped, and the bead burst fires at the corona
+    ladder's exposure instead.  Fewer frames, none of them beads, and nothing
+    says anything until the photographs are reviewed.
 
     The scheduler already knows every job's time and the eclipse already knows
-    when third contact is; comparing them costs nothing and is the difference
-    between a warning while there is still time to load another file and a
-    ruined third contact.
+    when third contact is; comparing them is the difference between a warning
+    while there is still time to load another file and a ruined third contact.
     """
     c2 = reference_moments.get("C2")
     c3 = reference_moments.get("C3")
@@ -504,15 +502,6 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
             'schedule_command: no reference moment %s, so "%s" (%s) is not scheduled — '
             'the rest of the script is unaffected', name, func_name, description)
         return name
-    except Exception:
-        # One bad line must never take the application down: PyQt6 turns an
-        # unhandled exception in the load handler into a hard abort, which on
-        # eclipse morning would kill every OTHER scheduled moment too.  Log it,
-        # skip the line, keep the rest of the eclipse.
-        logging.exception(
-            'schedule_command: could not schedule "%s" (%s) — line skipped, '
-            'the rest of the script is unaffected', func_name, description)
-        return
     except Exception:
         # One bad line must never take the application down: PyQt6 turns an
         # unhandled exception in the load handler into a hard abort, which on

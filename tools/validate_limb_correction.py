@@ -29,8 +29,6 @@ from solareclipseworkbench.limb_correction import (  # noqa: E402
     solve_limb_contact, solve_point_contact)
 from solareclipseworkbench.solar_eclipse import get_element_coeffs, get_elements  # noqa: E402
 
-DATA = ROOT / "data"
-SRC = ROOT / "src" / "solareclipseworkbench"
 
 CASES = {
     # Solar Eclipse Maestro limb profile, LRO/Kaguya.
@@ -184,10 +182,7 @@ def main():
     print(f"     offset  C2 {(ut_c2 - reference['c2']) * 3600:+.2f}s  "
           f"C3 {(ut_c3 - reference['c3']) * 3600:+.2f}s")
 
-    limb = LunarLimb(DATA / "lunar_limb_band_v1.bin",
-                     DATA / "moon_080317.tf",
-                     DATA / "moon_pa_de421_1900-2050.bpc",
-                     SRC / "de440s.bsp")
+    limb = LunarLimb()
 
     # The profile is evaluated once, at maximum eclipse, the way Jubier does.
     ts = load.timescale()
