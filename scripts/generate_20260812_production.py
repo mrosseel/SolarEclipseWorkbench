@@ -476,29 +476,30 @@ BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
 # card keeps every frame regardless, since the body records RAW+JPEG to it
 # while tethered (MediaRecord reads 0x0001).  The transfer queue only decides
 # what the PC can pull afterwards, not what is photographed.
-# Where the margins go follows where the photographic diamond ring is, and
-# the solver itself says where that is.  bead_window() walks out from each
-# contact until the lit arc exceeds the photographic threshold - "the moment
-# the beads merge back into a crescent" - so the solved window is strictly
-# the bead phase.  The diamond ring a camera wants - fat crescent remnant
-# with the corona already visible - has a WIDER lit arc, which puts it
-# outside the window on the crescent side: BEFORE the window at C2, AFTER it
-# at C3.
+# The priority order, fixed by the person whose eclipse it is: the diamond
+# ring FOR SURE, then the beads, then everything else.
 #
-# This paragraph has said two other things in its life.  First that the ring
-# leads at C2 and trails at C3 (right, for this reason, by luck); then that
-# the ring is the last bead at C2 and the first at C3 (the astronomer's
-# technicality - true of the final photon, and it moved the margins to the
-# totality side, where two rehearsals in a row showed the ring being missed).
-# The camera photographs the photographer's ring.  The totality side keeps a
-# small guard for limb-solve error and the dying/first bead itself.
+# The ring is the last surviving bead blazing with the corona visible - so it
+# lives at the BOUNDARY between the bead window and totality: BEADS_C2_END
+# going in, BEADS_C3_START coming out.  The window itself is the beads.  The
+# margins therefore guard the ring's edge with two seconds against limb-solve
+# error on the totality side, keep the whole window, and give the crescent
+# side whatever the 60-frame buffer has left:
 #
-#     C2:  head 3.8 (DIAMOND, beads forming)  window  tail 0.7 (last bead + error)
-#     C3:  head 0.7 (error + first bead)  window  tail 3.0 (DIAMOND, growing)
-RELAY_C2_HEAD_S = 3.8
-RELAY_C2_TAIL_S = 0.7
-RELAY_C3_HEAD_S = 0.7
-RELAY_C3_TAIL_S = 3.0
+# There are TWO ring appearances (Baily 1836, and any current reference): the
+# canonical diamond ring "when only one or two beads are left" at the
+# beads/totality boundary, and the crescent sliver "before and after totality"
+# briefly appearing as another ring with a much larger diamond.  The totality-
+# side guard holds the canonical ring against limb-solve error; the crescent
+# side covers the big-diamond appearance.  C3's window is wider, so its
+# crescent margin gives back the difference to stay inside the 60-frame cap.
+#
+#     C2:  head 2.6 (big-diamond ring, beads forming)  window 3.25  tail 1.9 (RING)
+#     C3:  head 1.9 (RING)  window 4.05  tail 1.8 (big-diamond ring, crescent)
+RELAY_C2_HEAD_S = 2.6
+RELAY_C2_TAIL_S = 1.9
+RELAY_C3_HEAD_S = 1.9
+RELAY_C3_TAIL_S = 1.8
 RELAY_C2_S = BEADS_C2_S + RELAY_C2_HEAD_S + RELAY_C2_TAIL_S
 RELAY_C3_S = BEADS_C3_S + RELAY_C3_HEAD_S + RELAY_C3_TAIL_S
 
@@ -762,9 +763,10 @@ def _totality_block(target_s: float) -> None:
     emit("#")
     emit("# The beads run %.2f s at C2 and %.2f s at C3, and the bursts hold %.1f s and %.1f s."
          % (BEADS_C2_S, BEADS_C3_S, RELAY_C2_S, RELAY_C3_S))
-    emit("# The margins are asymmetric because the photographic diamond ring sits on the")
-    emit("# crescent side of each solved window - the windows are strictly the bead phase,")
-    emit("# and the ring's wider lit arc puts it before the window at C2, after it at C3.")
+    emit("# The diamond ring - the last bead with the corona visible - sits at the boundary")
+    emit("# between each bead window and totality.  The margins guard that boundary with two")
+    emit("# seconds against limb-solve error, keep the whole window, and give the crescent")
+    emit("# side the rest of the 60-frame buffer.  Priority: ring, then beads, then the rest.")
     emit("# C2 head %.1f / tail %.1f;  C3 head %.1f / tail %.1f."
          % (RELAY_C2_HEAD_S, RELAY_C2_TAIL_S, RELAY_C3_HEAD_S, RELAY_C3_TAIL_S))
     emit("#")
