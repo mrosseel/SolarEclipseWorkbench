@@ -486,20 +486,29 @@ BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
 # error on the totality side, keep the whole window, and give the crescent
 # side whatever the 60-frame buffer has left:
 #
-# There are TWO ring appearances (Baily 1836, and any current reference): the
-# canonical diamond ring "when only one or two beads are left" at the
-# beads/totality boundary, and the crescent sliver "before and after totality"
-# briefly appearing as another ring with a much larger diamond.  The totality-
-# side guard holds the canonical ring against limb-solve error; the crescent
-# side covers the big-diamond appearance.  C3's window is wider, so its
-# crescent margin gives back the difference to stay inside the 60-frame cap.
+# The ordering comes from the source, not from argument (Baily's beads,
+# Wikipedia, fetched 5 Aug 2026): "The diamond ring effects are seen when only
+# one or two beads are left" and - the sentence that settles the sequence -
+# "As the burst of light from the ring fades, Baily's beads appear as the last
+# bits of the bright photosphere shine through valleys".  The ring's glare
+# outshines the beads; the beads become visible as it fades.  Observably:
 #
-#     C2:  head 2.6 (big-diamond ring, beads forming)  window 3.25  tail 1.9 (RING)
-#     C3:  head 1.9 (RING)  window 4.05  tail 1.8 (big-diamond ring, crescent)
-RELAY_C2_HEAD_S = 2.6
-RELAY_C2_TAIL_S = 1.9
-RELAY_C3_HEAD_S = 1.9
-RELAY_C3_TAIL_S = 1.8
+#     C2:  crescent -> RING -> beads -> totality
+#     C3:  totality -> beads -> RING -> crescent
+#
+# So the ring sits on the CRESCENT side of each solved bead window, which is
+# also what two rehearsals showed.  ("...can briefly appear as another diamond
+# ring, albeit with a much larger diamond" covers the earlier/later fat
+# crescent, on the same side.)  Priority per the owner: the ring for sure -
+# so the crescent side carries the deep margin, and the totality side keeps a
+# solve-error guard on the bead boundary.
+#
+#     C2:  head 3.4 (RING + error)  window 3.25  tail 1.1 (last bead + error)
+#     C3:  head 1.1 (first bead + error)  window 4.05  tail 2.6 (RING + error)
+RELAY_C2_HEAD_S = 3.4
+RELAY_C2_TAIL_S = 1.1
+RELAY_C3_HEAD_S = 1.1
+RELAY_C3_TAIL_S = 2.6
 RELAY_C2_S = BEADS_C2_S + RELAY_C2_HEAD_S + RELAY_C2_TAIL_S
 RELAY_C3_S = BEADS_C3_S + RELAY_C3_HEAD_S + RELAY_C3_TAIL_S
 
@@ -763,10 +772,11 @@ def _totality_block(target_s: float) -> None:
     emit("#")
     emit("# The beads run %.2f s at C2 and %.2f s at C3, and the bursts hold %.1f s and %.1f s."
          % (BEADS_C2_S, BEADS_C3_S, RELAY_C2_S, RELAY_C3_S))
-    emit("# The diamond ring - the last bead with the corona visible - sits at the boundary")
-    emit("# between each bead window and totality.  The margins guard that boundary with two")
-    emit("# seconds against limb-solve error, keep the whole window, and give the crescent")
-    emit("# side the rest of the 60-frame buffer.  Priority: ring, then beads, then the rest.")
+    emit("# The diamond ring sits on the crescent side of each bead window: its glare")
+    emit("# outshines the beads, which appear as it fades (per the source: 'As the burst of")
+    emit("# light from the ring fades, Baily's beads appear').  The crescent side therefore")
+    emit("# carries the deep margin; the totality side guards the bead boundary against")
+    emit("# limb-solve error.  Priority: ring, then beads, then everything else.")
     emit("# C2 head %.1f / tail %.1f;  C3 head %.1f / tail %.1f."
          % (RELAY_C2_HEAD_S, RELAY_C2_TAIL_S, RELAY_C3_HEAD_S, RELAY_C3_TAIL_S))
     emit("#")

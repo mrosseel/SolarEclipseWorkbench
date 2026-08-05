@@ -202,12 +202,13 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # installed and the correction switched on; without it they are skipped, and
 # Solar Eclipse Workbench says so when the script is loaded.
 #
-# The beads run 3.25 s at C2 and 4.05 s at C3, and the bursts hold 7.8 s and 7.7 s.
-# The diamond ring - the last bead with the corona visible - sits at the boundary
-# between each bead window and totality.  The margins guard that boundary with two
-# seconds against limb-solve error, keep the whole window, and give the crescent
-# side the rest of the 60-frame buffer.  Priority: ring, then beads, then the rest.
-# C2 head 2.6 / tail 1.9;  C3 head 1.9 / tail 1.8.
+# The beads run 3.25 s at C2 and 4.05 s at C3, and the bursts hold 7.8 s and 7.8 s.
+# The diamond ring sits on the crescent side of each bead window: its glare
+# outshines the beads, which appear as it fades (per the source: 'As the burst of
+# light from the ring fades, Baily's beads appear').  The crescent side therefore
+# carries the deep margin; the totality side guards the bead boundary against
+# limb-solve error.  Priority: ring, then beads, then everything else.
+# C2 head 3.4 / tail 1.1;  C3 head 1.1 / tail 2.6.
 #
 # 60 and 60 frames, at the 7.7 fps measured on this body with the drive dial on CL
 # and CL LOW SPEED BURST set to 8 fps.  Both are menu settings on a dial position
@@ -215,10 +216,10 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # the pre-flight checks them by eye.  On CH as found (28 fps) the window would want
 # 115 frames and the body would hit its own buffer a second in, slowing the burst
 # exactly where the diamond ring is.
-take_picture, BEADS_C2_END, -, 0:00:08.4, Fuji Fujifilm X-T4, 1/4000, -, 100, "Load the beads exposure before the relay burst @ BEADS_C2_END-8.4 s, sun 8.6 deg"
-relay_arm, BEADS_C2_END, -, 0:00:07.1, "Pre-arm S1 for the C2 burst @ BEADS_C2_END-7.1 s, sun 8.6 deg"
-relay_burst, BEADS_C2_END, -, 0:00:05.9, 7.75, "Diamond ring and Baily's beads at C2, relay at 8 fps @ BEADS_C2_END-5.9 s, sun 8.6 deg"
-relay_release, BEADS_C2_END, +, 0:00:03.1, "Open every contact after the C2 burst @ BEADS_C2_END+3.1 s, sun 8.6 deg"
+take_picture, BEADS_C2_END, -, 0:00:09.2, Fuji Fujifilm X-T4, 1/4000, -, 100, "Load the beads exposure before the relay burst @ BEADS_C2_END-9.2 s, sun 8.6 deg"
+relay_arm, BEADS_C2_END, -, 0:00:07.9, "Pre-arm S1 for the C2 burst @ BEADS_C2_END-7.9 s, sun 8.6 deg"
+relay_burst, BEADS_C2_END, -, 0:00:06.7, 7.75, "Diamond ring and Baily's beads at C2, relay at 8 fps @ BEADS_C2_END-6.7 s, sun 8.6 deg"
+relay_release, BEADS_C2_END, +, 0:00:02.3, "Open every contact after the C2 burst @ BEADS_C2_END+2.3 s, sun 8.6 deg"
 voice_prompt, C2, -, 0:00:00.0, C2, "Second contact - filters off, totality has begun"
 take_bracket, C2, +, 0:00:06.0, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 1 of 9, inner edge to outer streamers @ C2+6.0 s, sun 8.6 deg"
 take_picture, C2, +, 0:00:14.7, Fuji Fujifilm X-T4, 0.5, -, 800, "Deep corona single between ladders @ C2+14.7 s, sun 8.6 deg"
@@ -253,7 +254,7 @@ take_bracket, C2, +, 0:01:36.6, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/20
 take_picture, BEADS_C3, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/4000, -, 100, "Load the beads exposure before the relay burst @ BEADS_C3-6.0 s, sun 8.6 deg"
 voice_prompt, C3, -, 0:00:08.0, C3_IN_8_SECONDS, "Eight seconds - look away from the eyepiece"
 relay_arm, BEADS_C3, -, 0:00:04.0, "Pre-arm S1 for the C3 burst @ BEADS_C3-4.0 s, sun 8.6 deg"
-relay_burst, BEADS_C3_START, -, 0:00:01.9, 7.75, "Baily's beads and diamond ring at C3, relay at 8 fps @ BEADS_C3_START-1.9 s, sun 8.6 deg"
+relay_burst, BEADS_C3_START, -, 0:00:01.1, 7.75, "Baily's beads and diamond ring at C3, relay at 8 fps @ BEADS_C3_START-1.1 s, sun 8.6 deg"
 relay_release, BEADS_C3_START, +, 0:00:09.2, "Open every contact after the C3 burst @ BEADS_C3_START+9.2 s, sun 8.6 deg"
 voice_prompt, C3, -, 0:00:05.0, C3_IN_5_SECONDS, "5 to third contact"
 voice_prompt, C3, -, 0:00:04.0, C3_IN_4_SECONDS, "4 to third contact"
