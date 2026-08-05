@@ -2385,7 +2385,9 @@ class SolarEclipseController(Observer):
                     "No Camera Connected",
                     "Live view requires a connected camera.\n\n"
                     "Click the Camera(s) button first to detect connected cameras.\n"
-                    "In simulator mode the VirtualCamera is also supported."
+                    "For a camera-free rehearsal, restart with both flags:\n"
+                    "    --sim --virtual-camera\n"
+                    "and detect again - the VirtualCamera then stands in."
                 )
             return
 
