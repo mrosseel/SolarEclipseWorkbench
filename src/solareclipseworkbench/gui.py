@@ -2096,9 +2096,11 @@ class SolarEclipseController(Observer):
                                   exc_info=True)
 
                 try:
+                    # Filled but not shown: the panel opens from the Panels
+                    # menu when wanted, rather than claiming a quarter of the
+                    # window at every script load.
                     self.view.coverage_dock.set_schedule(
                         self.scheduler, self.model.reference_moments)
-                    self.view.coverage_dock.show()
                 except Exception:
                     logging.debug("Could not draw the coverage", exc_info=True)
 

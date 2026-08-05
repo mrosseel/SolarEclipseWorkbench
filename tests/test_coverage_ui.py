@@ -109,3 +109,82 @@ def test_the_axis_ticks_are_round_numbers():
     assert all(t.second % 10 == 0 for t in ticks), \
         "ticks land on round seconds so the axis reads as a clock"
     assert len(ticks) <= 14
+
+
+# ------------------------------------------------------------- the new numbers
+
+def _moment(when):
+    return SimpleNamespace(time_utc=when)
+
+
+def test_the_symlog_axis_is_monotonic_and_centred():
+    from solareclipseworkbench.coverage_ui import _symlog
+
+    offsets = [-7200, -600, -30, 0, 30, 600, 7200]
+    mapped = [_symlog(o) for o in offsets]
+    assert mapped == sorted(mapped), "time must not change order on the axis"
+    assert _symlog(0) == 0
+    assert _symlog(-60) == -_symlog(60), "the compression is symmetric"
+    # The point of the scale: an hour is nowhere near 120x wider than 30 s.
+    assert _symlog(3600) / _symlog(30) < 8
+
+
+def test_utilization_counts_busy_time_once():
+    """A burst and a bracket overlapping into its drain must not claim the
+    same seconds twice - that is how a plan reads over 100%."""
+    from solareclipseworkbench.coverage_ui import analyse
+
+    base = datetime.datetime(2026, 8, 12, 18, 28, 56, tzinfo=datetime.timezone.utc)
+    moments = {"C2": _moment(base), "C3": _moment(base + datetime.timedelta(seconds=100))}
+    burst = [(base + datetime.timedelta(seconds=i * 0.13), 1 / 500)
+             for i in range(60)]                      # ~7.75 s held
+    overlapping = [(base + datetime.timedelta(seconds=6 + i), 0.5)
+                   for i in range(3)]
+
+    numbers = analyse([(burst[0][0], "relay_burst", burst),
+                       (overlapping[0][0], "take_bracket", overlapping)],
+                      moments)
+
+    assert numbers["frames_totality"] == 63
+    assert 0 < numbers["utilization"] <= 1.0
+    # Hold ~7.8 + 4.5 tail, bracket runs 6..8.5 then drains: merged ~13 s.
+    assert 0.10 < numbers["utilization"] < 0.20
+
+
+def test_a_plan_with_no_contacts_still_counts_frames():
+    from solareclipseworkbench.coverage_ui import analyse
+
+    base = datetime.datetime(2026, 8, 12, 18, 0, tzinfo=datetime.timezone.utc)
+    numbers = analyse([(base, "take_picture", [(base, 0.01)])], {})
+
+    assert numbers["frames_total"] == 1
+    assert numbers["utilization"] is None, "no C2-C3, no denominator"
+
+
+def test_merged_intervals_swallow_overlap():
+    from solareclipseworkbench.coverage_ui import merged_intervals
+
+    a = datetime.datetime(2026, 8, 12, 18, 0, tzinfo=datetime.timezone.utc)
+    s = lambda n: a + datetime.timedelta(seconds=n)
+    merged = merged_intervals([(s(0), s(10)), (s(5), s(12)), (s(20), s(21))])
+
+    assert merged == [(s(0), s(12)), (s(20), s(21))]
+
+
+def test_the_dock_wears_the_numbers(app=None):
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+
+    jobs, moments = _schedule()
+    moments["MAX"] = _moment(moments["C2"].time_utc
+                             + datetime.timedelta(seconds=52))
+    dock = CoverageDock()
+    scheduler = SimpleNamespace(get_jobs=lambda: jobs)
+
+    dock.set_schedule(scheduler, moments)
+
+    assert dock.stat_frames.value.text() not in ("--", "0")
+    assert dock.stat_util.value.text().endswith("%")
+    assert dock.stat_totality.value.text() == "104 s"
