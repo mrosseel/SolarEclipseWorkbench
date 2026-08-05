@@ -511,6 +511,23 @@ class OnStepXMount(MountDriver):
             raise MountError(f"unknown tracking rate: {rate}") from None
         self.send(command, ReplyKind.NONE)
 
+    def tracking_rate_name(self) -> Optional[str]:
+        """The rate the controller reports, mapped back to a name.
+
+        :GT# answers in Hz, where the whole point is the second decimal:
+        sidereal is 60.164 and solar is 60.000, and the difference is the Sun
+        drifting out of a long lens over the hours of an eclipse.
+        """
+        try:
+            hz = float(self.send(":GT#").rstrip("#"))
+        except (MountError, ValueError):
+            return None
+        for name, reference in (("sidereal", 60.1643), ("solar", 60.0),
+                                ("lunar", 57.9), ("king", 60.136)):
+            if abs(hz - reference) < 0.02:
+                return name
+        return f"{hz:.3f} Hz"
+
     # ---------------------------------------------------------------------- goto
 
     def set_target(self, ra_hours: float, dec_degrees: float) -> None:

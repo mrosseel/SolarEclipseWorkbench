@@ -174,3 +174,91 @@ def test_goto_sun_is_equinox_of_date():
     source = inspect.getsource(base.sun_radec)
     assert "epoch='date'" in source or 'epoch="date"' in source, \
         "goto_sun is aiming 22 arcminutes behind the sun again"
+
+
+# --------------------------------------------------------------- keyboard aiming
+
+def _key_event(type_, key):
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import Qt
+    return QKeyEvent(type_, key, Qt.KeyboardModifier.NoModifier)
+
+
+def test_arrow_keys_nudge_like_held_buttons(dock):
+    """Aiming at a laptop in a field: arrows must move while held, stop on
+    release - the same contract as the on-screen buttons."""
+    from PyQt6.QtCore import QEvent, Qt
+
+    _connect(dock, "simulator")
+    moved, stopped = [], []
+    dock.mount.move = moved.append
+    dock.mount.stop_move = stopped.append
+
+    assert dock.eventFilter(dock, _key_event(QEvent.Type.KeyPress, Qt.Key.Key_Up))
+    assert moved == ["north"] and stopped == []
+    assert dock.move_buttons["north"].isDown()
+
+    assert dock.eventFilter(dock, _key_event(QEvent.Type.KeyRelease, Qt.Key.Key_Up))
+    assert stopped == ["north"]
+    assert not dock.move_buttons["north"].isDown()
+
+
+def test_losing_focus_mid_hold_stops_every_axis(dock):
+    # A release lost to a focus change must not leave the mount slewing on a
+    # key nobody is pressing.
+    from PyQt6.QtCore import QEvent, Qt
+
+    _connect(dock, "simulator")
+    stopped = []
+    dock.mount.move = lambda d: None
+    dock.mount.stop_move = stopped.append
+
+    dock.eventFilter(dock, _key_event(QEvent.Type.KeyPress, Qt.Key.Key_Left))
+    dock.eventFilter(dock, QEvent(QEvent.Type.WindowDeactivate))
+
+    assert stopped == ["west"]
+    assert not dock._keys_down
+
+
+def test_the_t_key_reaches_the_track_toggle(dock):
+    from PyQt6.QtCore import QEvent, Qt
+
+    _connect(dock, "simulator")
+    clicks = []
+    dock.track_button.clicked.connect(lambda *_: clicks.append(True))
+
+    assert dock.eventFilter(dock, _key_event(QEvent.Type.KeyPress, Qt.Key.Key_T))
+    assert clicks, "T did not press Track"
+
+
+def test_number_keys_pick_the_rate(dock):
+    from PyQt6.QtCore import QEvent, Qt
+
+    _connect(dock, "simulator")
+    assert dock.rate_combo.count() >= 5
+
+    assert dock.eventFilter(dock, _key_event(QEvent.Type.KeyPress, Qt.Key.Key_5))
+    assert dock.rate_combo.currentText() == "slew"
+    assert dock.eventFilter(dock, _key_event(QEvent.Type.KeyPress, Qt.Key.Key_1))
+    assert dock.rate_combo.currentText() == "guide"
+
+
+def test_the_wrong_tracking_rate_is_the_loudest_state(dock):
+    """Tracking at sidereal looks exactly like working - the Sun just leaves
+    the lens over the next minutes.  Red for that; plain off is only amber."""
+    dock._style_track_button(True, "sidereal")
+    assert "sidereal" in dock.track_button.text()
+    assert "#c0392b" in dock.track_button.styleSheet()
+
+    dock._style_track_button(True, "solar")
+    assert "solar" in dock.track_button.text()
+    assert "#27ae60" in dock.track_button.styleSheet()
+
+    dock._style_track_button(False, None)
+    assert "off" in dock.track_button.text()
+
+
+def test_the_simulator_reports_the_rate_it_was_set(dock):
+    _connect(dock, "simulator")
+    dock.mount.set_tracking_rate("solar")
+    assert dock.mount.tracking_rate_name() == "solar"

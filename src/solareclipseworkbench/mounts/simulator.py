@@ -149,6 +149,9 @@ class SimulatorMount(MountDriver):
             raise MountError(f"unknown tracking rate: {rate}")
         self._rate = rate.lower()
 
+    def tracking_rate_name(self):
+        return getattr(self, '_rate', None)
+
     # --------------------------------------------------------- manual motion
 
     def move(self, direction: str) -> None:

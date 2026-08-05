@@ -212,6 +212,15 @@ class MountDriver(ABC):
         """
         raise MountNotSupported(f"{self.name} cannot change tracking rate")
 
+    def tracking_rate_name(self) -> Optional[str]:
+        """Which rate the mount is actually tracking at, or None if unknowable.
+
+        Read back from the controller, not remembered from what was sent: the
+        panel colours its Track button by this, and "we asked for solar" is
+        not the same fact as "the mount is at solar".
+        """
+        return None
+
     # -------------------------------------------------------- manual motion
 
     def move(self, direction: str) -> None:

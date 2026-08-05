@@ -26,8 +26,8 @@ import numpy as np
 import pandas as pd
 import pytz
 from PyQt6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
-from PyQt6.QtCore import (QTimer, QPoint, QRect, Qt, QAbstractTableModel, QModelIndex,
-                         QSettings, QSignalBlocker, pyqtSignal)
+from PyQt6.QtCore import (QTimer, QEvent, QPoint, QRect, Qt, QAbstractTableModel,
+                         QModelIndex, QSettings, QSignalBlocker, pyqtSignal)
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy, \
 QGridLayout, QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QSlider, QTableView, \
 QMessageBox, QDialog, QPlainTextEdit, QProgressBar, QToolButton, QCheckBox, QSplitter, QDockWidget, QMenu, \
@@ -3337,6 +3337,13 @@ class MountDock(QDockWidget):
         self.rate_combo.currentTextChanged.connect(self.set_rate)
         move_grid.addWidget(self.rate_combo, 1, 1)
 
+        # The keys, spelled out where the hands are: aiming happens crouched
+        # at a laptop in a field, not reading documentation.
+        hint = QLabel("arrows nudge · 1-5 rate · T track")
+        hint.setStyleSheet("color: gray; font-size: 11px;")
+        move_grid.addWidget(hint, 3, 0, 1, 3,
+                            Qt.AlignmentFlag.AlignHCenter)
+
         layout.addWidget(self.move_box)
         layout.addStretch(1)
 
@@ -3357,6 +3364,16 @@ class MountDock(QDockWidget):
 
         self._apply_capabilities()
         self._set_controls_enabled(False)
+
+        # Arrow keys nudge, wherever the focus sits inside this dock.  The
+        # filter goes on every child because the focus is always on some
+        # button or combo, never on the dock itself - and a combo would
+        # otherwise eat the arrows to scroll its own list.  Held, not
+        # clicked, like the buttons: press moves, release stops.
+        self._keys_down: set = set()
+        self.installEventFilter(self)
+        for child in self.findChildren(QWidget):
+            child.installEventFilter(self)
 
     # -------------------------------------------------------------- connection
 
@@ -3428,6 +3445,11 @@ class MountDock(QDockWidget):
 
     def disconnect_mount(self) -> None:
         self._timer.stop()
+        # Forget held keys before the driver goes: their releases would
+        # otherwise write stop commands into a mount that is None.
+        self._keys_down.clear()
+        for button in self.move_buttons.values():
+            button.setDown(False)
         mount, self.mount = self.mount, None
         register_hardware('mount', None)
         if mount is not None:
@@ -3438,6 +3460,8 @@ class MountDock(QDockWidget):
         self.connect_button.setText("Connect")
         self.status_label.setText("not connected")
         self.where_label.setText("")
+        self.track_button.setText("Track")
+        self.track_button.setStyleSheet("")
         self._set_controls_enabled(False)
 
     # ------------------------------------------------------------------ status
@@ -3458,6 +3482,11 @@ class MountDock(QDockWidget):
 
         self.status_label.setText(status.summary())
         self.track_button.setChecked(status.tracking)
+        try:
+            rate = self.mount.tracking_rate_name()
+        except MountError:
+            rate = None
+        self._style_track_button(status.tracking, rate)
 
         where = []
         try:
@@ -3534,6 +3563,92 @@ class MountDock(QDockWidget):
     def set_rate(self, rate: str) -> None:
         if rate:
             self._guard("Rate", lambda: self.mount.set_rate(rate))
+        # The fast presets move the frame in whole fields per second; the
+        # combo turns the colour of that fact so "still on slew" is visible
+        # from across a field before the next nudge, not after it.
+        colour = {"slew": "#c0392b", "fast": "#e67e22"}.get(rate.lower())
+        self.rate_combo.setStyleSheet(
+            f"QComboBox {{ background: {colour}; color: white; "
+            f"font-weight: bold; }}" if colour else "")
+
+    # ----------------------------------------------------------------- keyboard
+
+    _ARROW_DIRECTIONS = {
+        Qt.Key.Key_Up: "north", Qt.Key.Key_Down: "south",
+        Qt.Key.Key_Left: "west", Qt.Key.Key_Right: "east"}
+
+    def eventFilter(self, obj, event):
+        """Arrows nudge, T toggles track, 1-5 pick a rate - dock-wide.
+
+        Filtered on every child rather than handled here, because the focus
+        always sits on some button or combo and a combo eats arrow keys to
+        scroll its own list.  Presses repeat while held; only the first press
+        and the true release matter, hence the isAutoRepeat guards.
+        """
+        if self.mount is None:
+            return super().eventFilter(obj, event)
+        etype = event.type()
+        if etype in (QEvent.Type.FocusOut, QEvent.Type.WindowDeactivate,
+                     QEvent.Type.Hide):
+            # A release can be lost to a focus change mid-hold, and a mount
+            # that keeps slewing on a key nobody is pressing points the lens
+            # at the ground.  Any doubt stops every axis.
+            self._release_all_keys()
+            return super().eventFilter(obj, event)
+        if etype == QEvent.Type.KeyPress and not event.isAutoRepeat():
+            key = event.key()
+            direction = self._ARROW_DIRECTIONS.get(key)
+            if direction is not None:
+                self._keys_down.add(direction)
+                self.move_buttons[direction].setDown(True)
+                self.move(direction)
+                return True
+            if key == Qt.Key.Key_T:
+                self.track_button.click()
+                return True
+            if Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
+                index = key - Qt.Key.Key_1
+                if index < self.rate_combo.count():
+                    self.rate_combo.setCurrentIndex(index)
+                return True
+        elif etype == QEvent.Type.KeyRelease and not event.isAutoRepeat():
+            direction = self._ARROW_DIRECTIONS.get(event.key())
+            if direction is not None and direction in self._keys_down:
+                self._keys_down.discard(direction)
+                self.move_buttons[direction].setDown(False)
+                self.stop_move(direction)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _release_all_keys(self) -> None:
+        for direction in list(self._keys_down):
+            self._keys_down.discard(direction)
+            self.move_buttons[direction].setDown(False)
+            self.stop_move(direction)
+
+    # ----------------------------------------------------------------- styling
+
+    def _style_track_button(self, tracking: bool, rate) -> None:
+        """The Track button states the fact, in a colour readable from afar.
+
+        Green needs the rate read back as solar, not merely asked for.  A
+        mount tracking at sidereal is worse than one not tracking at all -
+        the Sun leaves a long lens within minutes and nothing looks wrong -
+        so the wrong rate is red and plain off is only amber.
+        """
+        if tracking and rate == "solar":
+            text, colour = "Track ☉ solar", "#27ae60"
+        elif tracking and rate is None:
+            # The driver cannot say; claim tracking, not the rate.
+            text, colour = "Track (rate unknown)", "#27ae60"
+        elif tracking:
+            text, colour = f"Track ⚠ {rate}", "#c0392b"
+        else:
+            text, colour = "Track off", "#b98b00"
+        self.track_button.setText(text)
+        self.track_button.setStyleSheet(
+            f"QPushButton {{ background: {colour}; color: white; "
+            f"font-weight: bold; }}")
 
     # ------------------------------------------------------------ capabilities
 
