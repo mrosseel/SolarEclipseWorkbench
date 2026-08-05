@@ -1598,6 +1598,29 @@ LIVE_VIEW_CLEAR_BEFORE_S = 8.0
 EXPOSURE_WRITE_CLEAR_S = 4.0
 
 
+def _place_beside_mount(view, window) -> None:
+    """Float a live view flush against the mount panel's left edge.
+
+    Aiming is the one job that needs both at once: the sun on screen while
+    the mount is nudged - and during a run, live view open is the only time
+    the mount gets touched at all.  Docking the preview under the mount was
+    tried and measured: its 656-pixel minimum crushes the mount to its top
+    two rows, nudge buttons gone.  So the mount keeps its column and the
+    preview floats beside it, over the sun map - which nobody is reading
+    while they are aiming.  Applies to every preview the same way, Fuji dock
+    or gphoto window or the virtual camera.
+    """
+    mount = getattr(view, 'mount_dock', None)
+    if mount is None or not mount.isVisible():
+        return
+    corner = mount.mapToGlobal(QPoint(0, 0))
+    size = window.frameGeometry().size()
+    screen_left = (view.screen().availableGeometry().left()
+                   if view.screen() else 0)
+    window.move(max(screen_left, corner.x() - size.width() - 8),
+                max(0, corner.y()))
+
+
 class SolarEclipseController(Observer):
     """ Controller for the Solar Eclipse Workbench UI in the MVC pattern. """
 
@@ -2315,22 +2338,7 @@ class SolarEclipseController(Observer):
         self.view.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, window)
         window.setFloating(True)
         window.show()
-        mount = getattr(self.view, 'mount_dock', None)
-        if mount is not None and mount.isVisible():
-            # Aiming is the one job that needs both at once: the sun on
-            # screen while the mount is nudged - and during a run, live view
-            # open is the only time the mount gets touched at all.  Docking
-            # the preview under the mount was tried and measured: the
-            # preview's 656-pixel minimum crushes the mount to its top two
-            # rows, nudge buttons gone.  So the mount keeps its column and
-            # the preview floats beside it, over the sun map - which nobody
-            # is reading while they are aiming.
-            corner = mount.mapToGlobal(QPoint(0, 0))
-            size = window.frameGeometry().size()
-            screen_left = (self.view.screen().availableGeometry().left()
-                           if self.view.screen() else 0)
-            window.move(max(screen_left, corner.x() - size.width() - 8),
-                        max(0, corner.y()))
+        _place_beside_mount(self.view, window)
         self._live_view_window = window
 
         logging.info('Live view opened for %s', getattr(camera, 'name', 'the Fuji body'))
@@ -2412,6 +2420,10 @@ class SolarEclipseController(Observer):
 
         self._live_view_window = LiveViewWindow(camera, parent=None)
         self._live_view_window.show()
+        # Same contract as the Fuji preview: aiming needs the sun on screen
+        # and the nudge buttons in reach at once, whichever camera provides
+        # the picture - the virtual one included.
+        _place_beside_mount(self.view, self._live_view_window)
 
     def load_settings(self):
         """ Load the UI settings.
