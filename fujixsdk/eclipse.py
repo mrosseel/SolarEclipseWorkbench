@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from . import _constants as C
-from ._errors import BusyError, XSDKError
+from ._errors import BusyError, CommunicationError, XSDKError
 from .camera import BUFFER_SLOTS, DRAIN_AT, Camera
 
 log = logging.getLogger(__name__)
@@ -391,20 +391,35 @@ class LiveViewStream:
 
     def stop(self):
         self._running = False
+        if self.camera.vanished:
+            # There is nothing to say goodbye to, and saying it anyway walks
+            # the SDK's device-removal path - the one that corrupts the heap.
+            return
         try:
             self.camera.stop_live_view()
+        except CommunicationError:
+            self.camera.vanished = True
         except XSDKError:
             pass
 
     def read_frame(self) -> bytes | None:
         """Read one JPEG frame. Returns None if no frame ready."""
-        if not self._running:
+        if not self._running or self.camera.vanished:
             return None
         try:
             info = self.camera.read_image_info()
             fmt = info.format & 0xFF
             if fmt == (C.IMAGEFORMAT_LIVE & 0xFF) and info.data_size > 0:
                 return self.camera.read_image(info.data_size)
+        except CommunicationError as e:
+            # The body left the bus - powered off or unplugged.  Swallowing
+            # this like the errors above would poll the corpse a few times a
+            # second until somebody closed the window; raising ends the loop
+            # with the first failure.
+            self.camera.vanished = True
+            raise RuntimeError(
+                "the camera has left the bus - powered off or unplugged "
+                f"({e})") from e
         except XSDKError:
             pass
         return None

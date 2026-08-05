@@ -335,6 +335,74 @@ def test_a_failed_open_does_not_tear_down_a_session_that_never_opened():
         "closed a session that was never opened: %s" % lib.teardown
 
 
+def test_a_vanished_body_is_abandoned_not_closed():
+    """The segfault of 5 August: exiting live view with the camera off.
+
+    The faulting thread was Apple's libxpc disposing an async reply
+    dictionary that was already freed - not one Python, Qt or SDK frame on
+    it.  The SDK's device-removal path corrupts the heap when the teardown
+    calls (Release, drain, SetPriorityMode, Close) are made into a handle
+    whose device has left the bus; whoever owns the next allocation dies.
+    So a vanished body's handle is abandoned: leak it, never dial it.
+    """
+    from fujixsdk.camera import Camera
+
+    class _RecordingLib:
+        def __init__(self):
+            self.calls = []
+
+        def __getattr__(self, name):
+            if name.startswith("XSDK_"):
+                def _record(*a):
+                    self.calls.append(name)
+                    return C.COMPLETE
+                return _record
+            raise AttributeError(name)
+
+    lib = _RecordingLib()
+    cam = object.__new__(Camera)
+    cam._lib_inst = lib
+    cam._handle = ctypes.c_void_p()
+    cam._closed = False
+    cam.vanished = True
+    cam._release_lib = lambda: None
+
+    cam.close()
+
+    assert lib.calls == [], "dialed a body that left the bus: %s" % lib.calls
+    assert cam._closed, "the session must still count as closed"
+
+
+def test_the_stream_stops_polling_a_body_that_left_the_bus():
+    # Before this, read_frame swallowed the error and polled the corpse a few
+    # times a second until somebody closed the window - hundreds more walks
+    # through the SDK's heap-corrupting removal path.
+    import pytest
+
+    from fujixsdk._errors import CommunicationError
+    from fujixsdk.eclipse import LiveViewStream
+
+    class _GoneBody:
+        vanished = False
+
+        def read_image_info(self):
+            raise CommunicationError(0x2001, "Communication error")
+
+        def stop_live_view(self):
+            raise AssertionError("said goodbye to a body that is off the bus")
+
+    stream = LiveViewStream.__new__(LiveViewStream)
+    stream.camera = _GoneBody()
+    stream._running = True
+
+    with pytest.raises(RuntimeError):
+        stream.read_frame()
+    assert stream.camera.vanished, "the departure was not recorded"
+
+    stream.stop()                      # must not raise, must not dial out
+    assert stream.read_frame() is None, "kept polling after the departure"
+
+
 def test_closing_the_last_camera_does_not_exit_the_sdk():
     """This SDK does not survive Exit followed by Init in one process.
 

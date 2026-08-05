@@ -349,6 +349,10 @@ class Camera:
         self._handle = ctypes.c_void_p()
         self._camera_mode = ctypes.c_long()
         self._closed = False
+        #: The body has left the bus - powered off or unplugged mid-session.
+        #: Set by whoever meets the first CommunicationError; once set, close()
+        #: abandons the handle instead of tearing it down.  See close().
+        self.vanished = False
 
         self._lib_inst = self._ensure_lib(sdk_path)
 
@@ -426,6 +430,19 @@ class Camera:
         """
         if not self._closed:
             self._closed = True
+            if self.vanished:
+                # The body is off the bus.  Every teardown call below is USB
+                # traffic into a handle whose device is gone, and the SDK's
+                # removal path scribbles on freed memory when poked that way:
+                # on 4 August it was malloc's checksum abort, on 5 August an
+                # XPC reply dictionary on a dispatch thread - SIGSEGV with not
+                # one Python frame on the stack.  A leaked handle costs
+                # nothing next to that, so the handle is abandoned, not closed.
+                log.warning("The camera left the bus mid-session; abandoning "
+                            "its handle rather than closing it - power the "
+                            "body on and detect it again for a new session")
+                self._release_lib()
+                return
             try:
                 shot_opt = ctypes.c_long(1)
                 af_status = ctypes.c_long()
@@ -448,12 +465,14 @@ class Camera:
         # Force-close without draining (camera is stuck anyway)
         if not self._closed:
             self._closed = True
-            try:
-                self._lib_inst.XSDK_Close(self._handle)
-            except Exception:
-                pass
+            if not self.vanished:
+                try:
+                    self._lib_inst.XSDK_Close(self._handle)
+                except Exception:
+                    pass
         # Reopen
         self._closed = False
+        self.vanished = False
         self._handle = ctypes.c_void_p()
         self._camera_mode = ctypes.c_long()
         count = ctypes.c_long(0)

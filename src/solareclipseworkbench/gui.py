@@ -2060,13 +2060,6 @@ class SolarEclipseController(Observer):
                 LOGGER.info("Replacing the previously loaded script")
                 self._shutdown_scheduler()
 
-            # Loading a script always starts a *new* scheduler, so any scheduler from a
-            # previously loaded script must be stopped first — otherwise both stay alive and
-            # every command fires twice.
-            if self.scheduler:
-                LOGGER.info("Replacing the previously loaded script")
-                self._shutdown_scheduler()
-
             try:
                 from solareclipseworkbench.utils import observe_solar_eclipse
                 self.scheduler: BackgroundScheduler
@@ -2298,10 +2291,18 @@ class SolarEclipseController(Observer):
 
         from solareclipseworkbench.liveview import LiveViewWindow
         if self._live_view_window is not None:
+            # Closing a dock only hides it: every live view ever opened stayed
+            # attached to the main window, all under the same objectName, and
+            # a pile of hidden namesakes is what Qt's dock layout chokes on -
+            # on 5 August it squeezed the mount dock half off the window.
+            # The old window is detached and destroyed, not just closed.
             try:
                 self._live_view_window.close()
+                self.view.removeDockWidget(self._live_view_window)
+                self._live_view_window.deleteLater()
             except Exception:
                 logging.debug("Could not close the previous live view", exc_info=True)
+            self._live_view_window = None
 
         # The adapter, not the bare handle: the window needs its lock.
         window = LiveViewWindow(camera, self.view)
@@ -2698,6 +2699,10 @@ class SolarEclipseController(Observer):
             try:
                 LOGGER.info("Closing live view with the schedule")
                 window.close()
+                # Closing a dock only hides it; detach and destroy it so it
+                # cannot linger in the dock layout under the next window's name.
+                self.view.removeDockWidget(window)
+                window.deleteLater()
             except Exception:
                 logging.exception("Could not close live view on stop")
             self._live_view_window = None

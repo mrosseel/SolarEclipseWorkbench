@@ -77,6 +77,12 @@ _FRAME_READ_WAIT_S = 6.0
 #: deliberate change look broken when it only needed to queue.
 _EXPOSURE_LOCK_WAIT_S = 12.0
 
+#: The teardown of the last stream, still running on its finisher thread.  A
+#: new stream must not start under it: the finisher ends with StopLiveView and
+#: a priority handover, which fired into a freshly started stream would stop
+#: it dead.  Module-level because every open builds a fresh window.
+_pending_stop: threading.Thread | None = None
+
 # How long to wait before asking the body for another frame.  Measured on the
 # X-T4: it emits a frame every ~200 ms and will not be hurried - polling with no
 # gap at all, or at 5, 20, 40 or 80 ms, returned the same 40 frames in eight
@@ -740,6 +746,20 @@ class LiveViewWindow(QDockWidget):
         if self._thread is not None:
             return
 
+        # A previous stream may still be shutting down on its finisher thread.
+        # Normally that is over in well under a second; when it is not, the
+        # link is stalled and starting into it would only wedge this stream
+        # too, so wait briefly and come back rather than freeze the window.
+        pending = _pending_stop
+        if pending is not None and pending.is_alive():
+            pending.join(timeout=2.0)
+            if pending.is_alive():
+                self._status_bar.showMessage(
+                    "The last live view is still shutting down - retrying "
+                    "shortly; reconnect the camera if this goes on", 8000)
+                QTimer.singleShot(3000, self._auto_start)
+                return
+
         self._start_btn.setEnabled(False)
         self._status_bar.showMessage("Preparing camera...")
 
@@ -813,10 +833,20 @@ class LiveViewWindow(QDockWidget):
         self._status_bar.showMessage("Streaming...")
 
     def stop_stream(self):
-        """Stop the live view stream and worker thread."""
+        """Stop the live view stream and worker thread.
+
+        Only the flag-setting and the widgets are handled here.  The waiting -
+        for the frame read in flight, for the worker thread, for the body to
+        take its priority back - moves to a finisher thread: on 5 August a
+        stalled frame read kept this method on the GUI thread for over half a
+        minute, and a Stop button that freezes the whole app reads as a hang,
+        not a stop.
+        """
         self._fps_timer.stop()
 
-        worker = self._worker
+        worker, thread, stream = self._worker, self._thread, self._stream
+        self._worker = self._thread = self._stream = None
+
         if worker:
             worker.stop()
             # Disconnect signals to prevent callbacks during teardown
@@ -825,12 +855,42 @@ class LiveViewWindow(QDockWidget):
                 worker.error.disconnect(self._on_error)
             except (TypeError, RuntimeError):
                 pass
+
+        self._start_btn.setEnabled(True)
+        self._stop_btn.setEnabled(False)
+        self._display.clear()
+        self._display.setText("No Signal")
+        self._fps_label.setText("FPS: --")
+        self._status_bar.showMessage("Stopped")
+
+        if worker is None and thread is None and stream is None:
+            # Nothing ever started, so there is nothing to wait out and no
+            # priority to hand back.
+            return
+
+        # Module-level, not an attribute: every open makes a fresh window, so
+        # the window starting the next stream is never the one whose teardown
+        # is still in flight.
+        global _pending_stop
+        _pending_stop = threading.Thread(
+            target=self._finish_stop, args=(worker, thread, stream),
+            name="liveview-stop", daemon=True)
+        _pending_stop.start()
+
+    def _finish_stop(self, worker, thread, stream):
+        """The slow half of stop_stream, off the GUI thread.
+
+        Everything here talks to the SDK through the adapter, which serialises
+        on the usb lock, so a stream restarted while this still runs cannot
+        end up inside the SDK alongside it.
+        """
+        if worker is not None:
             # The loop exits between frames, so what decides how long this takes
             # is the frame read in flight, not the flag just set.
             worker.wait_idle(_FRAME_READ_WAIT_S)
-        if self._thread:
-            self._thread.quit()
-            if not self._thread.wait(5000):
+        if thread is not None:
+            thread.quit()
+            if not thread.wait(5000):
                 # Not terminated.  Killing a thread parked inside an SDK call
                 # leaves the SDK holding a half-finished USB transfer: on
                 # 4 August that turned a slow stop into a window that would not
@@ -842,16 +902,13 @@ class LiveViewWindow(QDockWidget):
                           "is stalled.  Leaving the thread to finish rather than "
                           "killing it mid-transfer - reconnect the camera if the "
                           "preview does not come back")
-                self._stalled_threads.append((self._thread, worker))
-            self._thread = None
-        self._worker = None
+                self._stalled_threads.append((thread, worker))
 
-        if self._stream:
+        if stream is not None:
             try:
-                self._stream.stop()
+                stream.stop()
             except Exception:
                 log.debug("Error stopping live view stream", exc_info=True)
-            self._stream = None
 
         # Give the camera back.  Live view takes PRIORITY_PC to stream and this
         # never returned it, so the body stayed in PC priority for the rest of
@@ -859,20 +916,24 @@ class LiveViewWindow(QDockWidget):
         # session's idea of who is in charge no longer matches the body's.  That
         # is the shape of the 0x2001 that took two rehearsals down, and it
         # outlived closing the window, which is why it looked unrelated.
-        try:
-            self._camera.set_priority(PRIORITY_CAMERA)
-            log.info("Live view stopped; camera priority returned to the body")
-        except Exception:
-            log.warning("Could not return camera priority after live view; "
-                        "the body may refuse the relay until it is reconnected",
-                        exc_info=True)
-
-        self._start_btn.setEnabled(True)
-        self._stop_btn.setEnabled(False)
-        self._display.clear()
-        self._display.setText("No Signal")
-        self._fps_label.setText("FPS: --")
-        self._status_bar.showMessage("Stopped")
+        if getattr(self._camera, 'vanished', False):
+            # No handshake with a body that is off the bus: on 5 August the
+            # calls made here after a power-off ended in a SIGSEGV from the
+            # SDK's device-removal path, with no Python frame on the stack.
+            log.warning("Live view stopped, but the camera is off the bus; "
+                        "power it on and detect it again")
+        elif self._thread is not None:
+            # A new stream took the body over while this one was still being
+            # waited out; the priority is its to keep now.
+            log.info("Live view stopped; a new stream already owns the camera")
+        else:
+            try:
+                self._camera.set_priority(PRIORITY_CAMERA)
+                log.info("Live view stopped; camera priority returned to the body")
+            except Exception:
+                log.warning("Could not return camera priority after live view; "
+                            "the body may refuse the relay until it is reconnected",
+                            exc_info=True)
 
     @pyqtSlot(bytes)
     def _on_frame(self, data: bytes):
