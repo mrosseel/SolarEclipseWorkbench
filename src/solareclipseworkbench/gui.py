@@ -2311,7 +2311,18 @@ class SolarEclipseController(Observer):
         # the person who just said they need it.
         window.user_accepts_blocking = accepts_blocking
         self.view.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, window)
-        window.setFloating(True)
+        mount = getattr(self.view, 'mount_dock', None)
+        if mount is not None and mount.isVisible():
+            # Aiming is the one job that needs both at once: the sun on
+            # screen while the mount is nudged - and during a run, live view
+            # open is the only time the mount gets touched at all.  A
+            # floating preview covered the mount panel; docked below it,
+            # both stay usable.
+            self.view.splitDockWidget(mount, window, Qt.Orientation.Vertical)
+            self.view.resizeDocks([mount, window], [1, 3],
+                                  Qt.Orientation.Vertical)
+        else:
+            window.setFloating(True)
         window.show()
         self._live_view_window = window
 

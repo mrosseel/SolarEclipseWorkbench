@@ -237,6 +237,8 @@ def _live_view_stub(sdk):
     win._stream = None                      # ...so nothing to stop for a write
     win._usb_lock = threading.RLock()       # the real one is the camera's
     win._refresh_exposure = lambda: LiveViewWindow._refresh_exposure(win)
+    win._fill_shutter_combo = lambda speeds: LiveViewWindow._fill_shutter_combo(
+        win, speeds)
     win._write_exposure = lambda action, what, hint: LiveViewWindow._write_exposure(
         win, action, what, hint)
     # The real window writes on a background thread so the window keeps

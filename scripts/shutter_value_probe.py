@@ -60,6 +60,20 @@ def main() -> None:
     print(f"{GREEN}Connected:{RESET} {name}, body on "
           f"{SHUTTER_SPEED_NAMES.get(original, original)}")
 
+    # The manual says CapShutterSpeed answers for the current exposure mode
+    # and shutter type; its answer here, mode already set, is the list the
+    # dropdown should carry.  The set-loop below is the cross-check.
+    try:
+        cap = sorted(v for v in sdk_cam.get_supported_shutter_speeds() if v > 0)
+    except XSDKError as exc:
+        cap = []
+        print(f"{YELLOW}CapShutterSpeed refused: {exc}{RESET}")
+    if cap:
+        print(f"CapShutterSpeed lists {len(cap)}: "
+              + ", ".join(SHUTTER_SPEED_NAMES.get(v, str(v)) for v in cap))
+    else:
+        print(f"{YELLOW}CapShutterSpeed answers empty in this state{RESET}")
+
     records = []
     refused = []
     landed_off = []

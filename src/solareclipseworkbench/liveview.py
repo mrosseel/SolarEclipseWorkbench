@@ -852,6 +852,24 @@ class LiveViewWindow(QDockWidget):
         self._frame_count = 0
         self._focus_graph.reset()
         self._fps_timer.start(1000)
+
+        # Now, not at window build, is when the body can be asked which
+        # speeds it takes: CapShutterSpeed answers for the current exposure
+        # mode and shutter type, so with PC priority held and the session in
+        # its real state its answer replaces the static table - and the mixed
+        # third-stop/half-stop grid that produced 0x2003 refusals goes away.
+        try:
+            supported = sorted(v for v in
+                               self._camera.get_supported_shutter_speeds()
+                               if v > 0)
+        except XSDKError as exc:
+            log.debug("CapShutterSpeed not answering: %s", exc)
+            supported = []
+        if supported:
+            log.info("The body lists %d settable shutter speeds in this mode",
+                     len(supported))
+            self._fill_shutter_combo(supported)
+
         # The dials may have been turned by hand since the window was opened.
         self._refresh_exposure()
 
@@ -1053,19 +1071,25 @@ class LiveViewWindow(QDockWidget):
     # Exposure
     # ------------------------------------------------------------------
 
-    def _populate_exposure(self):
-        """Fill the shutter and ISO lists and show what the body is set to.
-
-        The shutter values come from the SDK's own name table rather than from
-        CapShutterSpeed, which this body does not implement - it answers with an
-        empty list, and a dropdown built from that would be empty too.
-        """
-        speeds = dropdown_shutter_speeds()
+    def _fill_shutter_combo(self, speeds):
         self._shutter_combo.blockSignals(True)
         self._shutter_combo.clear()
         for value in speeds:
-            self._shutter_combo.addItem(str(SHUTTER_SPEED_NAMES[value]), value)
+            self._shutter_combo.addItem(
+                str(SHUTTER_SPEED_NAMES.get(value, f"{value}us")), value)
         self._shutter_combo.blockSignals(False)
+
+    def _populate_exposure(self):
+        """Fill the shutter and ISO lists and show what the body is set to.
+
+        The shutter values start from the SDK's name table: CapShutterSpeed
+        answers for the current exposure mode and shutter type, so asked here -
+        at window build, before PC priority and the mode are established - it
+        answers empty (the manual: "set the exposure mode and shutter type
+        before calling this function").  Once the stream is up and the session
+        is in its real state, the list is rebuilt from the body's own answer.
+        """
+        self._fill_shutter_combo(dropdown_shutter_speeds())
 
         try:
             isos = [i for i in self._camera.get_supported_iso() if i > 0]
