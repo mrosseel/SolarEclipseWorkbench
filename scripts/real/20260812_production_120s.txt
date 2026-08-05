@@ -205,7 +205,8 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # The beads run 3.25 s at C2 and 4.05 s at C3, and the bursts hold 7.8 s and 7.8 s.
 # Owner's specification: the SMALL diamond - 'one or two beads left' - on the
 # totality side of each bead window.  The deep margin sits there at both
-# contacts; the crescent side gets what the 60-frame buffer has left.
+# contacts; the crescent side gets the remainder of the hold.  Bursts drain
+# their tether queue live, so a hold is no longer capped at 32 frames.
 # Priority: small diamond ring, then beads, then everything else.
 # C2 head 1.9 / tail 2.6;  C3 head 2.6 / tail 1.1.
 #

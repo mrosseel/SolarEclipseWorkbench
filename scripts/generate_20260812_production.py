@@ -474,8 +474,10 @@ BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
 #
 # One hold is also one buffer: 32 frames covered 4.15 s on the bench, and the
 # card keeps every frame regardless, since the body records RAW+JPEG to it
-# while tethered (MediaRecord reads 0x0001).  The transfer queue only decides
-# what the PC can pull afterwards, not what is photographed.
+# while tethered.  The transfer queue holds a copy of every frame until the
+# PC deletes it - and at 32 undrained frames the body HARD-STOPS a held
+# burst, which silently truncated every burst before 5 August.  relay_burst
+# now drains the queue during the hold, so a burst runs as long as its hold.
 # The priority order, fixed by the person whose eclipse it is: the diamond
 # ring FOR SURE, then the beads, then everything else.
 #
@@ -484,7 +486,10 @@ BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
 # going in, BEADS_C3_START coming out.  The window itself is the beads.  The
 # margins therefore guard the ring's edge with two seconds against limb-solve
 # error on the totality side, keep the whole window, and give the crescent
-# side whatever the 60-frame buffer has left:
+# side what remains of the hold.  (The "60-frame buffer" that used to bound
+# these holds was really the 32-slot tether queue hard-stopping the body;
+# with the queue drained live the practical bound is the schedule, not the
+# camera.  The margins stay as the owner set them.)
 #
 # OWNER'S SPECIFICATION - final, not to be re-reasoned:
 #
@@ -494,7 +499,7 @@ BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
 # at the beads/totality boundary: BEADS_C2_END going in, BEADS_C3_START
 # coming out.  The deep margin sits on the totality side of both windows to
 # hold that ring against limb-solve error.  The crescent side (fat sliver,
-# forming/fading beads) gets whatever the 60-frame buffer has left.
+# forming/fading beads) gets the remainder of the hold.
 #
 # The margins flipped four times in two days, each flip argued from a
 # different reading of the same phenomena.  The owner has now specified the
@@ -771,7 +776,8 @@ def _totality_block(target_s: float) -> None:
          % (BEADS_C2_S, BEADS_C3_S, RELAY_C2_S, RELAY_C3_S))
     emit("# Owner's specification: the SMALL diamond - 'one or two beads left' - on the")
     emit("# totality side of each bead window.  The deep margin sits there at both")
-    emit("# contacts; the crescent side gets what the 60-frame buffer has left.")
+    emit("# contacts; the crescent side gets the remainder of the hold.  Bursts drain")
+    emit("# their tether queue live, so a hold is no longer capped at 32 frames.")
     emit("# Priority: small diamond ring, then beads, then everything else.")
     emit("# C2 head %.1f / tail %.1f;  C3 head %.1f / tail %.1f."
          % (RELAY_C2_HEAD_S, RELAY_C2_TAIL_S, RELAY_C3_HEAD_S, RELAY_C3_TAIL_S))
