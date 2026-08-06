@@ -18,8 +18,9 @@ import threading
 import time
 
 import numpy as np
-from PyQt6.QtCore import QObject, QPointF, QRect, QRectF, QThread, pyqtSignal, pyqtSlot, QTimer, Qt
-from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+from PyQt6.QtCore import (QEvent, QObject, QPointF, QRect, QRectF, QThread,
+                          pyqtSignal, pyqtSlot, QTimer, Qt)
+from PyQt6.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
     QStatusBar, QSizePolicy, QDockWidget,
@@ -537,6 +538,16 @@ class LiveViewWindow(QDockWidget):
     #: the window keeps painting while it waits.
     write_finished = pyqtSignal()
 
+    #: The write thread's other three wishes, delivered onto the GUI thread
+    #: the same way.  It used to call the widgets directly - a status bar
+    #: message, a combo resync, even a full stop_stream, all from a plain
+    #: Python thread, which Qt does not survive reliably.  And the old
+    #: QTimer.singleShot(0, stop_stream) escape hatch never fired at all: a
+    #: plain thread has no Qt event loop to run a timer on.
+    status_message = pyqtSignal(str, int)
+    stop_requested = pyqtSignal()
+    exposure_resync = pyqtSignal()
+
     _ZOOM_LEVELS = [1, 2, 4, 8]
 
     def __init__(self, camera, parent: QWidget | None = None):
@@ -592,6 +603,12 @@ class LiveViewWindow(QDockWidget):
 
         self.setMinimumSize(680, 560)
         self._build_ui()
+
+        # After the widgets exist: the write thread's messengers, delivered
+        # queued onto the GUI thread.
+        self.status_message.connect(self._status_bar.showMessage)
+        self.stop_requested.connect(self.stop_stream)
+        self.exposure_resync.connect(self._refresh_exposure)
 
     def _build_ui(self):
         container = QWidget()
@@ -675,6 +692,24 @@ class LiveViewWindow(QDockWidget):
         self._stop_btn.setMinimumHeight(34)
         self._stop_btn.clicked.connect(self.close)
         btn_bar.addWidget(self._stop_btn, 1)
+
+        # Focusing wants every pixel the screen has.  F (or double-clicking
+        # the picture) fills the screen; F or Esc brings the window back.
+        self._fullscreen_btn = QPushButton("⛶")
+        self._fullscreen_btn.setToolTip("Fullscreen (F, or double-click the "
+                                        "picture; Esc to come back)")
+        self._fullscreen_btn.setFixedWidth(36)
+        self._fullscreen_btn.setMinimumHeight(34)
+        self._fullscreen_btn.clicked.connect(self.toggle_fullscreen)
+        btn_bar.addWidget(self._fullscreen_btn)
+        for keys in ("F", "Escape"):
+            shortcut = QShortcut(QKeySequence(keys), self)
+            # Reaches the toggle from whichever child holds the focus.
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(
+                self.toggle_fullscreen if keys == "F" else self._leave_fullscreen)
+        self._display.installEventFilter(self)
+        self._was_floating = True
 
         QTimer.singleShot(200, self._auto_start)
 
@@ -1153,6 +1188,31 @@ class LiveViewWindow(QDockWidget):
             combo.setCurrentIndex(index)
             combo.blockSignals(False)
 
+    def _say(self, text: str, ms: int = 0) -> None:
+        """status_message.emit that survives the window being destroyed.
+
+        The write thread outlives a redetect or a STOP; an emit on a dead
+        window raises RuntimeError, and one of these sits between the lock
+        acquire and the finally that releases it - unguarded, that error
+        leaves the camera lock held forever.
+        """
+        try:
+            self.status_message.emit(text, ms)
+        except RuntimeError:
+            log.debug("No window left to say: %s", text)
+
+    def _ask_stop(self) -> None:
+        try:
+            self.stop_requested.emit()
+        except RuntimeError:
+            pass
+
+    def _ask_resync(self) -> None:
+        try:
+            self.exposure_resync.emit()
+        except RuntimeError:
+            pass
+
     def _write_exposure(self, action, what: str, dial_hint: str) -> bool:
         """Write one exposure setting, with live view actually stopped.
 
@@ -1191,10 +1251,10 @@ class LiveViewWindow(QDockWidget):
                 log.warning("A frame read has not returned after %.0fs; the USB "
                             "link is stalled, so the %s was not written",
                             _FRAME_READ_WAIT_S, what)
-                self._status_bar.showMessage(
+                self._say(
                     "The camera stopped responding - live view stopped", 8000)
                 worker.stop()
-                QTimer.singleShot(0, self.stop_stream)
+                self._ask_stop()
                 return False
         if not self._usb_lock.acquire(timeout=_EXPOSURE_LOCK_WAIT_S):
             # Logged, not only shown: this path was silent, so a refusal here
@@ -1204,7 +1264,7 @@ class LiveViewWindow(QDockWidget):
             # polling of the body for the camera panel.
             log.warning("Could not set the %s: the camera was still in use after "
                         "%.0fs", what, _EXPOSURE_LOCK_WAIT_S)
-            self._status_bar.showMessage(
+            self._say(
                 f"Could not set the {what}: the camera did not come free", 6000)
             if worker is not None:
                 worker.resume()
@@ -1212,12 +1272,12 @@ class LiveViewWindow(QDockWidget):
             # keeps the value that was clicked otherwise, so the control says
             # 1/500 while the camera is on 1/4000 and the picture does not
             # change - which is exactly how this was reported.
-            self._refresh_exposure()
+            self._ask_resync()
             return False
 
         was_streaming = self._stream is not None
         if was_streaming:
-            self._status_bar.showMessage(f"Setting {what}...")
+            self._say(f"Setting {what}...", 0)
             try:
                 self._stream.stop()
             except Exception:
@@ -1243,7 +1303,7 @@ class LiveViewWindow(QDockWidget):
             log.warning("Could not set the %s: %s (live view was stopped for the "
                         "write, so the body is busy with something else)",
                         what, exc)
-            self._status_bar.showMessage(
+            self._say(
                 f"{what.capitalize()} refused: the camera stayed busy", 6000)
             return False
         except XSDKError as exc:
@@ -1255,14 +1315,14 @@ class LiveViewWindow(QDockWidget):
                 log.warning("Could not set the %s: the body refuses it in its "
                             "current mode (%s) - check the drive dial and the "
                             "mechanical/electronic shutter setting", what, exc)
-                self._status_bar.showMessage(
+                self._say(
                     f"{what.capitalize()} refused: the body will not take it "
                     "in this mode - check drive dial and MS/ES setting", 8000)
                 return False
             # The code matters: 0x1003 on a dead handle is not 0x1002 on a value
             # the body will not take, and both used to read as "check the dial".
             log.warning("Could not set the %s: %s", what, exc, exc_info=True)
-            self._status_bar.showMessage(
+            self._say(
                 f"{what.capitalize()} refused ({exc}) - {dial_hint}", 6000)
             return False
         finally:
@@ -1284,14 +1344,14 @@ class LiveViewWindow(QDockWidget):
                 # thread inside the SDK with the camera lock held.
                 if worker is not None:
                     worker.stop()
-                self.stop_stream()
-                self._status_bar.showMessage(
+                self._ask_stop()
+                self._say(
                     "Live view stopped after the setting was written - "
                     "start it again", 8000)
             else:
                 if worker is not None:
                     worker.resume()
-                self._refresh_exposure()
+                self._ask_resync()
 
     def _on_shutter_changed(self, index: int):
         value = self._shutter_combo.currentData()
@@ -1337,7 +1397,13 @@ class LiveViewWindow(QDockWidget):
             try:
                 self._write_exposure(action, what, dial_hint)
             finally:
-                self.write_finished.emit()
+                try:
+                    self.write_finished.emit()
+                except RuntimeError:
+                    # The window was destroyed while the write was in flight -
+                    # a redetect or a STOP tore it down.  The setting landed
+                    # or it did not; there is no widget left to tell.
+                    log.debug("The live view closed before its write finished")
 
         self._write_thread = threading.Thread(
             target=run, name="exposure-write", daemon=True)
@@ -1388,6 +1454,33 @@ class LiveViewWindow(QDockWidget):
             self.stop_stream()
             self._status_bar.showMessage(
                 "Stopped - the camera is needed for a frame", 8000)
+
+    def toggle_fullscreen(self):
+        """Fill the screen with the preview, or come back from it.
+
+        A docked window is floated first - fullscreen is a top-level state -
+        and where it was is put back on the way out.
+        """
+        if self.isFullScreen():
+            self.showNormal()
+            if not self._was_floating:
+                self.setFloating(False)
+        else:
+            self._was_floating = self.isFloating()
+            if not self.isFloating():
+                self.setFloating(True)
+            self.showFullScreen()
+
+    def _leave_fullscreen(self):
+        if self.isFullScreen():
+            self.toggle_fullscreen()
+
+    def eventFilter(self, obj, event):
+        if obj is getattr(self, '_display', None) \
+                and event.type() == QEvent.Type.MouseButtonDblClick:
+            self.toggle_fullscreen()
+            return True
+        return super().eventFilter(obj, event)
 
     def closeEvent(self, event):
         try:

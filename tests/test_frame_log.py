@@ -239,6 +239,14 @@ def _live_view_stub(sdk):
     win._refresh_exposure = lambda: LiveViewWindow._refresh_exposure(win)
     win._fill_shutter_combo = lambda speeds: LiveViewWindow._fill_shutter_combo(
         win, speeds)
+    # The write path speaks to the GUI thread through guarded emits; here
+    # they run where they are called, which is what the real queued
+    # connection does a moment later on the GUI thread.  Late-bound, so a
+    # test that replaces win.stop_stream or win._refresh_exposure sees it.
+    win._say = lambda text, ms=0: win._status_bar.showMessage(text, ms)
+    win._ask_stop = lambda: win.stop_stream()
+    win._ask_resync = lambda: win._refresh_exposure()
+    win.stop_stream = lambda: None
     win._write_exposure = lambda action, what, hint: LiveViewWindow._write_exposure(
         win, action, what, hint)
     # The real window writes on a background thread so the window keeps

@@ -3497,9 +3497,12 @@ class MountDock(QDockWidget):
         """
         if self.mount is None or not self.isVisible():
             return
+        # OSError alongside MountError throughout: a serial port can raise raw
+        # OS errors the driver has not wrapped, and this poll runs every two
+        # seconds - unhandled, that is an excepthook entry every tick.
         try:
             status = self.mount.status()
-        except MountError as exc:
+        except (MountError, OSError) as exc:
             self.status_label.setText(f"unreadable: {exc}")
             return
 
@@ -3507,7 +3510,7 @@ class MountDock(QDockWidget):
         self.track_button.setChecked(status.tracking)
         try:
             rate = self.mount.tracking_rate_name()
-        except MountError:
+        except (MountError, OSError):
             rate = None
         self._style_track_button(status.tracking, rate)
 
@@ -3515,13 +3518,13 @@ class MountDock(QDockWidget):
         try:
             ra_hours, dec_degrees = self.mount.get_radec()
             where.append(f"RA {format_ra(ra_hours)}  Dec {format_dec(dec_degrees)}")
-        except MountError:
+        except (MountError, OSError):
             pass
         if self.mount.capabilities.altaz_readout:
             try:
                 altitude, azimuth = self.mount.get_altaz()
                 where.append(f"Alt {altitude:.2f}°  Az {azimuth:.2f}°")
-            except MountError:
+            except (MountError, OSError):
                 pass
         self.where_label.setText("\n".join(where))
 
@@ -3539,13 +3542,14 @@ class MountDock(QDockWidget):
             action()
         except MountNotSupported as exc:
             self.status_label.setText(str(exc))
-        except MountError as exc:
+        except (MountError, OSError) as exc:
             text = str(exc).lower()
             if any(marker in text for marker in self._VANISHED):
-                # The controller has dropped off the USB bus - on 5 August it
-                # did so two seconds into a slew, which is the signature of the
-                # motors' current spike browning out the logic.  Retrying
-                # writes into a dead port just repeats the error every poll;
+                # The controller has dropped off the USB bus.  Both August
+                # drop-offs happened after long idle stretches - the power
+                # bank cutting its output on low draw, not the motors
+                # browning it out - but whatever the cause, retrying writes
+                # into a dead port just repeats the error every poll;
                 # disconnect cleanly, say why once, and leave the Connect
                 # button as the way back.
                 logging.warning("Mount %s failed because the controller left "

@@ -478,6 +478,12 @@ class Camera:
         count = ctypes.c_long(0)
         self._lib_inst.XSDK_Detect(
             ctypes.c_long(self._interface), None, None, ctypes.byref(count))
+        if count.value == 0:
+            # The bus has no camera at all: powered off or unplugged, not a
+            # dead session.  Recorded before the open that is about to fail,
+            # so every later teardown knows to abandon the handle rather than
+            # dial it - see close().
+            self.vanished = True
         rc = self._lib_inst.XSDK_OpenEx(
             device_name.encode("utf-8"),
             ctypes.byref(self._handle),
