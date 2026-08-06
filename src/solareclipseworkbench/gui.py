@@ -2259,6 +2259,29 @@ class SolarEclipseController(Observer):
             logging.debug('check_camera_state failed', exc_info=True)
             return []
 
+    def _destroy_live_view(self):
+        """Close and destroy the current preview, whichever kind it is.
+
+        Closing a dock only hides it: every live view ever opened stayed
+        attached to the main window, all under the same objectName, and a
+        pile of hidden namesakes is what Qt's dock layout chokes on - on
+        5 August it squeezed the mount dock half off the window.  So the
+        old window is detached and destroyed, not just closed.  The gphoto
+        preview is a plain Tool window, not a dock, and must not be handed
+        to removeDockWidget - that raises TypeError and skips the destroy.
+        """
+        window = self._live_view_window
+        if window is None:
+            return
+        try:
+            window.close()
+            if isinstance(window, QDockWidget):
+                self.view.removeDockWidget(window)
+            window.deleteLater()
+        except Exception:
+            logging.debug("Could not close the previous live view", exc_info=True)
+        self._live_view_window = None
+
     def _open_fuji_live_view(self, camera):
         """Open the SDK live view for a Fuji body, if there is room before the
         next frame.
@@ -2315,19 +2338,7 @@ class SolarEclipseController(Observer):
                             'frames due while it is open may be lost')
 
         from solareclipseworkbench.liveview import LiveViewWindow
-        if self._live_view_window is not None:
-            # Closing a dock only hides it: every live view ever opened stayed
-            # attached to the main window, all under the same objectName, and
-            # a pile of hidden namesakes is what Qt's dock layout chokes on -
-            # on 5 August it squeezed the mount dock half off the window.
-            # The old window is detached and destroyed, not just closed.
-            try:
-                self._live_view_window.close()
-                self.view.removeDockWidget(self._live_view_window)
-                self._live_view_window.deleteLater()
-            except Exception:
-                logging.debug("Could not close the previous live view", exc_info=True)
-            self._live_view_window = None
+        self._destroy_live_view()
 
         # The adapter, not the bare handle: the window needs its lock.
         window = LiveViewWindow(camera, self.view)
@@ -2418,12 +2429,17 @@ class SolarEclipseController(Observer):
                 return
             camera = dict(real_cameras)[chosen]
 
-        self._live_view_window = LiveViewWindow(camera, parent=None)
-        self._live_view_window.show()
+        self._destroy_live_view()
+
+        # Parented to the main window, which makes it a Tool window that
+        # stacks above it - clicking the mount no longer buries the preview.
+        window = LiveViewWindow(camera, parent=self.view)
+        window.show()
         # Same contract as the Fuji preview: aiming needs the sun on screen
         # and the nudge buttons in reach at once, whichever camera provides
         # the picture - the virtual one included.
-        _place_beside_mount(self.view, self._live_view_window)
+        _place_beside_mount(self.view, window)
+        self._live_view_window = window
 
     def load_settings(self):
         """ Load the UI settings.
@@ -2726,18 +2742,9 @@ class SolarEclipseController(Observer):
         finally:
             self._set_limb_correction_locked(False)
 
-        window = getattr(self, '_live_view_window', None)
-        if window is not None:
-            try:
-                LOGGER.info("Closing live view with the schedule")
-                window.close()
-                # Closing a dock only hides it; detach and destroy it so it
-                # cannot linger in the dock layout under the next window's name.
-                self.view.removeDockWidget(window)
-                window.deleteLater()
-            except Exception:
-                logging.exception("Could not close live view on stop")
-            self._live_view_window = None
+        if getattr(self, '_live_view_window', None) is not None:
+            LOGGER.info("Closing live view with the schedule")
+            self._destroy_live_view()
 
 
 class LocationPopup(QWidget, Observable):
@@ -4405,7 +4412,12 @@ class LiveViewWindow(QWidget):
     """
 
     def __init__(self, camera, parent=None):
-        super().__init__(parent, Qt.WindowType.Window)
+        # With the main window as parent it becomes a Tool window: those stack
+        # above their parent, so clicking the mount's nudge buttons cannot bury
+        # the preview the mount is being aimed by - the same stacking the Fuji
+        # preview gets from being a floating dock.
+        super().__init__(parent, Qt.WindowType.Tool if parent is not None
+                         else Qt.WindowType.Window)
         self.setMinimumSize(480, 400)
 
         self._camera = camera

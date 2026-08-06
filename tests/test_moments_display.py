@@ -135,6 +135,7 @@ def _controller(view, cameras, scheduler=None):
     c._stop_live_view_yielding = lambda: gui_mod.SolarEclipseController._stop_live_view_yielding(c)
     c._set_limb_correction_locked = (
         lambda locked: gui_mod.SolarEclipseController._set_limb_correction_locked(c, locked))
+    c._destroy_live_view = lambda: gui_mod.SolarEclipseController._destroy_live_view(c)
     return c
 
 
