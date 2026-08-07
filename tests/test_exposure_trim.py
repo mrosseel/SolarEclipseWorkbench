@@ -149,3 +149,41 @@ def test_the_trim_moves_a_computed_ladder_too():
 
     assert len(plain) == len(lifted)
     assert all(b > a for a, b in zip(plain, lifted)), "every rung moves"
+
+
+def test_a_trim_never_asks_for_a_speed_the_body_does_not_own():
+    """7 August, the final rehearsal: half a stop under 1/8000 is 1/11314.
+
+    That went to the body verbatim, came back "not a value this camera
+    understands", and the frame kept whatever exposure it already had - a
+    silent wrong exposure, loud only in the log.  Every trimmed speed must
+    land on the body's own scale.
+    """
+    from solareclipseworkbench import exposure_limits, exposure_trim
+    from solareclipseworkbench.camera import _speed_to_seconds, _usable_speed
+
+    accepted = set(exposure_limits.limits().accepted_speeds)
+    try:
+        for stops in (-1.0, -0.5, -0.3, 0.3, 0.5, 1.0):
+            exposure_trim.set_stops(stops)
+            for base in ('1/8000', '1/4000', '1/1000', '1/125', '1/8', '1'):
+                seconds = _speed_to_seconds(base)
+                got = _usable_speed(exposure_trim.apply_seconds(seconds), 'X-T4')
+                back = _speed_to_seconds(got)
+                assert any(abs(back - a) < a * 0.02 for a in accepted), \
+                    f'{base} {stops:+} EV produced {got}, not on the body scale'
+    finally:
+        exposure_trim.set_stops(0.0)
+
+
+def test_a_trim_past_the_mechanical_shutter_is_clamped_not_invented():
+    # The body stops at 1/8000 on MS; asking for faster fails outright, so
+    # the trim gives up the last half stop rather than the whole frame.
+    from solareclipseworkbench import exposure_trim
+    from solareclipseworkbench.camera import _usable_speed
+
+    try:
+        exposure_trim.set_stops(-0.5)
+        assert _usable_speed(exposure_trim.apply_seconds(1.0 / 8000), 'X-T4') == '1/8000'
+    finally:
+        exposure_trim.set_stops(0.0)

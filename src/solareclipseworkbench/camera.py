@@ -1,6 +1,7 @@
 import functools
 import locale
 import logging
+import math
 import subprocess
 import sys
 import threading
@@ -9,7 +10,8 @@ import time
 import gphoto2
 import gphoto2 as gp
 
-from solareclipseworkbench import exposure_trim, frame_log, hardware_problems
+from solareclipseworkbench import (exposure_limits, exposure_trim, frame_log,
+                                   hardware_problems)
 from solareclipseworkbench.hardware_registry import HARDWARE, seconds_to_next_camera_job
 from datetime import datetime
 import os
@@ -1317,7 +1319,8 @@ def _trimmed(camera_settings: CameraSettings) -> CameraSettings:
     if seconds is None:
         return camera_settings
     trimmed = CameraSettings(camera_settings.camera_name,
-                             _seconds_to_speed(exposure_trim.apply_seconds(seconds)),
+                             _usable_speed(exposure_trim.apply_seconds(seconds),
+                                           camera_settings.camera_name),
                              camera_settings.aperture, camera_settings.iso)
     logging.debug('%s: %s -> %s (%s trim)', camera_settings.camera_name,
                   camera_settings.shutter_speed, trimmed.shutter_speed,
@@ -1342,6 +1345,40 @@ def _seconds_to_speed(seconds: float) -> str:
     if seconds >= 1.0:
         return f"{seconds:.4g}"
     return f"1/{round(1.0 / seconds):d}"
+
+
+def _usable_speed(seconds: float, camera_name: str = "") -> str:
+    """A computed exposure put onto a speed the body will actually take.
+
+    A trim is arithmetic and lands anywhere: half a stop under 1/8000 is
+    1/11314, which no camera owns.  On 7 August that went to the body
+    verbatim, was refused as "not a value this camera understands", and the
+    frame kept whatever exposure it already had - the failure is silent in
+    the picture and loud only in the log.
+
+    So the result is first clamped to what the shutter can do and then put on
+    the body's own scale.  The clamp is the mechanical limit, not the
+    electronic one: past 1/8000 the body needs MS+ES selected, and asking for
+    a speed that needs a dial nobody has moved fails exactly as before.
+
+    When the clamp bites, the trim could not be applied in full - the frame
+    will be brighter than asked for - and that is said out loud rather than
+    left to be discovered in the frames.
+    """
+    limits = exposure_limits.limits()
+    floor = max(limits.fastest_s, limits.mechanical_fastest_s)
+    clamped = min(max(seconds, floor), limits.slowest_s)
+    snapped = exposure_limits.nearest_accepted(clamped) or clamped
+    if snapped < floor:
+        snapped = floor
+    if snapped > seconds * 1.02:
+        logging.warning(
+            "%s: the exposure trim asked for %s, past what the shutter can "
+            "do; using %s instead, so this frame is about %.1f stop brighter "
+            "than the trim intended",
+            camera_name or "camera", _seconds_to_speed(seconds),
+            _seconds_to_speed(snapped), math.log2(snapped / seconds))
+    return _seconds_to_speed(snapped)
 
 
 def __adapt_camera_settings(camera, camera_settings):
