@@ -12,15 +12,28 @@ already knows that draining with S1 held kills the session outright.  If that
 is right, the condition lasts the whole ladder and no budget can help - which
 matches 45 failures and zero successes exactly.
 
-Three phases, each writing the same seven speeds and reading every one back
-from the body rather than trusting a return code:
+Six phases.  Every speed is read back from the body rather than trusting a
+return code, because a write that is accepted and lands somewhere else is the
+failure that looks like success.
 
-  1  contacts open          the control: writes should all land
-  2  S1 held                what the ladder does now
+  1  contacts open           the control: writes should all land
+  2  S1 held                 what the ladder does now
   3  released around write   the proposed fix, timed so the cost is known
+  4  as 3, queue loaded      because at C2 a ladder always follows a burst
 
-A fourth phase repeats 1 and 3 with the transfer queue deliberately loaded,
-because at C2 the ladder always runs behind a burst.
+Then two that look for seconds rather than for the bug:
+
+  5  write latency           BRACKET_STEP_BUDGET_S is 0.3 s against a 0.3 s
+                             backoff, which is one attempt per rung, and
+                             nobody has measured what a write costs
+  6  gap sweep               the ladder waits max(0.35, exposure + 0.3)
+                             between taps; neither number was measured.  Six
+                             rungs at 100 ms saved is 0.6 s a ladder, and
+                             eight ladders is most of a ninth
+
+Phase 6 proves a speed *landed*, not that the frame *used* it - only EXIF
+from the card can say that, so its answer is a candidate to confirm on the
+card, never a value to ship straight into the generator.
 
 The shutter fires: this taps between rungs exactly as the ladder does, so the
 timings mean something.  Indoors, lens cap on, no filter needed.
@@ -119,6 +132,93 @@ def phase(name, sdk, relay, mode, tap=True):
                       for s, l, t, e in results]}
 
 
+def latency_profile(sdk, relay, samples=40):
+    """How long a write really takes, so the budget can be set from evidence.
+
+    BRACKET_STEP_BUDGET_S is 0.3 s with a 0.3 s backoff, which is one attempt
+    per rung.  If a write lands in 20 ms the budget is wildly generous and can
+    both shrink and be retried; if it takes 250 ms the ladder has no slack at
+    all.  Nobody has measured it.
+    """
+    print("\n5. how long one write actually takes (S1 open, no taps)")
+    relay.release_all()
+    times = []
+    for i in range(samples):
+        speed = LADDER_US[i % len(LADDER_US)]
+        landed, took, _ = write_and_verify(sdk, speed, budget_s=1.0)
+        if landed:
+            times.append(took * 1000)
+    if not times:
+        print(f"   {RED}no write landed{RESET}")
+        return {"phase": "5. write latency", "samples": 0}
+    times.sort()
+    med = times[len(times) // 2]
+    p90 = times[int(len(times) * 0.9)]
+    print(f"   {len(times)} writes: median {med:.0f} ms, 90th {p90:.0f} ms, "
+          f"worst {times[-1]:.0f} ms")
+    print(f"   -> a budget of {max(0.1, p90 * 3 / 1000):.2f} s would allow three "
+          f"tries at the 90th percentile")
+    return {"phase": "5. write latency", "samples": len(times),
+            "median_ms": round(med), "p90_ms": round(p90),
+            "worst_ms": round(times[-1])}
+
+
+def gap_sweep(sdk, relay, camera):
+    """The shortest gap between rungs that still lets every speed land.
+
+    The ladder waits max(0.35, exposure + 0.3) between taps.  That 0.3 s
+    settle and the 0.35 s floor were never measured; at six rungs a saving of
+    100 ms each is 0.6 s a ladder, and eight ladders is most of another one.
+
+    A speed that reads back correctly is not proof the *frame* used it - only
+    EXIF from the card can say that - so the shortest gap that passes here is
+    a candidate to confirm on the card, not a value to ship.
+    """
+    print("\n6. how short the gap between rungs can be")
+    results = []
+    for gap in (0.35, 0.25, 0.15, 0.10):
+        relay.release_all()
+        camera.drain()
+        try:
+            before, _ = sdk.get_buffer_capacity()
+        except Exception:
+            before = None
+        landed = 0
+        started = time.monotonic()
+        for speed in LADDER_US:
+            relay.release_all()
+            ok, _, _ = write_and_verify(sdk, speed, budget_s=0.3)
+            relay.half_press()
+            landed += 1 if ok else 0
+            relay.shoot(pulse=TAP_S)
+            time.sleep(max(gap, speed / 1e6 + gap))
+        relay.release_all()
+        elapsed = time.monotonic() - started
+        time.sleep(1.0)
+        try:
+            after, _ = sdk.get_buffer_capacity()
+            frames = (after - before) if before is not None else None
+        except Exception:
+            frames = None
+        mark = GREEN if landed == len(LADDER_US) else RED
+        print(f"   gap {gap:.2f}s  {mark}{landed}/{len(LADDER_US)} landed{RESET}"
+              f"  ladder took {elapsed:.2f}s"
+              + (f", {frames} frame(s) captured" if frames is not None else ""))
+        results.append({"gap_s": gap, "landed": landed, "elapsed_s": round(elapsed, 2),
+                        "frames": frames})
+        camera.drain()
+    good = [r for r in results if r["landed"] == len(LADDER_US)]
+    if good:
+        best = min(good, key=lambda r: r["elapsed_s"])
+        slowest = max(results, key=lambda r: r["elapsed_s"])
+        saved = slowest["elapsed_s"] - best["elapsed_s"]
+        print(f"   -> shortest gap that still lands every speed: {best['gap_s']:.2f}s, "
+              f"saving {saved:.2f}s a ladder ({saved * 8:.1f}s over eight)")
+        print(f"   {YELLOW}confirm on the card before shipping: EXIF says which "
+              f"speed each frame really used{RESET}")
+    return {"phase": "6. gap sweep", "results": results}
+
+
 def main():
     tee_console("ladder_write_probe")
     print("Camera on, USB connected, relay on S1=ch1 S2=ch2.")
@@ -139,7 +239,13 @@ def main():
     original, _ = sdk.get_shutter_speed()
     print(f"{GREEN}Connected:{RESET} {name}, body on {original} us")
 
-    relay = rt.open_trigger("auto", s1_channel=1, s2_channel=2)
+    try:
+        relay = rt.open_trigger("auto", s1_channel=1, s2_channel=2)
+    except Exception as exc:
+        print(f"{RED}No relay: {exc}{RESET}")
+        print("Phases 2-6 need it to hold S1 and tap.  Plug it in and rerun.")
+        camera.disconnect()
+        return
     out = []
     try:
         relay.release_all()
@@ -170,6 +276,8 @@ def main():
             pass
         out.append(phase("4. S1 released around each write, queue loaded",
                          sdk, relay, "released"))
+        out.append(latency_profile(sdk, relay))
+        out.append(gap_sweep(sdk, relay, camera))
     finally:
         try:
             relay.release_all()
