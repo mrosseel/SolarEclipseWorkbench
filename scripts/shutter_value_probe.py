@@ -43,6 +43,18 @@ YELLOW = "\033[33m"
 RESET = "\033[0m"
 
 
+def _retry(action, budget_s: float = 1.5):
+    """Run `action`, waiting out the transient busy the body answers with."""
+    deadline = time.monotonic() + budget_s
+    while True:
+        try:
+            return action()
+        except XSDKError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
+
+
 def main() -> None:
     tee_console("shutter_value_probe")
     print("Camera: shutter dial on T, drive as on the day, USB connected.")
@@ -82,7 +94,12 @@ def main() -> None:
             label = SHUTTER_SPEED_NAMES[value]
             verdict, code, read_back = "ok", None, None
             try:
-                sdk_cam.set_shutter_speed(value)
+                # Retried, not asked once.  The body answers 0x1006 for a
+                # moment after a frame or a previous write, and a single
+                # attempt records that as a refusal - which is how the first
+                # run of this called 1/8000 unsupported, a speed the ladder
+                # sets on every rung.
+                _retry(lambda: sdk_cam.set_shutter_speed(value))
                 read_back, _bulb = sdk_cam.get_shutter_speed()
                 if read_back != value:
                     # Accepted in name only: the body said yes and sits on a

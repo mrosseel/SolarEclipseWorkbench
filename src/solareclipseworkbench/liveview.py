@@ -65,14 +65,25 @@ _SHUTTER_FASTEST_US = _shutter_table_key('1/8000"')
 _SHUTTER_SLOWEST_US = _shutter_table_key('30"')
 
 
+#: Speeds in the SDK's table that this body refuses outright.  Measured
+#: 7 August, all 64 dropdown values set and read back with retries: these nine
+#: come back 0x2003 every time.  They are the half-stop-only values other
+#: bodies in the range use - the table is one grid for every model, and the
+#: X-T4 steps in thirds.  This is what the 5 August "invalid parameter
+#: combination" was: a value on the list that the body never had.
+_REFUSED_NAMES = ('1/6000"', '1/3000"', '1/1500"', '1/750"', '1/350"',
+                  '1/180"', '1/90"', '1/45"', '1/1.5"')
+
+
 def dropdown_shutter_speeds() -> list[int]:
     """Every speed the shutter dropdown offers, fastest first.
 
     Cut from the SDK's name table because the X-T4 answers CapShutterSpeed
     with an empty list; module-level so a test can hold the endpoints still.
     """
+    refused = {k for k, v in SHUTTER_SPEED_NAMES.items() if v in _REFUSED_NAMES}
     return sorted(k for k in SHUTTER_SPEED_NAMES
-                  if isinstance(k, int)
+                  if isinstance(k, int) and k not in refused
                   and _SHUTTER_FASTEST_US <= k <= _SHUTTER_SLOWEST_US)
 
 # The body reports no ISO list on some firmware, so this is the fallback.  These

@@ -329,3 +329,23 @@ def test_the_shutter_dropdown_reaches_both_ends_of_the_dial():
     assert names[0] == '1/8000"', "the fast end lost 1/8000 to rounding"
     assert names[-1] == '30"', "the slow end lost 30 seconds to rounding"
     assert '1/10000"' not in names, "electronic-only speeds do not belong on a mechanical shutter"
+
+
+def test_the_dropdown_never_offers_a_speed_the_body_refuses():
+    """5 August: a speed picked from the dropdown came back 0x2003.
+
+    The SDK's table is one grid for every model in the range, and the X-T4
+    steps in thirds - so the half-stop-only values other bodies use are on
+    the list and not on the body.  Measured 7 August, all 64 values set and
+    read back with retries: exactly these nine refuse every time.
+    """
+    from fujixsdk._constants import SHUTTER_SPEED_NAMES
+    from solareclipseworkbench.liveview import dropdown_shutter_speeds
+
+    offered = {SHUTTER_SPEED_NAMES[k] for k in dropdown_shutter_speeds()}
+    for refused in ('1/6000"', '1/3000"', '1/1500"', '1/750"', '1/350"',
+                    '1/180"', '1/90"', '1/45"', '1/1.5"'):
+        assert refused not in offered, f'{refused} is refused by the body'
+    # and the ones either side of the gaps are still there
+    for kept in ('1/8000"', '1/6400"', '1/4000"', '1/125"', '1/60"', '30"'):
+        assert kept in offered, f'{kept} was dropped by mistake'
