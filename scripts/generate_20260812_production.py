@@ -848,9 +848,13 @@ def _totality_block(target_s: float) -> None:
     # an exposure write into a held burst kills the drive - proven 5 August.
     # So the ring gets its own bracket where it actually is: the crescent side,
     # clear of the burst at both contacts.
-    ring_ladder = "1/160;1/80;1/40"
+    # Scaled with the ISO, not just relabelled: these were 1/160;1/80;1/40 at
+    # ISO 100, and ISO 160 is two thirds of a stop more sensitive, so the same
+    # exposure needs the shutter two thirds of a stop faster.  Changing the
+    # gain and leaving the speeds would have brightened the ring by that much.
+    ring_ladder = "1/250;1/125;1/60"
     _c2_burst_off = RELAY_C2_S + RELAY_LATENCY_S - RELAY_C2_TAIL_S
-    bracket(XT4, "BEADS_C2_END", "-", _c2_burst_off + 6.5, "1/160", 100,
+    bracket(XT4, "BEADS_C2_END", "-", _c2_burst_off + 6.5, "1/250", ISO_BEADS,
             ring_ladder, 3, "Framed diamond ring, big diamond forming")
     picture(XT4, "BEADS_C2_END", "-", _c2_burst_off + 2.5, beads_x, ISO_BEADS,
             "Load the beads exposure before the relay burst")
@@ -963,7 +967,7 @@ def _totality_block(target_s: float) -> None:
     relay_burst("BEADS_C3_START", "-", RELAY_LATENCY_S + RELAY_C3_HEAD_S,
                 RELAY_C3_S, RELAY_C3_N,
                 "Baily's beads and diamond ring at C3, relay at %.0f fps" % XT4_RELAY_FPS)
-    bracket(XT4, "BEADS_C3_START", "+", RELAY_C3_S + 5.5, "1/160", 100,
+    bracket(XT4, "BEADS_C3_START", "+", RELAY_C3_S + 5.5, "1/250", ISO_BEADS,
             ring_ladder, 3, "Framed diamond ring, big diamond fading")
     relay_release("BEADS_C3_START", "+", RELAY_C3_S + 1.5,
                   "Open every contact after the C3 burst")

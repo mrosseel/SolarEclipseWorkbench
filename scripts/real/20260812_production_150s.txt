@@ -216,7 +216,7 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # the pre-flight checks them by eye.  On CH as found (28 fps) the window would want
 # 115 frames and the body would hit its own buffer a second in, slowing the burst
 # exactly where the diamond ring is.
-take_bracket, BEADS_C2_END, -, 0:00:11.7, Fuji Fujifilm X-T4, 1/160, -, 100, 1/160;1/80;1/40, "Framed diamond ring, big diamond forming @ BEADS_C2_END-11.7 s, sun 8.7 deg"
+take_bracket, BEADS_C2_END, -, 0:00:11.7, Fuji Fujifilm X-T4, 1/250, -, 160, 1/250;1/125;1/60, "Framed diamond ring, big diamond forming @ BEADS_C2_END-11.7 s, sun 8.7 deg"
 take_picture, BEADS_C2_END, -, 0:00:07.7, Fuji Fujifilm X-T4, 1/6400, -, 160, "Load the beads exposure before the relay burst @ BEADS_C2_END-7.7 s, sun 8.7 deg"
 relay_arm, BEADS_C2_END, -, 0:00:06.4, "Pre-arm S1 for the C2 burst @ BEADS_C2_END-6.4 s, sun 8.7 deg"
 relay_burst, BEADS_C2_END, -, 0:00:05.2, 7.75, "Diamond ring and Baily's beads at C2, relay at 8 fps @ BEADS_C2_END-5.2 s, sun 8.7 deg"
@@ -256,7 +256,7 @@ take_picture, BEADS_C3, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/6400, -, 160, "Load 
 voice_prompt, C3, -, 0:00:08.0, C3_IN_8_SECONDS, "Eight seconds - look away from the eyepiece"
 relay_arm, BEADS_C3, -, 0:00:04.0, "Pre-arm S1 for the C3 burst @ BEADS_C3-4.0 s, sun 8.7 deg"
 relay_burst, BEADS_C3_START, -, 0:00:02.6, 7.75, "Baily's beads and diamond ring at C3, relay at 8 fps @ BEADS_C3_START-2.6 s, sun 8.7 deg"
-take_bracket, BEADS_C3_START, +, 0:00:13.2, Fuji Fujifilm X-T4, 1/160, -, 100, 1/160;1/80;1/40, "Framed diamond ring, big diamond fading @ BEADS_C3_START+13.2 s, sun 8.7 deg"
+take_bracket, BEADS_C3_START, +, 0:00:13.2, Fuji Fujifilm X-T4, 1/250, -, 160, 1/250;1/125;1/60, "Framed diamond ring, big diamond fading @ BEADS_C3_START+13.2 s, sun 8.7 deg"
 relay_release, BEADS_C3_START, +, 0:00:09.2, "Open every contact after the C3 burst @ BEADS_C3_START+9.2 s, sun 8.7 deg"
 voice_prompt, C3, -, 0:00:05.0, C3_IN_5_SECONDS, "5 to third contact"
 voice_prompt, C3, -, 0:00:04.0, C3_IN_4_SECONDS, "4 to third contact"
