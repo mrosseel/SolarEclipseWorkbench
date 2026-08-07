@@ -375,7 +375,13 @@ sys.stderr.write(
 # the brackets measured on the X-T4 on 3 August; keeping the two in step means
 # the validator agrees with what was laid out here.
 LADDER_TAP_GAP_S = 0.35
-LADDER_PER_RUNG_USB_S = 0.35
+# The speed change between two taps: the USB write plus the body settling.
+# 0.5, was 0.35: measured 7 August on the fixed ladder, ten consecutive
+# seven-rung ladders ran 6.32-6.54 s where the model said 5.43, so the old
+# figure under-priced every ladder by about a second - eight of those is most
+# of a ninth ladder, and under-pricing is the direction that runs the last
+# one past C3.
+LADDER_PER_RUNG_USB_S = 0.5
 # 2.0, recalibrated 5 August: the eight hardware ladders of the 4 August
 # rehearsal ran 6.38-6.90 s INCLUDING their drain, which prices the drain
 # near 1.2 s under the lazy-drain rework.  The old 3.0 predates that rework
@@ -412,8 +418,9 @@ def ladder_seconds(ladder: str) -> float:
     """Seconds a semicolon ladder holds the camera.
 
     Each rung waits out its own frame and then puts the next speed over USB, and
-    the bracket drains at the end.  The seven-rung ladder below models at 8.4s
-    against 7.7-8.0s measured, which is the direction to be wrong in.
+    the bracket drains at the end.  The seven-rung production ladder models at
+    8.5 s against 6.3-6.5 s of rungs plus the drain measured on 7 August -
+    pessimistic by a little, which is the direction to be wrong in.
     """
     total = LADDER_DRAIN_S
     for rung in ladder.split(";"):
