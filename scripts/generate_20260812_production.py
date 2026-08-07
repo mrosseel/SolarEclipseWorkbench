@@ -135,7 +135,14 @@ EOS_BURST_FPS = 6.0
 # ISO 100 for the filtered partials: with photographic film at f/6 the sun wants
 # 1/7139 just after C1, which fits the X-T4's 1/8000 but not the 800D's 1/4000.
 # Anything faster than ISO 100 puts both bodies over their ceiling.
-ISO_PARTIAL, ISO_BEADS, ISO_CORONA, ISO_DEEP = 100, 100, 400, 800
+# 160, not 100.  This body's base is ISO 160; 100 is the extended "L" pull,
+# which does not lower the noise floor and costs about a stop of highlight
+# headroom.  The beads and the diamond ring are the highest-contrast frames of
+# the whole day - photosphere against corona in one frame - so they are the
+# last place to give a stop of highlights away.  Verified on the body: 100 is
+# accepted, so this was being set, and at 160 the beads want 1/6438, still
+# inside the shutter's range.
+ISO_PARTIAL, ISO_BEADS, ISO_CORONA, ISO_DEEP = 160, 160, 400, 800
 
 T = Time(ECLIPSE_DATE + " 00:00:00")
 MOMENTS, MAGNITUDE, TYPE = calculate_reference_moments(LON, LAT, OBS_ALT, T)
