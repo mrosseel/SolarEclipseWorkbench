@@ -25,6 +25,7 @@ import geopandas
 import numpy as np
 import pandas as pd
 import pytz
+import serial as pyserial
 from PyQt6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtCore import (QTimer, QEvent, QPoint, QRect, Qt, QAbstractTableModel,
                          QModelIndex, QSettings, QSignalBlocker, pyqtSignal)
@@ -54,14 +55,15 @@ from solareclipseworkbench.coverage_ui import CoverageDock
 from solareclipseworkbench.hardware_registry import (register_hardware,
                                                      seconds_to_next_camera_job)
 from solareclipseworkbench.observer import Observer, Observable
-from solareclipseworkbench.relay_trigger import (RelayError, RelayTrigger, Wiring, discover_relays,
-                                                 list_backends, make_backend)
+from solareclipseworkbench.relay_trigger import (DsdSerialBackend, RelayError, RelayTrigger, Wiring,
+                                                 discover_relays, list_backends, make_backend)
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.limb_correction import (is_enabled as limb_correction_is_enabled,
                                                     set_enabled as set_limb_correction_enabled)
 from solareclipseworkbench.mounts import (MountDriver, MountError, MountNotSupported, mount_track_sun,
                                           connect as connect_mount, discover_mounts,
                                           format_dec, format_ra, list_drivers)
+from solareclipseworkbench.mounts.onstepx import probe_serial as probe_mount_serial
 from solareclipseworkbench.limb_ui import BeadsPanel, beads_icon
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget, moved_location_name
@@ -122,7 +124,21 @@ BEFORE_AFTER = {
 REFERENCE_MOMENTS = ["C1", "C2", "MAX", "C3", "C4", "sunset", "sunrise"]
 
 LOGGER = logging.getLogger("Solar Eclipse Workbench UI")
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%a, %d %b %Y %H:%M:%S', filename="/tmp/solareclipseworkbench.log", filemode='w')
+_LOG_FILE = "/tmp/solareclipseworkbench.log"
+if __name__ == "__main__":
+    # Keep exactly one previous session: filemode='w' truncates on start, and
+    # on 6 August that wiped a rehearsal's log out from under its post-mortem.
+    #
+    # Only when this module is the program being run.  Rotating on import
+    # meant every `import gui` - every test run - renamed the log of the app
+    # running in the other window, which then went on writing to a file that
+    # no longer had its name.  Measured the same evening, hunting for a log
+    # that was never missing, only moved.
+    try:
+        Path(_LOG_FILE).rename(_LOG_FILE + ".prev")
+    except OSError:
+        pass
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%a, %d %b %Y %H:%M:%S', filename=_LOG_FILE, filemode='w')
 
 # Where the user's own scripts live: a "scripts" directory in whatever directory the
 # application was started from.  The bundled examples sit inside the installed package, which
@@ -432,6 +448,11 @@ class SolarEclipseModel:
 class SolarEclipseView(QMainWindow, Observable):
     """ View for the Solar Eclipse Workbench UI in the MVC pattern. """
 
+    #: The camera settings check coming home from its worker thread with the
+    #: rows for the settings dialog.  Declared on the view because the
+    #: controller is not a QObject and cannot carry signals of its own.
+    camera_check_done = pyqtSignal(list)
+
     def __init__(self, is_simulator: bool = False, low_cpu_mode: bool = False):
         """ Initialisation of the view of the Solar Eclipse Workbench UI.
 
@@ -463,6 +484,10 @@ class SolarEclipseView(QMainWindow, Observable):
         self.controller = None
         self.is_simulator = is_simulator
         self.low_cpu_mode = low_cpu_mode
+        #: (longitude, latitude, altitude) once a location is chosen.  The
+        #: mount dock reads this to tell an OnStepX where it stands - the
+        #: model knows it too, but the view never holds a model reference.
+        self.observing_site: Optional[tuple] = None
 
         self.setGeometry(300, 300, 1500, 1000)
         try:
@@ -1645,6 +1670,7 @@ class SolarEclipseController(Observer):
         self.view.camera_overview.resizeColumnsToContents()
         self.view.camera_overview.setColumnWidth(0, 100)
         self.view.add_observer(self)
+        self.view.camera_check_done.connect(self._on_camera_check_done)
 
         self.is_simulator: bool = is_simulator
 
@@ -2091,6 +2117,10 @@ class SolarEclipseController(Observer):
                                             self.model.camera_overview.camera_overview_dict, self,
                                             self.sim_reference_moment, self.sim_offset_minutes,
                                             gps_time_offset=self.model.gps_time_offset)
+                # The drop guard reads this to see how much room the schedule
+                # leaves: a frame waiting on a busy body may wait longer when
+                # nothing is due behind it.
+                register_hardware('scheduler', self.scheduler)
 
                 # Loading is the last moment this can be fixed: afterwards the
                 # names are resolved and the missing lines are simply gone.
@@ -2200,21 +2230,53 @@ class SolarEclipseController(Observer):
     def _on_cameras_ready(self):
         """Called by CameraOverviewTableModel after camera dict is populated.
 
-        Runs sync_camera_time and check_camera_state on the GUI thread so they
-        always have access to the fully-populated camera_overview_dict.
+        The clock sync and the settings validation are a dozen SDK and gphoto
+        round trips.  They ran on the GUI thread, which made this the last
+        place where one wedged body could freeze the whole window - and on
+        macOS the Fuji SDK pumps the run loop while it waits, so a second
+        slot touching the SDK deadlocks inside it (sampled live, 6 August).
+        A worker does the talking; a small popup says it is happening; the
+        rows come back through the view's signal.
         """
-        try:
-            logging.debug('_on_cameras_ready: syncing camera time')
-            self.sync_camera_time()
-        except Exception:
-            logging.exception('Exception while syncing camera time')
-        try:
-            logging.debug('_on_cameras_ready: checking camera state')
-            rows = self._camera_settings_rows()
-            if rows:
-                CameraSettingsDialog(rows, self.view).exec()
-        except Exception:
-            logging.exception('Exception while checking camera state')
+        popup = QDialog(self.view)
+        popup.setWindowTitle("Checking cameras")
+        popup_layout = QVBoxLayout(popup)
+        popup_layout.addWidget(QLabel(
+            "Syncing clocks and validating camera settings..."))
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        popup_layout.addWidget(progress)
+        popup.setModal(False)
+        popup.show()
+        self._camera_check_popup = popup
+
+        def worker():
+            try:
+                logging.debug('_on_cameras_ready: syncing camera time')
+                self.sync_camera_time()
+            except Exception:
+                logging.exception('Exception while syncing camera time')
+            rows = []
+            try:
+                logging.debug('_on_cameras_ready: checking camera state')
+                rows = self._camera_settings_rows()
+            except Exception:
+                logging.exception('Exception while checking camera state')
+            try:
+                self.view.camera_check_done.emit(rows)
+            except RuntimeError:
+                logging.debug('No view left for the camera check results')
+
+        threading.Thread(target=worker, daemon=True, name="camera-check").start()
+
+    def _on_camera_check_done(self, rows):
+        """Back on the GUI thread: drop the popup, show what needs fixing."""
+        popup = getattr(self, '_camera_check_popup', None)
+        if popup is not None:
+            self._camera_check_popup = None
+            popup.close()
+        if rows:
+            CameraSettingsDialog(rows, self.view).exec()
 
     def _camera_settings_rows(self):
         """Each body's outstanding settings as (severity, camera, setting, needs, is).
@@ -2519,6 +2581,11 @@ class SolarEclipseController(Observer):
 
             self.view.eclipse_visualization.set_location(longitude, latitude, altitude)
 
+            # A mount connected before the location was chosen is still
+            # standing nowhere; tell it now rather than at the next connect.
+            self.view.observing_site = (longitude, latitude, altitude)
+            self.view.mount_dock.push_site_and_clock()
+
             return True
 
         return False
@@ -2740,6 +2807,10 @@ class SolarEclipseController(Observer):
         except Exception:
             logging.exception("Error while shutting down scheduler")
         finally:
+            # A shut-down scheduler still answers get_jobs(), so leaving it
+            # registered would have the drop guard reading a schedule nobody
+            # is running any more.
+            register_hardware('scheduler', None)
             self._set_limb_correction_locked(False)
 
         if getattr(self, '_live_view_window', None) is not None:
@@ -3246,6 +3317,37 @@ class _DockLogHandler(logging.Handler):
             pass          # a broken log view must not break the run
 
 
+def _identify_serial_port(port: str) -> tuple:
+    """Ask a serial port what it is: ``(kind, detail)``.
+
+    ``kind`` is "mount", "relay", "busy" or "silent"; ``detail`` is the
+    phrase to show.  Three questions, cheapest first: does it open at all,
+    does it answer LX200, does it answer the DSD relay's AT protocol.  Every
+    probe here is read-only for the device behind it - :GVP# asks for a
+    product name, and the DSD backend's own open sequence releases channel 1,
+    which is the state every relay connect starts from anyway.
+    """
+    try:
+        pyserial.Serial(port, 9600, timeout=0.1, exclusive=True).close()
+    except pyserial.SerialException as exc:
+        text = str(exc).lower()
+        if "busy" in text or "errno 16" in text:
+            return "busy", "in use (already connected here, or another program)"
+        return "busy", str(exc)
+
+    rate = probe_mount_serial(port, timeout=0.6)
+    if rate:
+        return "mount", f"answers LX200 @ {rate} baud (the mount)"
+
+    try:
+        DsdSerialBackend(port=port).close()
+        return "relay", "answers AT commands (the DSD relay)"
+    except RelayError:
+        pass
+
+    return "silent", "silent (device off, or nothing behind it)"
+
+
 class MountDock(QDockWidget):
     """Connect to the mount and watch it, without leaving the main window.
 
@@ -3262,6 +3364,17 @@ class MountDock(QDockWidget):
     #: freeze the window.
     connected = pyqtSignal(object, str)
 
+    #: Carries a finished background poll back to the UI thread.  A poll is
+    #: up to six serial round trips, each able to sit out a two-second
+    #: timeout; on the GUI thread that was a frozen window whenever the line
+    #: went quiet (6 August: a relay on the mount's port answered nothing,
+    #: and every tick blocked the whole application for its full timeout).
+    polled = pyqtSignal(object, dict)
+
+    #: One probed scan candidate coming home: (generation, row, label, kind).
+    #: kind is "mount", "relay", "busy", "silent" or "done".
+    scanned = pyqtSignal(int, int, str, str)
+
     POLL_MS = 2000
 
     def __init__(self, parent=None):
@@ -3269,6 +3382,7 @@ class MountDock(QDockWidget):
         self.setObjectName("mount_dock")
         self.mount: Optional[MountDriver] = None
         self._busy = False
+        self._poll_busy = False
 
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -3287,8 +3401,9 @@ class MountDock(QDockWidget):
 
         self.candidate_combo = QComboBox()
         self.candidate_combo.setToolTip(
-            "Where a driver thinks a mount might be. Being listed is a hint, not "
-            "a promise — a USB serial adapter is a reason to probe, not evidence.")
+            "Where a driver thinks a mount might be.  Scan probes each port and "
+            "labels what actually answered — ✓ a mount, ✗ the relay, ⛔ in use, "
+            "? silence — and selects the mount for you when one answers.")
         connect_grid.addWidget(QLabel("Address"), 1, 0)
         connect_grid.addWidget(self.candidate_combo, 1, 1)
 
@@ -3380,6 +3495,10 @@ class MountDock(QDockWidget):
         scroller.setFrameShape(QFrame.Shape.NoFrame)
         self.setWidget(scroller)
         self.connected.connect(self._on_connected)
+        self.polled.connect(self._on_polled)
+        self.scanned.connect(self._on_scanned)
+        self._scan_generation = 0
+        self._scan_found_mount = False
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
@@ -3401,7 +3520,15 @@ class MountDock(QDockWidget):
     # -------------------------------------------------------------- connection
 
     def scan(self) -> None:
-        """Ask the drivers where mounts might be, without connecting to any."""
+        """List where mounts might be, then probe each place to say what is there.
+
+        Discovery lists every USB serial port, and on this bench that list is
+        a trap: the mount and the relay are twin CP2102s whose /dev names
+        reshuffle on every replug (6 August, three times in one morning).  So
+        a worker asks each port what it actually is - LX200 answer, relay AT
+        answer, busy, or silence - relabels the rows as answers land, and
+        selects the row that proved to be a mount.
+        """
         self.candidate_combo.clear()
         wanted = self.driver_combo.currentData()
         try:
@@ -3413,7 +3540,51 @@ class MountDock(QDockWidget):
             self.candidate_combo.addItem(str(candidate), candidate)
         if not candidates:
             self.candidate_combo.addItem("nothing found", None)
-        self.status_label.setText(f"{len(candidates)} candidate(s)")
+            self.status_label.setText("0 candidate(s)")
+            return
+
+        self.status_label.setText(f"{len(candidates)} candidate(s), probing...")
+        self._scan_generation += 1
+        self._scan_found_mount = False
+        generation = self._scan_generation
+        rows = list(enumerate(candidates))
+
+        marks = {"mount": "✓", "relay": "✗", "busy": "⛔", "silent": "?"}
+
+        def worker():
+            for row, candidate in rows:
+                port = candidate.config.get("port")
+                if port is None:
+                    continue
+                kind, detail = _identify_serial_port(port)
+                label = f"{marks[kind]} {port} — {detail}"
+                try:
+                    self.scanned.emit(generation, row, label, kind)
+                except RuntimeError:
+                    return
+            try:
+                self.scanned.emit(generation, -1, "", "done")
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=worker, daemon=True, name="mount-scan").start()
+
+    def _on_scanned(self, generation: int, row: int, label: str, kind: str) -> None:
+        """One probed candidate back on the GUI thread; relabel and select."""
+        if generation != self._scan_generation:
+            return
+        if row < 0:
+            if not self._scan_found_mount:
+                self.status_label.setText(
+                    "no port answered LX200 - check the mount's power and cable")
+            return
+        if row >= self.candidate_combo.count():
+            return
+        self.candidate_combo.setItemText(row, label)
+        if kind == "mount":
+            self._scan_found_mount = True
+            self.candidate_combo.setCurrentIndex(row)
+            self.status_label.setText("mount found - press Connect")
 
     def toggle_connection(self) -> None:
         if self.mount is not None:
@@ -3462,9 +3633,38 @@ class MountDock(QDockWidget):
         logging.info('Mount connected: %s', mount.describe())
         # Set here rather than left to the poll: a hidden dock does not poll.
         self.status_label.setText(mount.describe())
+        self.push_site_and_clock()
         self.refresh()
         if self.isVisible():
             self._timer.start()
+
+    def push_site_and_clock(self) -> None:
+        """Tell the mount where it stands and what time it is.
+
+        An OnStepX out of the box sits in standby and refuses to track until
+        it knows both.  The Android app shows that warning; a laptop in a
+        field must not depend on someone having read it.  So whatever this
+        program already knows, the mount is told - at connect, and again if
+        the location is chosen afterwards.  On a worker thread: these are
+        five serial round trips, and the window does not wait on serial.
+        """
+        mount = self.mount
+        if mount is None or not mount.capabilities.site_time:
+            return
+        site = getattr(self.parent(), "observing_site", None)
+
+        def worker():
+            try:
+                mount.set_datetime()
+                if site is not None:
+                    longitude, latitude, _altitude = site
+                    mount.set_site(latitude, longitude)
+                logging.info("Mount clock set%s", " and site set" if site is not None
+                             else "; no observing location chosen yet")
+            except (MountError, OSError) as exc:
+                logging.warning("The mount's site and clock could not be set: %s", exc)
+
+        threading.Thread(target=worker, daemon=True, name="mount-init").start()
 
     def disconnect_mount(self) -> None:
         self._timer.stop()
@@ -3474,6 +3674,9 @@ class MountDock(QDockWidget):
         for button in self.move_buttons.values():
             button.setDown(False)
         mount, self.mount = self.mount, None
+        # A poll stuck mid-timeout on the old mount must not gate the next
+        # one; its late answer is dropped by _on_polled's identity check.
+        self._poll_busy = False
         register_hardware('mount', None)
         if mount is not None:
             try:
@@ -3493,39 +3696,70 @@ class MountDock(QDockWidget):
         """Poll the mount, unless nobody is looking at the answer.
 
         Every poll is a round trip down the serial line the eclipse script also
-        uses, so a hidden dock stops asking.
+        uses, so a hidden dock stops asking.  The round trips happen on a
+        worker thread: against a device that answers nothing, each read sits
+        out its full timeout, and on the GUI thread that froze the window.
         """
-        if self.mount is None or not self.isVisible():
+        if self.mount is None or not self.isVisible() or self._poll_busy:
             return
-        # OSError alongside MountError throughout: a serial port can raise raw
-        # OS errors the driver has not wrapped, and this poll runs every two
-        # seconds - unhandled, that is an excepthook entry every tick.
-        try:
-            status = self.mount.status()
-        except (MountError, OSError) as exc:
-            self.status_label.setText(f"unreadable: {exc}")
+        self._poll_busy = True
+        mount = self.mount
+
+        def worker():
+            # OSError alongside MountError throughout: a serial port can raise
+            # raw OS errors the driver has not wrapped, and this poll runs
+            # every two seconds - unhandled, that is an excepthook entry every
+            # tick.  The final catch-all is the flag's guarantee: every worker
+            # emits exactly once, or _poll_busy sticks and polling dies.
+            snapshot: dict = {}
+            try:
+                try:
+                    snapshot["status"] = mount.status()
+                except (MountError, OSError) as exc:
+                    self.polled.emit(mount, {"error": str(exc)})
+                    return
+                try:
+                    snapshot["rate"] = mount.tracking_rate_name()
+                except (MountError, OSError):
+                    snapshot["rate"] = None
+                try:
+                    snapshot["radec"] = mount.get_radec()
+                except (MountError, OSError):
+                    pass
+                if mount.capabilities.altaz_readout:
+                    try:
+                        snapshot["altaz"] = mount.get_altaz()
+                    except (MountError, OSError):
+                        pass
+            except Exception as exc:
+                self.polled.emit(mount, {"error": str(exc)})
+                return
+            self.polled.emit(mount, snapshot)
+
+        threading.Thread(target=worker, daemon=True, name="mount-poll").start()
+
+    def _on_polled(self, mount, snapshot: dict) -> None:
+        self._poll_busy = False
+        # A poll can outlive its mount: answers about a driver that has since
+        # been disconnected describe nothing that is on screen.
+        if mount is not self.mount:
+            return
+        if "error" in snapshot:
+            self.status_label.setText(f"unreadable: {snapshot['error']}")
             return
 
+        status = snapshot["status"]
         self.status_label.setText(status.summary())
         self.track_button.setChecked(status.tracking)
-        try:
-            rate = self.mount.tracking_rate_name()
-        except (MountError, OSError):
-            rate = None
-        self._style_track_button(status.tracking, rate)
+        self._style_track_button(status.tracking, snapshot["rate"])
 
         where = []
-        try:
-            ra_hours, dec_degrees = self.mount.get_radec()
+        if "radec" in snapshot:
+            ra_hours, dec_degrees = snapshot["radec"]
             where.append(f"RA {format_ra(ra_hours)}  Dec {format_dec(dec_degrees)}")
-        except (MountError, OSError):
-            pass
-        if self.mount.capabilities.altaz_readout:
-            try:
-                altitude, azimuth = self.mount.get_altaz()
-                where.append(f"Alt {altitude:.2f}°  Az {azimuth:.2f}°")
-            except (MountError, OSError):
-                pass
+        if "altaz" in snapshot:
+            altitude, azimuth = snapshot["altaz"]
+            where.append(f"Alt {altitude:.2f}°  Az {azimuth:.2f}°")
         self.where_label.setText("\n".join(where))
 
     # ----------------------------------------------------------------- actions
@@ -3716,6 +3950,10 @@ class MountDock(QDockWidget):
 
 class RelayPopup(QWidget, Observable):
 
+    #: One probed port coming home from the scan worker:
+    #: (generation, row, label, kind).
+    port_probed = pyqtSignal(int, int, str, str)
+
     def __init__(self, observer: 'SolarEclipseController'):
         """ Panel to connect, configure, and test the USB relay shutter trigger.
 
@@ -3733,6 +3971,8 @@ class RelayPopup(QWidget, Observable):
         self.setGeometry(QRect(100, 100, 420, 220))
         self.add_observer(observer)
         self.controller = observer
+        self.port_probed.connect(self._on_port_probed)
+        self._scan_generation = 0
 
         settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
 
@@ -3811,16 +4051,48 @@ class RelayPopup(QWidget, Observable):
         self.show_state()
 
     def scan_ports(self):
-        """ Repopulate the port list from relay discovery, keeping any typed text. """
+        """ Repopulate the port list from relay discovery, then say what is where.
+
+        The mount and the relay are twin CP2102s whose /dev names reshuffle on
+        every replug, so a bare list of ports is a guessing game.  A worker
+        probes each one - AT answer, LX200 answer, busy, silence - and rewrites
+        the rows as answers land, keeping the port path first because this
+        combo's text IS the port that Connect opens.
+        """
 
         typed = self.port_combobox.currentText()
         self.port_combobox.clear()
-        for candidate in discover_relays():
+        candidates = list(discover_relays())
+        for candidate in candidates:
             self.port_combobox.addItem(candidate.target)
             self.port_combobox.setItemData(self.port_combobox.count() - 1,
                                            candidate.description, Qt.ItemDataRole.ToolTipRole)
         if typed:
             self.port_combobox.setCurrentText(typed)
+
+        self._scan_generation += 1
+        generation = self._scan_generation
+        marks = {"relay": "✓", "mount": "✗", "busy": "⛔", "silent": "?"}
+        rows = [(row, c.target) for row, c in enumerate(candidates)]
+
+        def worker():
+            for row, port in rows:
+                kind, detail = _identify_serial_port(port)
+                try:
+                    self.port_probed.emit(generation, row,
+                                          f"{port} — {marks[kind]} {detail}", kind)
+                except RuntimeError:
+                    return
+
+        threading.Thread(target=worker, daemon=True, name="relay-scan").start()
+
+    def _on_port_probed(self, generation: int, row: int, label: str, kind: str) -> None:
+        """One probed port back on the GUI thread; relabel, select the relay."""
+        if generation != self._scan_generation or row >= self.port_combobox.count():
+            return
+        self.port_combobox.setItemText(row, label)
+        if kind == "relay":
+            self.port_combobox.setCurrentIndex(row)
 
     def show_state(self):
         """ Reflect the connection state in the buttons and status label. """
@@ -3844,7 +4116,10 @@ class RelayPopup(QWidget, Observable):
             return
 
         kind = self.backend_combobox.currentText()
-        port = self.port_combobox.currentText().strip() or None
+        # The probe labels decorate the rows as "port — ✓ what answered"; the
+        # port itself is everything before the dash (device paths have no
+        # spaces, and hand-typed ports carry no decoration to strip).
+        port = self.port_combobox.currentText().split(" — ")[0].strip() or None
         s2 = int(self.s2_channel.text() or "2")
         s1 = int(self.s1_channel.text() or "1") if self.s1_checkbox.isChecked() else None
 

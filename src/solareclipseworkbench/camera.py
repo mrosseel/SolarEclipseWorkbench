@@ -10,6 +10,7 @@ import gphoto2
 import gphoto2 as gp
 
 from solareclipseworkbench import exposure_trim, frame_log, hardware_problems
+from solareclipseworkbench.hardware_registry import HARDWARE, seconds_to_next_camera_job
 from datetime import datetime
 import os
 
@@ -719,6 +720,40 @@ def _find_capturemode_choice(
 # the camera's own cycle time and accept the resulting timing drift.
 _MAX_LOCK_WAIT_S: float = 1.5
 
+# How long a job may wait when the schedule says there is room behind it: the
+# wait is the gap to the next camera job less _NEXT_JOB_MARGIN_S, so a rescued
+# frame can never be the reason the following one is late.  Where the schedule
+# is tight this collapses to _MAX_LOCK_WAIT_S.
+_MAX_LOCK_WAIT_WITH_ROOM_S: float = 4.0
+
+# Kept clear before the next camera job: enough for this frame's own shutter
+# and USB turnaround, so the next job finds the lock free rather than queued
+# behind the frame this one rescued.
+_NEXT_JOB_MARGIN_S: float = 1.5
+
+
+def _lock_wait_budget() -> float:
+    """How long this job may wait for the camera, given what is due next.
+
+    Never less than ``_MAX_LOCK_WAIT_S`` (the schedule saying nothing is not a
+    reason to be stricter) and never more than the room actually available.
+    """
+    scheduler = HARDWARE.get('scheduler')
+    if scheduler is None:
+        return _MAX_LOCK_WAIT_S
+    try:
+        gap = seconds_to_next_camera_job(scheduler)
+    except Exception:
+        # Diagnosis is not worth a dropped frame: fall back to the fixed wait.
+        logging.debug('Could not read the gap to the next camera job',
+                      exc_info=True)
+        return _MAX_LOCK_WAIT_S
+    if gap is None:
+        # Nothing else is due at all, so waiting delays nothing.
+        return _MAX_LOCK_WAIT_WITH_ROOM_S
+    return max(_MAX_LOCK_WAIT_S,
+               min(_MAX_LOCK_WAIT_WITH_ROOM_S, gap - _NEXT_JOB_MARGIN_S))
+
 
 def _serialised_on_camera(func):
     """Decorator that serialises access to the physical camera.
@@ -735,18 +770,19 @@ def _serialised_on_camera(func):
     """
     @functools.wraps(func)
     def wrapper(camera, *args, **kwargs):
-        acquired = camera._usb_lock.acquire(timeout=_MAX_LOCK_WAIT_S)
+        budget = _lock_wait_budget()
+        acquired = camera._usb_lock.acquire(timeout=budget)
         if not acquired:
             logging.warning(
                 '%s: dropped — camera was still busy after %.1fs '
                 '(shot is too late; timing accuracy preserved)',
-                func.__name__, _MAX_LOCK_WAIT_S,
+                func.__name__, budget,
             )
             # Deliberate, but not free: this frame does not exist and the log
             # line alone was joined to nothing.  The row names which scheduled
             # command it was, so a rehearsal can be counted rather than read.
             frame_log.record("dropped",
-                             f"camera busy for more than {_MAX_LOCK_WAIT_S}s")
+                             f"camera busy for more than {budget:.1f}s")
             return
         try:
             return func(camera, *args, **kwargs)

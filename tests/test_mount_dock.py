@@ -109,6 +109,111 @@ def test_a_hidden_dock_does_not_poll(dock):
     assert not dock._timer.isActive()
 
 
+def test_a_silent_line_does_not_freeze_the_window(dock):
+    """6 August: the dock connected to a serial relay by mistake, and every
+    status read sat out its two-second timeout on the GUI thread - the whole
+    window hung.  refresh() must return immediately whatever the line does."""
+    import threading
+    import time
+
+    from solareclipseworkbench.mounts import MountError
+
+    _connect(dock, "simulator")
+    dock.show()
+    QApplication.processEvents()
+
+    release = threading.Event()
+
+    def stuck_status():
+        release.wait(5.0)
+        raise MountError("timed out waiting for a terminated reply")
+
+    dock.mount.status = stuck_status
+    started = time.monotonic()
+    dock.refresh()
+    elapsed = time.monotonic() - started
+    release.set()
+
+    assert elapsed < 0.5, "refresh blocked the GUI thread on a dead line"
+
+
+def test_scan_labels_select_the_row_that_proved_to_be_a_mount(dock):
+    """6 August: the mount and relay are twin CP2102s whose /dev names
+    reshuffle on every replug, and picking from four anonymous rows went
+    wrong three times in one morning.  The probe results relabel the rows
+    and pick the one that answered LX200."""
+    dock.candidate_combo.clear()
+    dock.candidate_combo.addItem("onstepx: /dev/cu.A", object())
+    dock.candidate_combo.addItem("onstepx: /dev/cu.B", object())
+    dock._scan_generation = 3
+    dock._scan_found_mount = False
+
+    dock._on_scanned(3, 0, "✗ /dev/cu.A — a DSD relay, not a mount", "relay")
+    dock._on_scanned(3, 1, "✓ /dev/cu.B — answers LX200 @ 9600 baud", "mount")
+
+    assert dock.candidate_combo.currentIndex() == 1
+    assert "LX200" in dock.candidate_combo.itemText(1)
+    assert "Connect" in dock.status_label.text()
+
+    # A result from a superseded scan must change nothing.
+    dock._on_scanned(2, 0, "stale label", "mount")
+    assert dock.candidate_combo.itemText(0).startswith("✗")
+
+    # The end of a scan that found nothing says what to check.
+    dock._scan_found_mount = False
+    dock._on_scanned(3, -1, "", "done")
+    assert "power" in dock.status_label.text()
+
+
+def test_the_site_and_clock_are_pushed_to_a_mount_that_wants_them(app):
+    # An OnStepX in standby refuses to track until it knows where and when it
+    # is.  The Android app warns about it; this program just tells it.
+    import time as _time
+
+    from PyQt6.QtWidgets import QWidget
+
+    from solareclipseworkbench.mounts import Capabilities
+
+    calls = []
+
+    class _Stub:
+        capabilities = Capabilities(site_time=True)
+
+        def set_datetime(self, when=None):
+            calls.append(("datetime",))
+
+        def set_site(self, latitude_deg, longitude_deg):
+            calls.append(("site", latitude_deg, longitude_deg))
+
+    holder = QWidget()
+    holder.observing_site = (-2.5, 39.5, 700.0)   # (longitude, latitude, altitude)
+    dock = MountDock(holder)
+    dock.mount = _Stub()
+
+    dock.push_site_and_clock()
+    deadline = _time.monotonic() + 2.0
+    while _time.monotonic() < deadline and len(calls) < 2:
+        _time.sleep(0.01)
+
+    assert ("datetime",) in calls, "the clock was never set"
+    assert ("site", 39.5, -2.5) in calls, "the site was never set"
+    dock.mount = None
+    dock.deleteLater()
+
+
+def test_a_late_answer_from_a_disconnected_mount_changes_nothing(dock):
+    # A poll in flight when Disconnect is pressed must not repaint the dock
+    # after it says "not connected" - and it must hand back the poll slot.
+    _connect(dock, "simulator")
+    old_mount = dock.mount
+    dock.disconnect_mount()
+
+    dock._on_polled(old_mount, {"error": "timed out"})
+
+    assert dock.status_label.text() == "not connected"
+    assert not dock._poll_busy
+
+
 def test_a_failed_connection_leaves_the_dock_usable(dock, monkeypatch):
     import solareclipseworkbench.gui as gui
     from solareclipseworkbench.mounts import MountError

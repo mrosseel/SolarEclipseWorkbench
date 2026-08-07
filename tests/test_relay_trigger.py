@@ -175,13 +175,39 @@ def test_dsd_backend_terminates_at_commands_with_crlf(monkeypatch):
         def write(self, data): written.append(data)
         def flush(self): pass
         def close(self): pass
+        def read(self, size): return b"OK+CH1=0\n"
+        def reset_input_buffer(self): pass
 
     monkeypatch.setattr(serial_mod, "Serial", _FakeSerial)
     backend = DsdSerialBackend(port="/dev/fake")
     backend.set_channel(1, True)
     backend.set_channel(4, False)
 
-    assert written == [b"\r\n", b"AT+CH1=1\r\n", b"AT+CH4=0\r\n"]
+    assert written == [b"\r\n", b"AT+CH1=0\r\n", b"AT+CH1=1\r\n", b"AT+CH4=0\r\n"]
+
+
+def test_dsd_backend_refuses_a_port_that_does_not_answer(monkeypatch):
+    """6 August: a replug shuffled macOS's serial names, the saved relay port
+    turned out to be the mount, and every AT command went silently into an
+    OnStepX.  The SH-UR firmware echoes OK for every command, so a silent
+    port is provably not a DSD board and connecting to it must fail."""
+    import serial as serial_mod
+    from solareclipseworkbench.relay_trigger import DsdSerialBackend
+
+    closed = []
+
+    class _MuteSerial:
+        def __init__(self, *args, **kwargs): pass
+        def write(self, data): pass
+        def flush(self): pass
+        def close(self): closed.append(True)
+        def read(self, size): return b""
+        def reset_input_buffer(self): pass
+
+    monkeypatch.setattr(serial_mod, "Serial", _MuteSerial)
+    with pytest.raises(RelayError, match="not a DSD board"):
+        DsdSerialBackend(port="/dev/fake")
+    assert closed, "the silent port was left open"
 
 
 def test_get_backend_reports_what_is_available_when_the_name_is_wrong():
@@ -397,3 +423,26 @@ def test_the_bead_windows_fit_in_one_burst():
         assert frames <= fuji_camera.MAX_BURST_FRAMES, \
             "%.1f s window wants %.0f frames, cap is %d" % (
                 window, frames, fuji_camera.MAX_BURST_FRAMES)
+
+
+def test_relay_arm_catches_up_blocked_exposure_before_closing_s1():
+    """6 August rehearsal: the beads exposure load fell inside live view's
+    busy window and the burst would have run stale.  The arm has scheduled
+    slack, so the catch-up happens there - and strictly before S1 closes,
+    because writes into held contacts are what killed the 5 August burst."""
+    from types import SimpleNamespace
+
+    from solareclipseworkbench.hardware_registry import register_hardware
+    from solareclipseworkbench.relay_trigger import relay_arm
+
+    order = []
+    owner = SimpleNamespace(
+        apply_pending=lambda budget_s=None: order.append(("catchup", budget_s)))
+    register_hardware('sdk_camera', owner)
+    try:
+        trigger = SimpleNamespace(half_press=lambda: order.append(("s1",)))
+        relay_arm(trigger)
+    finally:
+        register_hardware('sdk_camera', None)
+
+    assert order == [("catchup", 0.8), ("s1",)]

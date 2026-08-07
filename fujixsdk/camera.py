@@ -422,6 +422,26 @@ class Camera:
         log.warning("Camera still busy after %.1fs timeout", timeout_s)
         return False
 
+    def still_on_bus(self) -> bool:
+        """Whether a camera is still enumerable on this interface.
+
+        Detect walks the bus and never touches this session's handle, so it
+        is the one question that is safe to ask about a body that may already
+        be gone - every other call is USB traffic into a handle whose device
+        may not be there, which is the SIGSEGV described in close().
+
+        Used to set :attr:`vanished` before a teardown rather than after the
+        crash, for the case where nothing has met a CommunicationError yet.
+        """
+        count = ctypes.c_long(0)
+        try:
+            self._lib_inst.XSDK_Detect(
+                ctypes.c_long(self._interface), None, None, ctypes.byref(count))
+        except Exception:
+            log.debug("Could not enumerate the bus", exc_info=True)
+            return False
+        return count.value > 0
+
     def close(self):
         """Close the camera connection and release SDK resources.
 

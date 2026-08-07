@@ -236,3 +236,85 @@ def test_onstepx_rejects_an_unknown_tracking_rate():
 def test_onstepx_requires_an_address():
     with pytest.raises(MountError, match="port"):
         OnStepXMount().connect()
+
+
+def test_onstepx_tells_the_controller_where_and_when():
+    # Out of the box an OnStepX sits in standby and refuses to track until it
+    # knows its site and the time.  The clock goes over as UTC with a zero
+    # offset - no timezone bookkeeping to get wrong - and longitude flips to
+    # the LX200's west-positive convention.
+    from datetime import datetime, timezone
+
+    mount = _loopback()
+    mount.set_datetime(datetime(2026, 8, 12, 17, 30, 45, tzinfo=timezone.utc))
+    mount.set_site(latitude_deg=39.5, longitude_deg=-2.5)
+
+    sent = mount.transport.site_time
+    assert sent["SG"] == "+00:00"
+    assert sent["SL"] == "17:30:45"
+    assert sent["SC"] == "08/12/26"
+    assert sent["St"] == "+39*30:00"
+    assert sent["Sg"] == "+002*30:00", "2.5 degrees west did not flip to LX200's west-positive"
+
+
+def test_onstepx_refuses_a_port_where_nothing_answers(monkeypatch):
+    # 6 August: with the probe failing on every rate, connect() fell back to
+    # opening the port blind at 9600.  Against a serial relay that made a
+    # "connected" mount whose every command sat out its timeout.
+    from solareclipseworkbench.mounts import onstepx
+
+    monkeypatch.setattr(onstepx, "probe_serial", lambda port: None)
+
+    mount = OnStepXMount(port="/dev/cu.some-relay")
+    with pytest.raises(MountError, match="answered"):
+        mount.connect()
+    assert mount.transport is None
+
+
+def test_a_controller_that_will_not_name_itself_is_still_found():
+    """6 August: a SAL-33 on OnStepX 10.27 answers :GVP# with a bare "0" -
+    no name, no terminator - while answering :GVN#, :GU# and the coordinates
+    perfectly.  Probing on :GVP# alone called a live, tracking, correctly
+    sited mount silent and refused to connect to it, twice."""
+    from solareclipseworkbench.mounts import onstepx
+
+    class _MuteName(LoopbackTransport):
+        def _respond(self, command: str) -> str:
+            if command == ":GVP#":
+                return "0"
+            return super()._respond(command)
+
+    transport = _MuteName()
+    opened = []
+
+    def _fake_serial(port, baudrate, timeout=None):
+        opened.append(baudrate)
+        return transport
+
+    original = onstepx.SerialTransport
+    onstepx.SerialTransport = _fake_serial
+    try:
+        assert onstepx.probe_serial("/dev/fake", baudrates=[9600]) == 9600
+    finally:
+        onstepx.SerialTransport = original
+
+    # And the driver still describes itself, standing on the firmware version.
+    mount = OnStepXMount(transport=_MuteName())
+    mount.connect()
+    assert mount.product_name() == "OnStepX 10.24"
+
+
+def test_a_port_with_nothing_on_it_is_still_refused():
+    # The multi-command probe must not turn "silent" into "found".
+    from solareclipseworkbench.mounts import onstepx
+
+    class _Mute(LoopbackTransport):
+        def _respond(self, command: str) -> str:
+            return ""
+
+    original = onstepx.SerialTransport
+    onstepx.SerialTransport = lambda port, baudrate, timeout=None: _Mute()
+    try:
+        assert onstepx.probe_serial("/dev/fake", baudrates=[9600]) is None
+    finally:
+        onstepx.SerialTransport = original

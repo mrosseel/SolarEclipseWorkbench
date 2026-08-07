@@ -11,9 +11,12 @@ Two wiring layouts are supported:
                      is a full press; the camera free-runs in whatever drive mode
                      it is set to for as long as the contact is held.
 
-    dual channel     ring on one NO contact (S1, half press) and tip on another
+    dual channel     tip on one NO contact (S1, half press) and ring on another
                      (S2, full press).  Allows an explicit half-press settle
                      before each frame, and per-frame control of the interval.
+                     On the X-T4's 2.5 mm jack the tip is S1 and the ring is
+                     S2; check the body's own pinout before wiring anything
+                     else.
 
 Wire the *normally open* terminals.  On normally-closed contacts the shutter is
 held down whenever the relay is unpowered, so unplugging the USB cable would fire
@@ -240,6 +243,9 @@ class LcusSerialBackend(Backend):
     name = "lcus"
     description = "LCUS-style serial relay boards (CH340 and similar)"
 
+    # All three serial backends open with exclusive=True: a second claim on a
+    # held port must fail at open rather than put two devices on one wire.
+
     @classmethod
     def discover(cls) -> list:
         """Any USB serial adapter that is not identifiably something else.
@@ -271,7 +277,7 @@ class LcusSerialBackend(Backend):
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 0.2):
         self.port = port
         try:
-            self._serial = serial.Serial(port, baudrate, timeout=timeout)
+            self._serial = serial.Serial(port, baudrate, timeout=timeout, exclusive=True)
         except serial.SerialException as exc:
             raise RelayError(f"cannot open relay on {port}: {exc}") from exc
 
@@ -318,7 +324,7 @@ class NumatoSerialBackend(Backend):
     def __init__(self, port: str, baudrate: int = 19200, timeout: float = 0.2):
         self.port = port
         try:
-            self._serial = serial.Serial(port, baudrate, timeout=timeout)
+            self._serial = serial.Serial(port, baudrate, timeout=timeout, exclusive=True)
         except serial.SerialException as exc:
             raise RelayError(f"cannot open relay on {port}: {exc}") from exc
 
@@ -383,13 +389,31 @@ class DsdSerialBackend(Backend):
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 0.2):
         self.port = port
         try:
-            self._serial = serial.Serial(port, baudrate, timeout=timeout)
+            self._serial = serial.Serial(port, baudrate, timeout=timeout, exclusive=True)
             # Terminate whatever half-command the firmware may still be
             # holding, so the first real command is parsed clean.
             self._serial.write(b"\r\n")
             self._serial.flush()
         except serial.SerialException as exc:
             raise RelayError(f"cannot open relay on {port}: {exc}") from exc
+        # The SH-UR firmware acknowledges every command with "OK+...", so
+        # unlike most relay boards this one can prove what it is - worth
+        # doing, since /dev names reshuffle on replug.  Opening channel 1 is
+        # the no-op probe: every connect starts from released contacts.
+        try:
+            time.sleep(0.1)
+            self._serial.reset_input_buffer()
+            self._serial.write(b"AT+CH1=0\r\n")
+            self._serial.flush()
+            reply = self._serial.read(16)
+        except serial.SerialException as exc:
+            self.close()
+            raise RelayError(f"cannot probe relay on {port}: {exc}") from exc
+        if b"OK" not in reply:
+            self.close()
+            raise RelayError(
+                f"nothing answering AT commands on {port} (got {reply!r}) - "
+                "wrong port, or not a DSD board")
 
     def set_channel(self, channel: int, closed: bool) -> None:
         command = f"AT+CH{channel}={1 if closed else 0}\r\n".encode("ascii")
@@ -844,9 +868,27 @@ def open_trigger(kind: str = "auto", port: Optional[str] = None,
 # These mirror the camera command functions so eclipse scripts can drive the
 # relay the same way they drive a camera.
 
+def _catch_up_exposure(budget_s: float) -> None:
+    """Put any settings a busy body blocked back on, before contacts close.
+
+    The relay fires whatever is already dialled in, so a blocked exposure
+    write would leave the burst running stale.  The budget is hard: past it
+    the catch-up is skipped rather than delay the contacts it serves.
+    """
+    owner = HARDWARE.get('sdk_camera')
+    apply_pending = getattr(owner, 'apply_pending', None)
+    if apply_pending is None:
+        return
+    try:
+        apply_pending(budget_s=budget_s)
+    except Exception:
+        logger.warning("Exposure catch-up before the relay failed", exc_info=True)
+
+
 def relay_shoot(trigger: RelayTrigger) -> None:
     """Take a single frame through the relay."""
     logger.info("relay_shoot")
+    _catch_up_exposure(budget_s=0.8)
     trigger.shoot()
 
 
@@ -921,7 +963,11 @@ def relay_arm(trigger: RelayTrigger) -> None:
     Pre-arming drops per-frame trigger latency from ~170 ms to the body's own
     ~45 ms and keeps it awake; ``pressed()`` recognises the held S1 and leaves
     it closed on the way out, so the arm survives shots and bursts.
+
+    The exposure catch-up runs first, before S1 closes: a write into held
+    contacts kills the drive, and the arm has scheduled slack to fix things in.
     """
+    _catch_up_exposure(budget_s=0.8)
     logger.info("relay_arm: S1 held")
     trigger.half_press()
 

@@ -236,9 +236,18 @@ def _live_view_stub(sdk):
     win._worker = None                      # no stream running in these tests
     win._stream = None                      # ...so nothing to stop for a write
     win._usb_lock = threading.RLock()       # the real one is the camera's
-    win._refresh_exposure = lambda: LiveViewWindow._refresh_exposure(win)
+
+    # The real refresh reads the SDK on a worker thread and shows the result
+    # via a queued signal; these tests want it shown by the time they look,
+    # so the two halves run here back to back.
+    def _sync_refresh():
+        skip, result = LiveViewWindow._read_exposure(win)
+        if not skip:
+            LiveViewWindow._show_exposure(win, result)
+    win._refresh_exposure = _sync_refresh
     win._fill_shutter_combo = lambda speeds: LiveViewWindow._fill_shutter_combo(
         win, speeds)
+    win._fill_iso_combo = lambda isos: LiveViewWindow._fill_iso_combo(win, isos)
     # The write path speaks to the GUI thread through guarded emits; here
     # they run where they are called, which is what the real queued
     # connection does a moment later on the GUI thread.  Late-bound, so a
@@ -604,7 +613,7 @@ def test_a_speed_the_list_does_not_offer_is_still_shown():
 
     sdk.speed = 12345                       # a value no list would offer
     assert win._shutter_combo.findData(12345) < 0
-    LiveViewWindow._refresh_exposure(win)
+    win._refresh_exposure()
 
     assert win._shutter_combo.currentData() == 12345, \
         "the control kept showing something the camera is not set to"
@@ -681,3 +690,288 @@ def test_two_writes_do_not_run_at_once():
     assert any("Still setting" in m for m in messages)
     release.set()
     win._write_thread.join(5)
+
+
+def test_the_window_builds_before_its_first_camera_answer():
+    """6 August: building the widgets kicks off the first exposure read, and
+    its guard flags were initialised after the build - the window died on an
+    AttributeError before it ever opened.  The stub tests bind methods one by
+    one, so only constructing the real window catches an ordering bug."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    class _SilentCamera:
+        """Answers nothing: every probe fails, none of it fatally."""
+
+    win = LiveViewWindow(_SilentCamera())
+    assert win._exposure_read_busy is not None
+    win.deleteLater()
+
+
+def test_stopping_live_view_puts_the_schedules_exposure_back():
+    """6 August rehearsal: the C2 beads exposure load fell inside live view's
+    0x1006 window, and the relay burst after it would have fired at stale
+    settings.  The accepted contract is frames lost while the window is open
+    and nothing after - so the teardown re-applies the schedule's last ask,
+    after the priority handshake, never before."""
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    calls = []
+    win = SimpleNamespace(
+        _camera=SimpleNamespace(
+            vanished=False,
+            set_priority=lambda p: calls.append(("priority", p))),
+        _adapter=SimpleNamespace(
+            apply_pending=lambda: calls.append(("catchup",)) or True),
+        _thread=None,
+        _stalled_threads=[],
+    )
+
+    LiveViewWindow._finish_stop(win, None, None, None)
+
+    assert ("catchup",) in calls, "the stale exposure survived the stream"
+    assert calls.index(("catchup",)) == len(calls) - 1, \
+        "exposure went back before the body had its priority"
+
+
+# --------------------------------------------- the blocked-settings cache
+
+def _configure_stub(sdk, pending=None):
+    import threading
+    return SimpleNamespace(name="X-T4", _lock=threading.RLock(), _sdk=sdk,
+                           _applied_iso=None, _applied_speed=None,
+                           _frame_busy_until=0.0, _pending=dict(pending or {}),
+                           recover_session=lambda: False,
+                           _remember=lambda **kw: None)
+
+
+def test_a_blocked_setting_is_cached_for_the_next_configure():
+    """The 6 August contract: frames lost while live view is open are the
+    person's to lose, but nothing after it may fire on stale settings.  So a
+    write refused with busy stays cached, latest value per setting."""
+    import pytest as _pytest
+    from fujixsdk.camera import BusyError
+    from solareclipseworkbench.camera import CameraError
+    from solareclipseworkbench.fuji_camera import FujiCamera
+
+    class _BusySDK:
+        def set_shutter_speed(self, value):
+            raise BusyError("0x1006: live view has the body")
+
+    stub = _configure_stub(_BusySDK())
+    with _pytest.raises(CameraError):
+        FujiCamera.configure(stub, budget_s=0.05, shutter_speed="1/500")
+
+    assert stub._pending == {"shutter_speed": "1/500"}
+
+
+def test_cached_settings_ride_along_with_the_next_configure():
+    from solareclipseworkbench.fuji_camera import FujiCamera
+
+    class _OkSDK:
+        def __init__(self):
+            self.written = []
+
+        def set_shutter_speed(self, value):
+            self.written.append(("speed", value))
+
+        def set_iso(self, value):
+            self.written.append(("iso", value))
+
+    sdk = _OkSDK()
+    stub = _configure_stub(sdk, pending={"shutter_speed": "1/500"})
+    FujiCamera.configure(stub, iso=100)   # asks only for ISO
+
+    assert stub._pending == {}, "the cached shutter speed was not caught up"
+    assert ("iso", 100) in sdk.written
+    assert any(name == "speed" for name, _ in sdk.written)
+
+
+def test_the_catchup_is_skipped_when_the_budget_cannot_fit_a_write():
+    # Just before a relay burst there may be less than one write's worth of
+    # time; arriving late to the burst is not a rescue, so nothing is tried.
+    from solareclipseworkbench.fuji_camera import FujiCamera
+
+    called = []
+    stub = SimpleNamespace(name="X-T4", _pending={"iso": 100},
+                           configure=lambda **kw: called.append(kw))
+
+    assert FujiCamera.apply_pending(stub, budget_s=0.1) is False
+    assert called == []
+
+    FujiCamera.apply_pending(stub, budget_s=0.8)
+    assert called, "a workable budget still did not try"
+
+
+# ----------------------------------------------- the gap-bounded drop guard
+
+def test_a_frame_waits_longer_when_the_schedule_has_room():
+    """6 August, twice: the corona singles between the ladders were dropped
+    at 1.5s against a body still flushing the contact burst - with nothing
+    due behind them, so the wait that would have saved them was free."""
+    from solareclipseworkbench import camera as camera_mod
+
+    def _budget(gap):
+        scheduler = SimpleNamespace()
+        camera_mod.HARDWARE['scheduler'] = scheduler
+        try:
+            original = camera_mod.seconds_to_next_camera_job
+            camera_mod.seconds_to_next_camera_job = lambda s, now=None: gap
+            try:
+                return camera_mod._lock_wait_budget()
+            finally:
+                camera_mod.seconds_to_next_camera_job = original
+        finally:
+            camera_mod.HARDWARE.pop('scheduler', None)
+
+    # Room behind it: wait longer, but never past the ceiling.
+    assert _budget(20.0) == camera_mod._MAX_LOCK_WAIT_WITH_ROOM_S
+    assert _budget(None) == camera_mod._MAX_LOCK_WAIT_WITH_ROOM_S
+
+    # A frame due right behind: a rescue here would make that one late, so
+    # this must stay the old strict wait, never less.
+    assert _budget(1.0) == camera_mod._MAX_LOCK_WAIT_S
+    assert _budget(0.0) == camera_mod._MAX_LOCK_WAIT_S
+
+    # In between, the wait is the gap less the margin kept for this frame.
+    assert _budget(4.0) == pytest.approx(4.0 - camera_mod._NEXT_JOB_MARGIN_S)
+
+
+def test_the_drop_guard_falls_back_when_there_is_no_schedule():
+    # No script loaded, or a scheduler that will not answer: the guard must
+    # still work, at the strict wait it has always used.
+    from solareclipseworkbench import camera as camera_mod
+
+    camera_mod.HARDWARE.pop('scheduler', None)
+    assert camera_mod._lock_wait_budget() == camera_mod._MAX_LOCK_WAIT_S
+
+    camera_mod.HARDWARE['scheduler'] = SimpleNamespace()
+    original = camera_mod.seconds_to_next_camera_job
+
+    def _boom(scheduler, now=None):
+        raise RuntimeError("scheduler is shutting down")
+
+    camera_mod.seconds_to_next_camera_job = _boom
+    try:
+        assert camera_mod._lock_wait_budget() == camera_mod._MAX_LOCK_WAIT_S
+    finally:
+        camera_mod.seconds_to_next_camera_job = original
+        camera_mod.HARDWARE.pop('scheduler', None)
+
+
+def test_the_teardown_leaves_the_camera_alone_when_a_frame_is_due():
+    """6 August: live view stopped because a frame needed the camera - and
+    the catch-up added on the way out took the camera lock the frame was
+    waiting for, so the frame it made way for was never taken.  Nothing is
+    lost by skipping: the cache rides along with that frame's own configure."""
+    from solareclipseworkbench import liveview as liveview_mod
+    from solareclipseworkbench.liveview import LiveViewWindow
+
+    calls = []
+
+    def _win():
+        return SimpleNamespace(
+            _camera=SimpleNamespace(vanished=False,
+                                    set_priority=lambda p: calls.append("priority")),
+            _adapter=SimpleNamespace(
+                apply_pending=lambda: calls.append("catchup")),
+            _thread=None, _stalled_threads=[])
+
+    original = liveview_mod._seconds_to_next_camera_job
+    try:
+        # A frame is imminent: hand the camera straight back, catch up later.
+        liveview_mod._seconds_to_next_camera_job = lambda: 1.0
+        LiveViewWindow._finish_stop(_win(), None, None, None)
+        assert calls == ["priority"], "the catch-up raced the frame"
+
+        # Nothing due: the catch-up runs, as it must.
+        calls.clear()
+        liveview_mod._seconds_to_next_camera_job = lambda: None
+        LiveViewWindow._finish_stop(_win(), None, None, None)
+        assert calls == ["priority", "catchup"]
+    finally:
+        liveview_mod._seconds_to_next_camera_job = original
+
+
+def test_the_crosshair_marks_the_centre_without_covering_it():
+    # The sun is centred by the gap, so the very centre must stay clear.
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtGui import QPixmap
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from solareclipseworkbench.liveview import _draw_crosshair
+
+    pixmap = QPixmap(400, 300)
+    pixmap.fill()
+    before = pixmap.toImage().pixel(200, 150)
+    _draw_crosshair(pixmap)
+    after = pixmap.toImage()
+
+    assert after.pixel(200, 150) == before, "the crosshair covered the centre"
+    assert after.pixel(20, 150) != before, "no horizontal line was drawn"
+    assert after.pixel(200, 20) != before, "no vertical line was drawn"
+
+
+def test_the_loupe_magnifies_without_smoothing_and_scores_its_own_patch():
+    """A preview scaled into a dock is a downsample, and a downsampled soft
+    edge looks much like a downsampled sharp one.  The loupe shows the patch
+    at native pixels, nearest-neighbour, and scores that patch rather than
+    the whole frame - focusing on a limb barely moves a whole-frame number."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtGui import QImage
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from solareclipseworkbench.liveview import _Loupe
+
+    loupe = _Loupe()
+    assert loupe._score is None
+
+    patch = QImage(_Loupe.PATCH_PX, _Loupe.PATCH_PX, QImage.Format.Format_RGB888)
+    patch.fill(0)
+    loupe.set_patch(patch, 12.5)
+    assert loupe._score == 12.5
+    assert loupe._peak == 12.5
+    # Magnified, not shrunk: the patch is smaller than the widget.
+    assert loupe._pixmap.width() > patch.width()
+
+    # The peak is what the percentage is measured against, so it must hold.
+    loupe.set_patch(patch, 6.0)
+    assert loupe._peak == 12.5
+
+    loupe.reset()
+    assert loupe._score is None and loupe._peak == 0.0
+
+
+def test_peaking_colour_and_sensitivity_reach_the_overlay():
+    # Red is the one colour a filtered sun already is, and a low-contrast
+    # disc needs a lower threshold than a daylight scene.
+    import numpy as np
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from solareclipseworkbench.liveview import (PEAKING_COLOURS,
+                                                PEAKING_SENSITIVITY,
+                                                _peaking_mask_from_lap)
+
+    lap = np.full((8, 8), 20, dtype=np.int16)   # edges of middling strength
+
+    # 'high' sensitivity (threshold 12) paints them; 'low' (60) does not.
+    painted = _peaking_mask_from_lap(lap, 10, 10, PEAKING_COLOURS["cyan"],
+                                     PEAKING_SENSITIVITY["high"])
+    bare = _peaking_mask_from_lap(lap, 10, 10, PEAKING_COLOURS["cyan"],
+                                  PEAKING_SENSITIVITY["low"])
+    cyan = PEAKING_COLOURS["cyan"]
+    assert painted.pixelColor(5, 5).blue() == cyan.blue()
+    assert painted.pixelColor(5, 5).red() == 0, "cyan came out red"
+    assert bare.pixelColor(5, 5).alpha() == 0, "a low threshold still painted"

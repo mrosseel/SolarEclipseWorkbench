@@ -23,6 +23,7 @@ import socket
 import threading
 import time
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Tuple
 
@@ -110,7 +111,9 @@ class SerialTransport(Transport):
         self.port = port
         self.baudrate = baudrate
         try:
-            self._serial = serial.Serial(port, baudrate, timeout=timeout)
+            # Exclusive: a port another subsystem already holds must fail here
+            # rather than put two devices on one wire.
+            self._serial = serial.Serial(port, baudrate, timeout=timeout, exclusive=True)
         except serial.SerialException as exc:
             raise MountError(f"cannot open mount on {port}: {exc}") from exc
         # Controllers commonly emit a banner or reset when the port opens.
@@ -208,6 +211,7 @@ class LoopbackTransport(Transport):
         self.dec_degrees = 0.0
         self.target: Tuple[Optional[float], Optional[float]] = (None, None)
         self.rate = "solar"
+        self.site_time: dict = {}
 
     def write(self, data: bytes) -> None:
         self._pending += self._respond(data.decode("ascii", errors="replace")).encode("ascii")
@@ -241,6 +245,9 @@ class LoopbackTransport(Transport):
             return "1"
         if command.startswith(":Sd"):
             self.target = (self.target[0], parse_dec(command[3:-1]))
+            return "1"
+        if command.startswith((":SG", ":SL", ":SC", ":St", ":Sg")):
+            self.site_time[command[1:3]] = command[3:-1]
             return "1"
         if command == ":MS#":
             if self.parked:
@@ -295,6 +302,21 @@ def _format_dec_highp(degrees: float) -> str:
     m = int(remainder)
     s = (remainder - m) * 60.0
     return f"{sign}{d:02d}*{m:02d}:{s:06.3f}#"
+
+
+def _format_longitude(degrees: float) -> str:
+    """``sDDD*MM:SS`` for :Sg, whose degrees field is three digits wide."""
+    sign = "+" if degrees >= 0 else "-"
+    value = abs(degrees)
+    d = int(value)
+    remainder = (value - d) * 60.0
+    m = int(remainder)
+    s = int(round((remainder - m) * 60.0))
+    if s == 60:
+        s, m = 0, m + 1
+    if m == 60:
+        m, d = 0, d + 1
+    return f"{sign}{d:03d}*{m:02d}:{s:02d}"
 
 
 def parse_status(raw: str) -> MountStatus:
@@ -360,6 +382,7 @@ class OnStepXMount(MountDriver):
         rate_presets=("guide", "center", "find", "fast", "slew"),
         pulse_guide=True,
         altaz_readout=True,
+        site_time=True,
     )
 
     def __init__(self, port: Optional[str] = None, baudrate: Optional[int] = None,
@@ -398,7 +421,14 @@ class OnStepXMount(MountDriver):
             self.transport = TcpTransport(self.host, self.tcp_port, self.timeout)
             return
         if self.port:
-            rate = self.baudrate or probe_serial(self.port) or DEFAULT_BAUDRATE
+            # No fallback rate: a probe that fails on every rate means nothing
+            # here speaks LX200, and opening anyway manufactures a dead link.
+            rate = self.baudrate or probe_serial(self.port)
+            if rate is None:
+                raise MountError(
+                    f"nothing answered LX200 on {self.port} at any baud rate "
+                    f"({', '.join(str(b) for b in CANDIDATE_BAUDRATES)}) — "
+                    "wrong port, or the mount is not powered")
             self.transport = SerialTransport(self.port, rate, self.timeout)
             return
         raise MountError("onstepx needs a port (USB cable) or a host (network)")
@@ -480,7 +510,23 @@ class OnStepXMount(MountDriver):
     # ------------------------------------------------------------------ identity
 
     def product_name(self) -> str:
-        return self.send(":GVP#")
+        """The controller's own name for itself.
+
+        Not every build answers this: OnStepX 10.27 replies with a bare "0",
+        which is not a name and not even a terminated reply.  The firmware
+        version stands in rather than letting an unanswerable question fail a
+        connection that is otherwise perfectly good.
+        """
+        try:
+            name = self.send(":GVP#")
+        except MountError:
+            name = ""
+        if name and name != "0":
+            return name
+        try:
+            return f"OnStepX {self.firmware_version()}"
+        except MountError:
+            return "OnStepX"
 
     def firmware_version(self) -> str:
         return self.send(":GVN#")
@@ -527,6 +573,46 @@ class OnStepXMount(MountDriver):
             if abs(hz - reference) < 0.02:
                 return name
         return f"{hz:.3f} Hz"
+
+    # ----------------------------------------------------------- site & time
+
+    def set_site(self, latitude_deg: float, longitude_deg: float,
+                 elevation_m: Optional[float] = None) -> None:
+        """Tell the controller where it stands.
+
+        ``longitude_deg`` arrives east-positive and goes out west-positive,
+        which is the LX200 convention.  Elevation is accepted for the
+        interface but not sent: its effect on tracking is refraction-level,
+        and not every OnStep build takes the command - and per the module
+        docstring, guessing at a command desynchronises the link.
+        """
+        if not self.send_bool(f":St{format_dec(latitude_deg)}#"):
+            raise MountError(f"mount rejected latitude {format_dec(latitude_deg)}")
+        longitude_west = _format_longitude(-longitude_deg)
+        if not self.send_bool(f":Sg{longitude_west}#"):
+            raise MountError(f"mount rejected longitude {longitude_west}")
+
+    def set_datetime(self, when: Optional[datetime] = None) -> None:
+        """Set the controller's clock, in UTC.
+
+        The UTC offset is set to zero and UTC sent as the "local" time, so
+        there is no timezone or DST bookkeeping to get wrong: everything the
+        controller computes from its clock (LST, and from it where the Sun
+        is) consumes UTC anyway.  Only a display on the controller itself
+        would show the difference, and the SAL-33 has none.
+
+        Naive datetimes are taken as this computer's local time.
+        """
+        if when is None:
+            when = datetime.now(timezone.utc)
+        else:
+            when = when.astimezone(timezone.utc)
+        if not self.send_bool(":SG+00:00#"):
+            raise MountError("mount rejected the UTC offset")
+        if not self.send_bool(f":SL{when:%H:%M:%S}#"):
+            raise MountError(f"mount rejected the time {when:%H:%M:%S}")
+        if not self.send_bool(f":SC{when:%m/%d/%y}#"):
+            raise MountError(f"mount rejected the date {when:%m/%d/%y}")
 
     # ---------------------------------------------------------------------- goto
 
@@ -595,6 +681,12 @@ class OnStepXMount(MountDriver):
 # ------------------------------------------------------------------ discovery
 
 
+#: Asked in turn until one answers, to decide whether a mount is on a port.
+#: More than one, because not every build answers every question: OnStepX
+#: 10.27 replies to :GVP# with a bare "0" while answering the rest normally.
+IDENTITY_COMMANDS = (":GVN#", ":GU#", ":GVP#")
+
+
 def probe_serial(port: str, baudrates=None, timeout: float = 1.0) -> Optional[int]:
     """Find the baud rate a controller answers on, or None."""
     for baudrate in (baudrates or CANDIDATE_BAUDRATES):
@@ -602,9 +694,16 @@ def probe_serial(port: str, baudrates=None, timeout: float = 1.0) -> Optional[in
         try:
             transport = SerialTransport(port, baudrate, timeout=timeout)
             mount = OnStepXMount(transport=transport, timeout=timeout)
-            if mount.send(":GVP#", ReplyKind.TERMINATED, timeout=timeout):
-                logger.info("Mount answered at %d baud on %s", baudrate, port)
-                return baudrate
+            for command in IDENTITY_COMMANDS:
+                try:
+                    if mount.send(command, ReplyKind.TERMINATED, timeout=timeout):
+                        logger.info("Mount answered %s at %d baud on %s",
+                                    command, baudrate, port)
+                        return baudrate
+                except MountError:
+                    # This one command; the next may still answer.  A wrong
+                    # baud rate simply fails all of them.
+                    continue
         except MountError:
             continue
         finally:

@@ -49,6 +49,7 @@ class Capabilities:
     rate_presets: Tuple[str, ...] = ("guide", "center", "find", "fast", "slew")
     pulse_guide: bool = True
     altaz_readout: bool = True
+    site_time: bool = False
 
 
 @dataclass
@@ -221,6 +222,19 @@ class MountDriver(ABC):
         """
         return None
 
+    # ------------------------------------------------------------ site & time
+
+    def set_site(self, latitude_deg: float, longitude_deg: float,
+                 elevation_m: Optional[float] = None) -> None:
+        """Tell the mount where it stands.  Longitude is degrees east-positive,
+        like everywhere else in this program; drivers convert to their wire
+        convention themselves."""
+        raise MountNotSupported(f"{self.name} cannot be told its site")
+
+    def set_datetime(self, when=None) -> None:
+        """Set the mount's clock.  ``None`` means this computer's time, now."""
+        raise MountNotSupported(f"{self.name} cannot be told the time")
+
     # -------------------------------------------------------- manual motion
 
     def move(self, direction: str) -> None:
@@ -315,14 +329,23 @@ def parse_dec(text: str) -> float:
     raise MountError(f"cannot parse declination: {text!r}")
 
 
+#: Loaded ephemerides, by filename.  load() parses the .bsp from disk every
+#: call - and downloads it the first time ever - and sun_radec runs on the GUI
+#: thread when the Goto Sun button is pressed.
+_ephemeris_cache: dict = {}
+
+
 def sun_radec(when=None, ephemeris: str = "de421.bsp") -> Tuple[float, float]:
     """Apparent geocentric right ascension and declination of the Sun.
 
     Returns (ra_hours, dec_degrees).  Good enough to put the Sun inside the field
     of a telephoto lens; the mount's own alignment dominates the error.
     """
-    eph = load(ephemeris)
-    ts = load.timescale()
+    cached = _ephemeris_cache.get(ephemeris)
+    if cached is None:
+        cached = (load(ephemeris), load.timescale())
+        _ephemeris_cache[ephemeris] = cached
+    eph, ts = cached
     t = ts.now() if when is None else ts.from_datetime(when)
     apparent = eph["Earth"].at(t).observe(eph["Sun"]).apparent()
     # Equinox of date, not the ICRF/J2000 default: OnStepX works in current

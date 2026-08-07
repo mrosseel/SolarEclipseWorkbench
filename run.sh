@@ -10,6 +10,12 @@
 #   ./run.sh wizard
 #   ./run.sh hardware [--simulate]      # relay + mount bench console
 #   ./run.sh <any python args>
+#
+# On macOS everything here runs under caffeinate: sleep suspends the USB bus,
+# and both devices come back as gone rather than asleep - the relay writes
+# fail with "[Errno 6] Device not configured" and the camera's SDK handle is
+# dead.  That is a run over, so the machine is kept awake for its duration.
+# SEW_NO_CAFFEINE=1 opts out.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -35,10 +41,19 @@ esac
 cmd="${1:-wizard}"
 shift 2>/dev/null || true
 
+# -d display, -i idle, -m disk, -s system-on-AC, -u count as user activity.
+# It wraps the process, so the machine is free to sleep again the moment the
+# app exits - nothing to remember to switch back off.
+caffeine=()
+if [ "$(uname -s)" = "Darwin" ] && [ -z "${SEW_NO_CAFFEINE:-}" ] \
+   && command -v caffeinate >/dev/null 2>&1; then
+    caffeine=(caffeinate -dimsu)
+fi
+
 case "$cmd" in
-    wizard)   exec .venv/bin/python -m solareclipseworkbench.wizard "$@" ;;
-    gui)      exec .venv/bin/python -m solareclipseworkbench.gui "$@" ;;
-    sew)      exec .venv/bin/python -m solareclipseworkbench.sew "$@" ;;
-    hardware) exec .venv/bin/python -m solareclipseworkbench.hardware_console "$@" ;;
-    *)        exec .venv/bin/python "$cmd" "$@" ;;
+    wizard)   exec "${caffeine[@]}" .venv/bin/python -m solareclipseworkbench.wizard "$@" ;;
+    gui)      exec "${caffeine[@]}" .venv/bin/python -m solareclipseworkbench.gui "$@" ;;
+    sew)      exec "${caffeine[@]}" .venv/bin/python -m solareclipseworkbench.sew "$@" ;;
+    hardware) exec "${caffeine[@]}" .venv/bin/python -m solareclipseworkbench.hardware_console "$@" ;;
+    *)        exec "${caffeine[@]}" .venv/bin/python "$cmd" "$@" ;;
 esac

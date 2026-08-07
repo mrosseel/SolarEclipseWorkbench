@@ -166,6 +166,10 @@ BUSY_BACKOFF_S = 0.3
 # taken after the moment has passed records nothing.  Totality is not repeatable
 # and no setting is worth a missed contact.
 EXPOSURE_BUDGET_S = 1.5      # the whole of `configure`, every setting together
+
+# Below this there is no point starting a catch-up write: a single exposure
+# write on a free body measures ~0.3 s, so less budget than that is a skip.
+MIN_CATCHUP_BUDGET_S = 0.25
 BRACKET_STEP_BUDGET_S = 0.3  # one speed change between two taps of a bracket
 
 # A frame is not finished when `capture` returns: the relay contact lasts 80ms
@@ -714,6 +718,9 @@ class FujiCamera(BaseCamera):
         # The ISO this session last wrote successfully; see configure().
         self._applied_iso: Optional[int] = None
         self._applied_speed: Optional[int] = None
+        # Settings a busy body refused, latest value per key; they ride along
+        # with the next configure and with apply_pending().
+        self._pending: dict = {}
         # When the frame currently in flight should be written and the body will
         # take settings again.  See FRAME_WRITE_S.
         self._frame_busy_until: float = 0.0
@@ -744,7 +751,33 @@ class FujiCamera(BaseCamera):
         """Keep the last requested exposure, to restore after a reconnect."""
         self._requested = {k: v for k, v in kwargs.items() if v is not None}
 
-    def configure(self, **kwargs: Any) -> None:
+    def apply_pending(self, budget_s: Optional[float] = None) -> bool:
+        """Apply the settings earlier configures could not put on the body.
+
+        Called by live view as it lets go of the camera, and by the relay
+        commands just before contacts close - there with a hard ``budget_s``,
+        since a catch-up that delays the burst it serves is no rescue.  Below
+        MIN_CATCHUP_BUDGET_S nothing is attempted.
+
+        Returns True when nothing is left pending.
+        """
+        pending = dict(getattr(self, '_pending', None) or {})
+        if not pending:
+            return True
+        if budget_s is not None and budget_s < MIN_CATCHUP_BUDGET_S:
+            logging.info("%s: %d setting(s) still blocked, and %.2fs of budget "
+                         "is not enough to try", self.name, len(pending), budget_s)
+            return False
+        logging.info("%s: applying the setting(s) a busy body blocked earlier: %s",
+                     self.name, pending)
+        try:
+            self.configure(budget_s=budget_s, **pending)
+        except CameraError:
+            logging.warning("%s: some blocked settings still did not go on",
+                            self.name, exc_info=True)
+        return not getattr(self, '_pending', None)
+
+    def configure(self, budget_s: Optional[float] = None, **kwargs: Any) -> None:
         """Apply camera settings via SDK.
 
         Accepts keyword arguments:
@@ -762,26 +795,40 @@ class FujiCamera(BaseCamera):
         collected here — one bad value must not stop the others being tried —
         and reported together.
 
+        A failure is also *cached*: the setting stays in ``self._pending``
+        (latest value per key) and rides along with the next configure, so a
+        write blocked by live view's 0x1006 heals itself on the first frame
+        after the window closes instead of leaving the body stale.  A key this
+        call asks for supersedes the cached one.
+
         The settings share one ``EXPOSURE_BUDGET_S`` deadline between them, so a
         body that stays busy costs the schedule that much once, not once per
         setting.  Whatever has not gone on by then is reported as a failure and
-        the frame is taken regardless.
+        the frame is taken regardless.  ``budget_s`` overrides that deadline as
+        a hard cap — the pre-burst catch-up path may never run long, whatever
+        frame the body is still flushing.
         """
         self._remember(**kwargs)
+        pending = getattr(self, '_pending', None)
+        if pending is None:
+            pending = self._pending = {}
+        wanted = {**pending, **{k: v for k, v in kwargs.items() if v is not None}}
         failures: list = []
 
-        def _apply(name: str, parse, setter, raw, deadline: float) -> None:
+        def _apply(name: str, parse, setter, raw, deadline: float) -> bool:
             value = parse(raw)
             if value is None:
                 failures.append(f"{name}={raw!r} is not a value this camera understands")
-                return
+                return False
             try:
                 _through_busy(lambda: setter(value), f'{self.name}: set {name}',
                               deadline, self.recover_session)
+                return True
             except Exception as exc:
                 failures.append(f"{name}={raw!r} rejected by the camera ({exc})")
+                return False
 
-        def _apply_iso(raw, deadline: float) -> None:
+        def _apply_iso(raw, deadline: float) -> bool:
             """Write the ISO only when it is not the one already on the body.
 
             ``set_iso`` is refused with 0x1006 unless the transfer queue is
@@ -794,19 +841,21 @@ class FujiCamera(BaseCamera):
             value = _parse_iso(raw)
             if value is None:
                 failures.append(f"ISO={raw!r} is not a value this camera understands")
-                return
+                return False
             if value == self._applied_iso:
                 logging.debug('%s: ISO already %s, not writing it again', self.name, raw)
-                return
+                return True
             try:
                 _through_busy(lambda: self._sdk.set_iso(value),
                               f'{self.name}: set ISO {raw}', deadline, self.recover_session)
                 self._applied_iso = value
+                return True
             except Exception as exc:
                 self._applied_iso = None
                 failures.append(f"ISO={raw!r} rejected by the camera ({exc})")
+                return False
 
-        def _apply_speed(raw, deadline: float) -> None:
+        def _apply_speed(raw, deadline: float) -> bool:
             """Write the shutter speed only when it is not the one already set.
 
             The body refuses the write with 0x1006 for the second or so it spends
@@ -823,40 +872,56 @@ class FujiCamera(BaseCamera):
             value = _parse_shutter_speed(str(raw))
             if value is None:
                 failures.append(f"shutter speed={raw!r} is not a value this camera understands")
-                return
+                return False
             if value == self._applied_speed:
                 logging.debug('%s: shutter speed already %s, not writing it again',
                               self.name, raw)
-                return
+                return True
             try:
                 _through_busy(lambda: self._sdk.set_shutter_speed(value),
                               f'{self.name}: set shutter speed {raw}', deadline,
                               self.recover_session)
                 self._applied_speed = value
+                return True
             except Exception as exc:
                 self._applied_speed = None
                 failures.append(f"shutter speed={raw!r} rejected by the camera ({exc})")
+                return False
 
         with self._lock:
             # Started after the lock, so a queued caller inherits a full budget
             # rather than one already spent waiting its turn.
             started = time.monotonic()
-            # Long enough for the body to finish the frame already in flight,
-            # since it refuses every setting until it has.
-            deadline = min(max(started + EXPOSURE_BUDGET_S, self._frame_busy_until),
-                           started + MAX_EXPOSURE_WAIT_S)
+            if budget_s is not None:
+                # A hard cap from the caller, frame-in-flight or not: the
+                # pre-burst catch-up must never delay the burst it serves.
+                deadline = started + budget_s
+            else:
+                # Long enough for the body to finish the frame already in
+                # flight, since it refuses every setting until it has.
+                deadline = min(max(started + EXPOSURE_BUDGET_S, self._frame_busy_until),
+                               started + MAX_EXPOSURE_WAIT_S)
 
-            if kwargs.get('iso') is not None:
-                _apply_iso(kwargs['iso'], deadline)
+            if wanted.get('iso') is not None:
+                if _apply_iso(wanted['iso'], deadline):
+                    pending.pop('iso', None)
+                else:
+                    pending['iso'] = wanted['iso']
 
             # A telescope has no electronic aperture, so a script says "-" and
             # the setting is skipped rather than failing every single frame.
-            if kwargs.get('aperture') not in (None, '', '-'):
-                _apply('aperture', _parse_aperture, self._sdk.set_aperture,
-                       kwargs['aperture'], deadline)
+            if wanted.get('aperture') not in (None, '', '-'):
+                if _apply('aperture', _parse_aperture, self._sdk.set_aperture,
+                          wanted['aperture'], deadline):
+                    pending.pop('aperture', None)
+                else:
+                    pending['aperture'] = wanted['aperture']
 
-            if kwargs.get('shutter_speed') is not None:
-                _apply_speed(kwargs['shutter_speed'], deadline)
+            if wanted.get('shutter_speed') is not None:
+                if _apply_speed(wanted['shutter_speed'], deadline):
+                    pending.pop('shutter_speed', None)
+                else:
+                    pending['shutter_speed'] = wanted['shutter_speed']
 
             elapsed = time.monotonic() - started
             allowed = deadline - started
