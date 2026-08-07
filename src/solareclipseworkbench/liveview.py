@@ -1448,6 +1448,13 @@ class LiveViewWindow(QDockWidget):
     def _on_histogram_toggled(self, checked: bool):
         self._histogram_enabled = checked
         self._histogram_btn.setText(f"Histogram: {'ON' if checked else 'OFF'}")
+        # These two lines had been pasted into the peaking-sensitivity
+        # handler, where `checked` does not exist: changing the sensitivity
+        # raised NameError, and the histogram button set a flag without ever
+        # showing or hiding the widget.
+        self._histogram.setVisible(checked)
+        if not checked:
+            self._histogram.clear()
 
     def _on_crosshair_toggled(self, checked: bool):
         self._crosshair_enabled = checked
@@ -1466,9 +1473,6 @@ class LiveViewWindow(QDockWidget):
         name = self._peaking_sensitivity_combo.currentData()
         self._peaking_threshold = PEAKING_SENSITIVITY.get(name,
                                                           PEAKING_SENSITIVITY["normal"])
-        self._histogram.setVisible(checked)
-        if not checked:
-            self._histogram.clear()
 
     def _on_zoom_changed(self, index: int):
         val = self._zoom_combo.currentData()

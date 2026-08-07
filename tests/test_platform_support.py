@@ -119,3 +119,40 @@ def test_macos_needs_no_library_path_juggling():
     # the re-exec dance must not happen on macOS.
     with patch.object(sdk_lib.platform, "system", return_value="Darwin"):
         assert sdk_lib.ensure_ld_library_path("/anything") is True
+
+
+def test_one_adapter_behind_two_drivers_is_offered_once(monkeypatch):
+    """7 August: the relay reported its port locked while the mount worked.
+
+    With both the Silicon Labs kext and Apple's CP210x driver installed, one
+    chip fronts two nodes - /dev/cu.SLAB_USBtoUART8 and /dev/cu.usbserial-7
+    are the same adapter.  These twin boards also ship with identical serial
+    numbers, so `location` is the only field that tells one from the other.
+    Uncollapsed, the relay probe opened the mount's chip through its alias
+    and called its own port locked.
+    """
+    from types import SimpleNamespace
+
+    from solareclipseworkbench import serial_ports
+
+    def two_chips_four_nodes():
+        return [
+            SimpleNamespace(device="/dev/cu.usbserial-7", vid=0x10C4, pid=0xEA60,
+                            serial_number="0001", location="1-1.3", description=""),
+            SimpleNamespace(device="/dev/cu.SLAB_USBtoUART8", vid=0x10C4, pid=0xEA60,
+                            serial_number="0001", location="1-1.3", description=""),
+            SimpleNamespace(device="/dev/cu.usbserial-0001", vid=0x10C4, pid=0xEA60,
+                            serial_number="0001", location="1-1.4", description=""),
+            SimpleNamespace(device="/dev/cu.SLAB_USBtoUART", vid=0x10C4, pid=0xEA60,
+                            serial_number="0001", location="1-1.4", description=""),
+        ]
+
+    monkeypatch.setattr(serial_ports.serial.tools.list_ports, "comports",
+                        two_chips_four_nodes)
+    monkeypatch.setattr(serial_ports.sys, "platform", "darwin")
+
+    ports = serial_ports.usb_serial_ports()
+
+    assert len(ports) == 2, f"one node per chip, got {[p.device for p in ports]}"
+    assert {p.location for p in ports} == {"1-1.3", "1-1.4"}, \
+        "both physical adapters must survive - dropping one hides the relay"

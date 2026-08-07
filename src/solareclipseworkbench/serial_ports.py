@@ -36,5 +36,51 @@ def usb_serial_ports() -> list:
             ports = callout + [p for p in ports if p.device not in paired
                                and "/cu." not in p.device]
             logger.debug("macOS: using call-up nodes %s", [p.device for p in callout])
+        ports = _one_node_per_chip(ports)
 
     return ports
+
+
+#: Driver families that can both claim the same chip, best first.  The Silicon
+#: Labs kext names its nodes SLAB_USBtoUART*, Apple's built-in CP210x driver
+#: names them usbserial-*.
+_DRIVER_ORDER = ("SLAB_USBtoUART", "usbserial")
+
+
+def _one_node_per_chip(ports: list) -> list:
+    """Collapse the several device nodes that can front one physical adapter.
+
+    With both the Silicon Labs kext and Apple's own CP210x driver installed,
+    every adapter appears twice - /dev/cu.SLAB_USBtoUART8 and
+    /dev/cu.usbserial-7 are one chip, not two.  Nothing in the name says so,
+    and these boards ship with identical serial numbers ("0001" on both of
+    the twins here), so the only field that separates one adapter from
+    another is `location`.
+
+    Left uncollapsed, a scan offers four ports for two devices and the relay
+    probe walks into the mount's chip through its alias: the mount holds it,
+    pyserial opens exclusively, and the relay reports its port locked while
+    pointing at hardware that is not the relay.  That is what happened on
+    7 August with the mount on SLAB_USBtoUART8 and the relay never found.
+    """
+    groups: dict = {}
+    for p in ports:
+        # location is per physical port; fall back to the name when a driver
+        # does not report one, which at worst keeps today's behaviour.
+        ident = getattr(p, "location", None) or p.device
+        groups.setdefault(ident, []).append(p)
+
+    def rank(port):
+        for i, family in enumerate(_DRIVER_ORDER):
+            if family in port.device:
+                return i
+        return len(_DRIVER_ORDER)
+
+    kept = []
+    for ident, group in groups.items():
+        group.sort(key=rank)
+        kept.append(group[0])
+        if len(group) > 1:
+            logger.debug("macOS: %s is one adapter behind %s; using %s",
+                         ident, [g.device for g in group], group[0].device)
+    return kept
