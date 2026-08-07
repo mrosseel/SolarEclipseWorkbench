@@ -138,7 +138,14 @@ RELAY_HOLD_OVERHEAD_S = 0.15
 # firing twice.  The doubling is inherent to CH and is handled by draining, not
 # avoided - see DRAIN_AT.  This number is measured and closed; do not sweep it
 # again looking for a value that gives one frame per tap, there isn't one.
-TAP_S = 0.05
+# 0.03 s, not 0.05: on CL a longer tap sometimes fires twice - eight frames
+# for seven rungs - and a ladder wants exactly one frame per rung.  Proven on
+# the body over ten consecutive seven-rung ladders, 70 actuations: every rung
+# fired, every speed landed, never a short round.  The two failures are not
+# equal, which is why this needed proving rather than assuming - an extra
+# frame costs a buffer slot, a tap too short to fire costs a corona exposure
+# that cannot be retaken.
+TAP_S = 0.03
 
 # Shortest useful gap between taps; long exposures extend it (see _tap_gap).
 TAP_GAP_S = 0.35
