@@ -61,11 +61,12 @@ from bench_log import tee_console
 
 GREEN, RED, YELLOW, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
 
-#: The corona ladder as the body actually receives it, in microseconds -
-#: taken from the rehearsal log, where every one of these was refused.
-LADDER_US = (488, 1953, 7812, 31250, 125000, 500000)
+#: The production corona ladder as the body actually receives it, in
+#: microseconds.  Seven rungs - 1/8000 to 1/2 - on the body's power-of-two
+#: scale, which is why they are not the round numbers the script writes.
+LADDER_US = (122, 488, 1953, 7812, 31250, 125000, 500000)
 
-TAP_S = 0.08          # fuji_camera.TAP_S
+TAP_S = 0.05          # fuji_camera.TAP_S, after the 7 August fix
 TAP_GAP_S = 0.35      # fuji_camera.TAP_GAP_S
 
 
@@ -254,9 +255,10 @@ def gap_sweep(sdk, relay, camera):
         landed = 0
         started = time.monotonic()
         for speed in LADDER_US:
-            relay.release_all()
-            ok, _, _ = write_and_verify(sdk, speed, budget_s=0.3)
-            relay.half_press()
+            # The fixed ladder: S1 is never closed, the budget is the measured
+            # one.  The first sweep ran the old held-S1 pattern and returned
+            # 1-2 of 6 at every gap, which said nothing about the gap.
+            ok, _, _ = write_and_verify(sdk, speed, budget_s=0.8)
             landed += 1 if ok else 0
             relay.shoot(pulse=TAP_S)
             time.sleep(max(gap, speed / 1e6 + gap))
