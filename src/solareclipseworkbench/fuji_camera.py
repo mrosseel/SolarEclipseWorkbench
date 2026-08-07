@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
-from . import exposure_trim, hardware_problems
+from . import exposure_limits, exposure_trim, hardware_problems
 from .camera import BaseCamera, CameraError
 from .hardware_registry import HARDWARE, register_hardware
 
@@ -138,7 +138,7 @@ RELAY_HOLD_OVERHEAD_S = 0.15
 # firing twice.  The doubling is inherent to CH and is handled by draining, not
 # avoided - see DRAIN_AT.  This number is measured and closed; do not sweep it
 # again looking for a value that gives one frame per tap, there isn't one.
-TAP_S = 0.08
+TAP_S = 0.05
 
 # Shortest useful gap between taps; long exposures extend it (see _tap_gap).
 TAP_GAP_S = 0.35
@@ -170,7 +170,11 @@ EXPOSURE_BUDGET_S = 1.5      # the whole of `configure`, every setting together
 # Below this there is no point starting a catch-up write: a single exposure
 # write on a free body measures ~0.3 s, so less budget than that is a skip.
 MIN_CATCHUP_BUDGET_S = 0.25
-BRACKET_STEP_BUDGET_S = 0.3  # one speed change between two taps of a bracket
+# One speed change between two taps.  Measured on the body, 40 writes: median
+# 178 ms, 90th 206 ms, worst 256 ms, and up to 490 ms with taps interleaved.
+# The old 0.3 s against a 0.3 s backoff was one attempt, and it was under the
+# cost of a healthy write - so a ladder could fail even with a willing body.
+BRACKET_STEP_BUDGET_S = 0.8
 
 # A frame is not finished when `capture` returns: the relay contact lasts 80ms
 # and the shutter stays open for the exposure, after which the body writes.  Two
@@ -301,7 +305,13 @@ class _RelayShooter:
         """
         relay = self.camera.relay
         taken = 0
-        relay.half_press()
+        # S1 is deliberately NOT held across the ladder.  Holding it keeps the
+        # CL drive running, so the body is permanently mid-exposure and
+        # refuses every setting change: measured 7 August, six rungs with S1
+        # held landed 1 speed of 6 and fired 32 frames, while the same six
+        # rungs with the contact left open landed 6 of 6 and fired exactly 6.
+        # The rehearsal that morning lost all eight corona ladders to this.
+        relay.release_all()
         try:
             for speed in speeds:
                 # Budgeted against the tap gap below: a speed that will not go on
@@ -363,7 +373,9 @@ class _RelayShooter:
         logging.info('%s: draining mid-bracket', self.camera.name)
         relay.release_all()
         self.camera.drain()
-        relay.half_press()
+        # No re-press: the ladder no longer holds S1 between rungs, and
+        # re-closing it here would restart the very drive that made the body
+        # refuse every speed.
         return relay
 
 
@@ -448,40 +460,47 @@ def _parse_shutter_speed(speed_str: str) -> Optional[int]:
     val = rmap.get(clean)
     if val is not None:
         # An exact name still has to be a speed this body owns.  The table is
-        # every model's, so "1/32000" spells correctly and is refused by the
-        # camera; taking the fast path around the clamp let a script name one
-        # directly and get a frame at the wrong exposure.
+        # every model's: "1/32000" and "1/750" both spell correctly and are
+        # both refused here, so a script naming one directly must not take the
+        # fast path around the scale and get a frame at the wrong exposure.
         seconds = _speed_name_seconds(clean)
-        if seconds is None or seconds >= FASTEST_SHUTTER_S:
+        if seconds is None:
+            return val
+        lim = exposure_limits.limits()
+        if lim.fastest_s <= seconds <= lim.slowest_s and _on_accepted_scale(seconds):
             return val
 
     wanted = _speed_name_seconds(clean)
     if wanted is None or wanted <= 0:
         return None
+    lim = exposure_limits.limits()
+    if wanted < lim.fastest_s:
+        wanted = lim.fastest_s
+    elif wanted > lim.slowest_s:
+        wanted = lim.slowest_s
 
     grid = _get_speeds_by_seconds()
     if not grid:
         return None
 
-    # The SDK's table runs to 1/180000, which belongs to other bodies and to the
-    # electronic shutter.  Matching "nearest on the scale" walks straight off the
-    # fast end: a -0.5 EV trim turned 1/6400 into 1/9051, which snapped to
-    # 1/10000 and came back 0x2003 - invalid parameter *combination*, the body
-    # saying its mechanical shutter does not go there.  The frame was then taken
-    # at whatever the body was last set to, which is the failure that does not
-    # look like one afterwards.
-    #
-    # Clamping is the honest response.  A trim that cannot be applied at the fast
-    # end is a trim partly applied, and that is better than a frame at an
-    # exposure nobody chose.
-    if wanted < FASTEST_SHUTTER_S:
+    # The SDK's table runs to 1/180000, covering every model; matching "nearest
+    # on the scale" walks off the end into speeds this body will refuse with
+    # 0x2003, and the frame is then taken at whatever was last set.  Clamping to
+    # the configured limits is the honest response: a trim that cannot be fully
+    # applied is applied as far as it goes.
+    lim = exposure_limits.limits()
+    if wanted < lim.fastest_s:
         logging.warning(
-            'Shutter speed %s is faster than this body can take; using %s. '
-            'An exposure trim cannot be applied past the fastest speed',
-            speed_str, FASTEST_SHUTTER_NAME)
-        wanted = FASTEST_SHUTTER_S
+            'Shutter speed %s is faster than %s; using that instead',
+            speed_str, exposure_limits.format_speed(lim.fastest_s))
+        wanted = lim.fastest_s
+    elif wanted > lim.slowest_s:
+        logging.warning(
+            'Shutter speed %s is longer than the %s cap; using that instead',
+            speed_str, exposure_limits.format_speed(lim.slowest_s))
+        wanted = lim.slowest_s
 
-    grid = [pair for pair in grid if pair[0] >= FASTEST_SHUTTER_S]
+    grid = _accepted_grid()
     secs, val = min(grid, key=lambda pair: abs(math.log(pair[0] / wanted)))
     ratio = max(secs, wanted) / min(secs, wanted)
     if ratio > _SPEED_MATCH_TOLERANCE:
@@ -524,35 +543,87 @@ def _distinct(speeds) -> list:
 def snap_to_scale(microseconds: int) -> int:
     """Put a computed exposure back onto a speed the body actually has.
 
-    The exposure trim multiplies microseconds directly, so -0.5 EV turns 1/8000
-    - 125 us - into 88 us, which is not a shutter speed.  The SDK takes it, the
-    body answers 0x2003, and the frame is taken at whatever was set before.
+    A trim multiplies microseconds directly, so -0.5 EV turns 1/8000 into
+    88 us, which is not a shutter speed: the SDK takes it, the body answers
+    0x2003, and the frame is taken at whatever was set before.
 
-    That is what cost the corona ladders on 4 August: every ladder starts at
-    1/8000, so with a negative trim every ladder failed on its first rung while
-    the partials, being slower, carried on working.  The log said the frames
-    were fine.  The card had none of them.
-
-    Clamped at the fast end as well: a trim that cannot be applied there is a
-    trim partly applied, which is worth saying and worth surviving.
+    Clamped at both ends, through the same limits the validator reports, so a
+    trim that cannot be fully applied is applied as far as it goes.
     """
     if microseconds <= 0:
         return microseconds
+    lim = exposure_limits.limits()
     wanted = microseconds / 1_000_000.0
-    if wanted < FASTEST_SHUTTER_S:
-        # Debug, not warning: a bracket that runs off the fast end produces one
-        # of these per rung, and seven identical warnings say less than the one
+    if wanted < lim.fastest_s:
+        # Debug, not warning: a bracket that runs off the end produces one of
+        # these per rung, and seven identical warnings say less than the one
         # line _distinct writes about how many rungs were lost.
-        logging.debug(
-            'Exposure %.0f us is faster than this body can take; using %s',
-            microseconds, FASTEST_SHUTTER_NAME)
-        wanted = FASTEST_SHUTTER_S
+        logging.debug('Exposure %.0f us is faster than %s; clamping',
+                      microseconds, exposure_limits.format_speed(lim.fastest_s))
+        wanted = lim.fastest_s
+    elif wanted > lim.slowest_s:
+        logging.debug('Exposure %.0f us is longer than %s; clamping',
+                      microseconds, exposure_limits.format_speed(lim.slowest_s))
+        wanted = lim.slowest_s
 
-    grid = [pair for pair in _get_speeds_by_seconds() if pair[0] >= FASTEST_SHUTTER_S]
+    grid = _accepted_grid()
     if not grid:
         return microseconds
     secs, val = min(grid, key=lambda pair: abs(math.log(pair[0] / wanted)))
     return val
+
+
+def _accepted_grid() -> list:
+    """(seconds, sdk value) for the speeds this body actually takes.
+
+    The SDK's table carries every model's scale at once, so a half-stop series
+    sits interleaved with this body's third-stop one; measured on the X-T4,
+    every one of those half-stop speeds is refused with 0x2003.  Snapping to
+    the whole table can therefore land on a speed the body will not take, and
+    a refused write leaves the frame at the previous exposure.
+    """
+    lim = exposure_limits.limits()
+    grid = [pair for pair in _get_speeds_by_seconds()
+            if lim.fastest_s <= pair[0] <= lim.slowest_s]
+    scale = lim.accepted_speeds
+    if not scale:
+        return grid
+    low, high = min(scale), max(scale)
+    kept = []
+    for secs, value in grid:
+        if secs < low or secs > high:
+            # No measurement out here; the limits already bounded the grid.
+            kept.append((secs, value))
+            continue
+        nearest = min(scale, key=lambda s: abs(math.log(s / secs)))
+        # Within a per-cent it is that speed, written to more decimal places.
+        if abs(math.log(nearest / secs)) < 0.01:
+            kept.append((secs, value))
+    return kept or grid
+
+
+def _on_accepted_scale(seconds: float) -> bool:
+    """Whether this exposure is one the body has been measured to take."""
+    scale = exposure_limits.limits().accepted_speeds
+    if not scale or seconds <= 0:
+        return True
+    # Outside the measured range there is nothing to judge against, so the
+    # limits decide; inside it, the scale is the whole point.
+    if seconds < min(scale) or seconds > max(scale):
+        return True
+    nearest = min(scale, key=lambda s: abs(math.log(s / seconds)))
+    return abs(math.log(nearest / seconds)) < 0.01
+
+
+def _snap_seconds(seconds: float) -> Optional[float]:
+    """Nearest speed on the body's scale, in seconds.  For the validator."""
+    grid = _accepted_grid()
+    if not grid or seconds <= 0:
+        return None
+    return min(grid, key=lambda pair: abs(math.log(pair[0] / seconds)))[0]
+
+
+exposure_limits.set_snapper(_snap_seconds)
 
 
 def _parse_aperture(aperture_str: str) -> Optional[int]:
@@ -842,6 +913,11 @@ class FujiCamera(BaseCamera):
             if value is None:
                 failures.append(f"ISO={raw!r} is not a value this camera understands")
                 return False
+            capped = exposure_limits.clamp_iso(value)
+            if capped != value:
+                logging.info('%s: ISO %s outside the configured range; using %s',
+                             self.name, value, capped)
+                value = capped
             if value == self._applied_iso:
                 logging.debug('%s: ISO already %s, not writing it again', self.name, raw)
                 return True

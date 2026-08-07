@@ -101,9 +101,22 @@ def write_and_verify(sdk, speed_us, budget_s=0.3):
     return got == speed_us, elapsed, (str(error) if error else None)
 
 
-def phase(name, sdk, relay, mode, tap=True):
-    """One pass over the ladder in one of the three modes."""
+def phase(name, sdk, relay, mode, tap=True, camera=None):
+    """One pass over the ladder in one of the three modes.
+
+    Frames are counted as well as writes.  With the body on CL, a tap taken
+    while S1 is held is not one frame - the contact keeps the drive running -
+    and that changes both what lands on the card and how fast the queue
+    fills.
+    """
     print(f"\n{name}")
+    before = None
+    if camera is not None:
+        try:
+            camera.drain()
+            before, _ = sdk.get_buffer_capacity()
+        except Exception:
+            before = None
     results = []
     if mode == "held":
         relay.half_press()
@@ -125,11 +138,66 @@ def phase(name, sdk, relay, mode, tap=True):
         relay.release_all()
     ok = sum(1 for _, landed, _, _ in results if landed)
     total_ms = sum(t for _, _, t, _ in results) * 1000
-    print(f"   -> {ok}/{len(results)} landed, {total_ms:.0f} ms of writes")
-    return {"phase": name, "landed": ok, "of": len(results),
+    frames = None
+    if before is not None:
+        time.sleep(1.2)
+        try:
+            after, _ = sdk.get_buffer_capacity()
+            frames = after - before
+        except Exception:
+            frames = None
+    tail = f", {frames} frame(s) for {len(results)} taps" if frames is not None else ""
+    print(f"   -> {ok}/{len(results)} landed, {total_ms:.0f} ms of writes{tail}")
+    return {"phase": name, "landed": ok, "of": len(results), "frames": frames,
             "write_ms": round(total_ms),
             "rungs": [{"us": s, "landed": l, "ms": round(t * 1000), "error": e}
                       for s, l, t, e in results]}
+
+
+def no_hold_ladder(sdk, relay, camera):
+    """The ladder with S1 never held, and a budget big enough for a real write.
+
+    Phases 1-4 say the blocker is not the half-press itself but the body still
+    shooting: holding S1 keeps the CL drive running - six taps produced 32
+    frames - and a body mid-exposure refuses settings.  With the queue full,
+    where it physically cannot shoot, every write landed.
+
+    So: no hold at all, one short tap per rung, and a budget set from the
+    measured cost of a write rather than from 0.3 s.  Frames are counted
+    because a ladder wants exactly one per rung, and in CL a long pulse can
+    fire twice.
+    """
+    print("\n7. no S1 hold, one tap a rung, budget from the measurements")
+    results = []
+    for pulse, budget in ((0.08, 0.8), (0.05, 0.8), (0.03, 0.8)):
+        relay.release_all()
+        camera.drain()
+        try:
+            before, _ = sdk.get_buffer_capacity()
+        except Exception:
+            before = None
+        landed, started = 0, time.monotonic()
+        for speed in LADDER_US:
+            ok, _, _ = write_and_verify(sdk, speed, budget_s=budget)
+            landed += 1 if ok else 0
+            relay.shoot(pulse=pulse)
+            time.sleep(max(TAP_GAP_S, speed / 1e6 + 0.3))
+        elapsed = time.monotonic() - started
+        time.sleep(1.2)
+        try:
+            after, _ = sdk.get_buffer_capacity()
+            frames = after - before if before is not None else None
+        except Exception:
+            frames = None
+        mark = GREEN if landed == len(LADDER_US) else RED
+        want = GREEN if frames == len(LADDER_US) else YELLOW
+        print(f"   pulse {pulse:.2f}s  {mark}{landed}/{len(LADDER_US)} landed{RESET}"
+              f"  {want}{frames} frame(s){RESET} for {len(LADDER_US)} rungs"
+              f"  {elapsed:.2f}s")
+        results.append({"pulse_s": pulse, "budget_s": budget, "landed": landed,
+                        "frames": frames, "elapsed_s": round(elapsed, 2)})
+        camera.drain()
+    return {"phase": "7. no hold", "results": results}
 
 
 def latency_profile(sdk, relay, samples=40):
@@ -250,17 +318,17 @@ def main():
     try:
         relay.release_all()
         camera.drain()
-        out.append(phase("1. contacts open (the control)", sdk, relay, "open"))
+        out.append(phase("1. contacts open (the control)", sdk, relay, "open", camera=camera))
 
         relay.release_all()
         camera.drain()
         out.append(phase("2. S1 held for the whole ladder (what it does now)",
-                         sdk, relay, "held"))
+                         sdk, relay, "held", camera=camera))
 
         relay.release_all()
         camera.drain()
         out.append(phase("3. S1 released around each write (proposed fix)",
-                         sdk, relay, "released"))
+                         sdk, relay, "released", camera=camera))
 
         # And again with the queue loaded, because at C2 a ladder always
         # follows a burst that has just filled it.
@@ -276,6 +344,7 @@ def main():
             pass
         out.append(phase("4. S1 released around each write, queue loaded",
                          sdk, relay, "released"))
+        out.append(no_hold_ladder(sdk, relay, camera))
         out.append(latency_profile(sdk, relay))
         out.append(gap_sweep(sdk, relay, camera))
     finally:
@@ -296,8 +365,11 @@ def main():
 
     print("\n" + "=" * 62)
     for r in out:
+        if "landed" not in r:
+            continue
         colour = GREEN if r["landed"] == r["of"] else RED
-        print(f"{colour}{r['landed']}/{r['of']}{RESET}  {r['phase']}")
+        frames = f"  {r['frames']} frame(s)" if r.get("frames") is not None else ""
+        print(f"{colour}{r['landed']}/{r['of']}{RESET}  {r['phase']}{frames}")
     held = next((r for r in out if r["phase"].startswith("2.")), None)
     open_ = next((r for r in out if r["phase"].startswith("1.")), None)
     fixed = next((r for r in out if r["phase"].startswith("3.")), None)

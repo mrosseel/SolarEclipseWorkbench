@@ -225,8 +225,14 @@ def test_a_bracket_clears_the_queue_before_it_overflows(monkeypatch):
     assert sdk.drain_buffer.called
     # Draining with the half-press still held drops the USB session for good.
     assert relay.release_all.called
-    order = [name for name, _, _ in relay.mock_calls if name in ('release_all', 'half_press')]
-    assert order.index('release_all') < order.index('half_press', order.index('release_all'))
+    # And the contact is never closed again - not for the drain, not between
+    # rungs.  Holding S1 keeps the CL drive running, which leaves the body
+    # permanently mid-exposure: measured 7 August, six rungs with S1 held
+    # landed one speed of six and fired 32 frames, against six of six and
+    # exactly six frames with the contact left open.  The rehearsal that
+    # morning lost all eight corona ladders to it.
+    assert 'half_press' not in [name for name, _, _ in relay.mock_calls], \
+        'the ladder must not close S1: it restarts the drive that refuses writes'
 
 
 def test_a_bracket_with_room_left_does_not_stop_to_drain(monkeypatch):
