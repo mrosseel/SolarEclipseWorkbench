@@ -975,3 +975,53 @@ def test_peaking_colour_and_sensitivity_reach_the_overlay():
     assert painted.pixelColor(5, 5).blue() == cyan.blue()
     assert painted.pixelColor(5, 5).red() == 0, "cyan came out red"
     assert bare.pixelColor(5, 5).alpha() == 0, "a low threshold still painted"
+
+
+# ------------------------------------------------- the jobs table's What column
+
+def test_a_label_is_never_worth_the_table():
+    """The What column is built once per row while a run is being watched.
+
+    Whatever a job carries - missing args, a settings object that raises, a
+    command nobody wrote a case for - the label degrades to something
+    printable instead of taking the jobs table down.
+    """
+    from solareclipseworkbench import job_text
+
+    class _Exploding:
+        @property
+        def shutter_speed(self):
+            raise RuntimeError("no")
+
+    nasty = [
+        SimpleNamespace(func=SimpleNamespace(__name__="take_picture"), args=None),
+        SimpleNamespace(func=SimpleNamespace(__name__="take_bracket"), args=()),
+        SimpleNamespace(func=None, args=(1, 2)),
+        SimpleNamespace(args=("only args",)),
+        SimpleNamespace(func=SimpleNamespace(__name__="take_picture"),
+                        args=(object(), _Exploding())),
+        object(),
+    ]
+    for job in nasty:
+        got = job_text.describe_job(job)
+        assert isinstance(got, str), f"{job!r} produced {got!r}"
+
+    # and the same for raw fields off a script line
+    for command, fields in (("take_bracket", [None]), ("voice_prompt", []),
+                            ("relay_burst", ["not a number"]),
+                            ("", []), ("who_knows", [1, 2, 3])):
+        assert isinstance(job_text.describe(command, fields), str)
+
+
+def test_the_baked_in_clock_goes_but_the_words_stay():
+    from solareclipseworkbench import job_text
+
+    assert job_text.strip_baked_time(
+        "Focus check, uneclipsed disc @ 17:15:56, sun 22.3 deg") \
+        == "Focus check, uneclipsed disc, sun 22.3 deg"
+    assert job_text.strip_baked_time(
+        "Pre-arm S1 for the C2 burst @ BEADS_C2_END-6.4 s, sun 8.7 deg") \
+        == "Pre-arm S1 for the C2 burst, sun 8.7 deg"
+    assert job_text.strip_baked_time("No clock here") == "No clock here"
+    assert job_text.strip_baked_time("") == ""
+    assert job_text.strip_baked_time(None) is None

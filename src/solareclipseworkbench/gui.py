@@ -5715,8 +5715,19 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 # actually produce; and the description without the clock the
                 # generator baked in, which belongs to the site the file was
                 # written for and disagrees with the columns beside it.
-                what = job_text.describe_job(job)
-                description = job_text.strip_baked_time(description)
+                #
+                # Belt and braces: job_text already refuses to raise, and the
+                # table is still wrapped here.  This loop builds the view a
+                # run is watched through, and no label is worth losing it.
+                try:
+                    what = job_text.describe_job(job)
+                except Exception:
+                    logging.debug("Could not describe job %s", job.id, exc_info=True)
+                    what = job.func.__name__ if getattr(job, "func", None) else ""
+                try:
+                    description = job_text.strip_baked_time(description)
+                except Exception:
+                    logging.debug("Could not clean a description", exc_info=True)
 
                 data.append([countdown, formatted_execution_time_local, formatted_execution_time_utc,
                              what, description, job_string])

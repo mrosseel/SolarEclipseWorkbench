@@ -45,10 +45,17 @@ _MOMENTS = {
 
 
 def strip_baked_time(text: str) -> str:
-    """A description without the clock reading the generator wrote into it."""
+    """A description without the clock reading the generator wrote into it.
+
+    Never raises; a description that cannot be cleaned is shown as it came.
+    """
     if not text:
         return text
-    return _BAKED_TIME.sub("", str(text)).strip().strip(",").strip()
+    try:
+        return _BAKED_TIME.sub("", str(text)).strip().strip(",").strip()
+    except Exception:
+        logger.debug("Could not clean %r", text, exc_info=True)
+        return text
 
 
 def _speed(value, trim=True) -> str:
@@ -111,7 +118,20 @@ def describe(command: str, fields: list, trim: bool = True) -> str:
 
     `fields` are the script's own arguments after the timing columns, which
     is what both the file and a built job can supply.
+
+    Never raises.  This runs once per row while the jobs table is built, and
+    a label is not worth a table: during a run that table is how anyone sees
+    what is about to happen, so a command with arguments nobody anticipated
+    degrades to its own name rather than taking the view down with it.
     """
+    try:
+        return _describe(command, fields, trim)
+    except Exception:
+        logger.debug("Could not describe %r %r", command, fields, exc_info=True)
+        return (command or "").replace("_", " ").strip().capitalize()
+
+
+def _describe(command: str, fields: list, trim: bool = True) -> str:
     command = (command or "").strip()
     f = [str(x).strip() for x in fields]
 
@@ -177,7 +197,18 @@ def describe(command: str, fields: list, trim: bool = True) -> str:
 
 
 def describe_job(job, trim: bool = True) -> str:
-    """The same line, from a built APScheduler job rather than a script line."""
+    """The same line, from a built APScheduler job rather than a script line.
+
+    Never raises, for the same reason describe() does not.
+    """
+    try:
+        return _describe_job(job, trim)
+    except Exception:
+        logger.debug("Could not describe a job", exc_info=True)
+        return ""
+
+
+def _describe_job(job, trim: bool = True) -> str:
     name = getattr(getattr(job, "func", None), "__name__", "") or ""
     args = list(getattr(job, "args", None) or ())
     settings = next((a for a in args if hasattr(a, "shutter_speed")), None)
