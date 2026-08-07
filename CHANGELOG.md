@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.0.0rc5] - 2026-08-07
+
+### Fixed
+
+- Post-C3 partials shutter speeds math looks broken - #184 by @WimDeMeester
+
+## [2.0.0rc4] - 2026-08-07
+
+### Fixed
+
+- for command can now handle float interval; jobs scrolling improved - #186 by @fliker09
+
+## [2.0.0rc3] - 2026-08-06
+
+### Fixed
+
+- Improved Sony stability - #183 by @fliker09
+
+
 ## [2.0.0rc2] - 2026-08-05
 
 ### Fixed
