@@ -909,10 +909,16 @@ class FujiCamera(BaseCamera):
         def _apply_iso(raw, deadline: float) -> bool:
             """Write the ISO only when it is not the one already on the body.
 
-            ``set_iso`` is refused with 0x1006 unless the transfer queue is
-            empty, while ``set_shutter_speed`` tolerates pending frames.  A
-            script holds one ISO for a whole phase, so writing it on every frame
-            is dozens of USB round-trips that can only fail, never help.  The
+            A script holds one ISO for a whole phase, so writing it on every
+            frame is dozens of USB round-trips that cannot help.
+
+            This used to say the body refuses ``set_iso`` unless the transfer
+            queue is empty.  Measured 7 August and it does not: eighteen
+            writes with eighteen frames pending all landed, 46-239 ms, the
+            same as with an empty queue.  The skip is worth keeping for the
+            round trips it saves, but it is not protecting against a refusal
+            that happens - and a split ISO through totality is therefore
+            affordable, which that claim had ruled out.  The
             remembered value is cleared whenever a write fails or the session is
             rebuilt, so a skip never outlives its evidence.
             """
