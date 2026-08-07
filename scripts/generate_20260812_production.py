@@ -438,6 +438,31 @@ def _rung_seconds(rung: str) -> float:
 
 LADDER_RUN_S = ladder_seconds(CORONA_LADDER)
 
+# What the gaps between ladders are for.
+#
+# They used to hold one exposure, repeated: the ladder's own slowest rung,
+# seven times over.  That deepened the faintest frames and added not one stop
+# of range, which is the wrong thing to spend the only irreplaceable two
+# minutes of the day on.
+#
+# The ladder steps two stops at a time, so between every pair of rungs there
+# is a stop nothing covers.  These are exactly those stops, and one more
+# beyond the slowest rung for the outermost streamers and the earthshine.
+# Rotated through the gaps, the union of ladders and singles is a one-stop
+# ladder from the inner edge to past the outer corona - which is what a
+# composite is assembled from.
+#
+# At the ladder's own ISO, deliberately: one gain across every totality frame
+# means one noise character to match when they are stacked.
+def _interleave(ladder: str) -> list:
+    """The stops the ladder steps over, plus one past its faint end."""
+    rungs = [_rung_seconds(r) for r in ladder.split(";")]
+    between = [r * 2 for r in rungs[:-1]]          # one stop above each rung
+    return [shutter(x) for x in between + [rungs[-1] * 2]]
+
+
+GAP_SINGLE_LADDER = _interleave(CORONA_LADDER)
+
 
 def ladder_offsets(duration_s: float) -> list:
     """C2-relative start times for the corona ladders, for a totality of `duration_s`.
@@ -855,24 +880,31 @@ def _totality_block(target_s: float) -> None:
     # that cannot be repeated.  The single sits one second after the worst
     # measured ladder end, which leaves the camera free again well before the
     # next ladder loads.
+    fill = 0
     for first, second in zip(offsets, offsets[1:]):
         # Anchored to the NEXT ladder, so however long the previous one runs
         # the singles are finished before it needs the camera; each exists
         # only when the model - not the happier measurement - leaves room.
         slot = second - GAP_SINGLE_COST_S - 0.5
         while slot > first + LADDER_RUN_S + 0.3:
+            speed = GAP_SINGLE_LADDER[fill % len(GAP_SINGLE_LADDER)]
+            fill += 1
             timeline.append((slot, picture,
-                             (XT4, "C2", "+", slot, deep, ISO_DEEP,
-                              "Deep corona single between ladders")))
+                             (XT4, "C2", "+", slot, speed, ISO_LADDER,
+                              "Corona single at %s, filling between the "
+                              "ladder's stops" % speed)))
             slot -= 1.0
     # And one after the last ladder, in the stretch before the C3 sequence
     # needs the camera - the tail was the widest untouched gap left.
     if offsets:
         tail_at = offsets[-1] + LADDER_RUN_S + 0.5
         while tail_at + 1.5 < target_s - totality_tail_s():
+            speed = GAP_SINGLE_LADDER[fill % len(GAP_SINGLE_LADDER)]
+            fill += 1
             timeline.append((tail_at, picture,
-                             (XT4, "C2", "+", tail_at, deep, ISO_DEEP,
-                              "Deep corona single before the C3 sequence")))
+                             (XT4, "C2", "+", tail_at, speed, ISO_LADDER,
+                              "Corona single at %s before the C3 sequence"
+                              % speed)))
             tail_at += 1.0
     if inside(30.0, target_s):
         timeline.append((30.0, announce,
