@@ -52,6 +52,7 @@ from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get
 from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
 from solareclipseworkbench import exposure_trim, hardware_problems
 from solareclipseworkbench.coverage_ui import CoverageDock
+from solareclipseworkbench import job_text
 from solareclipseworkbench.hardware_registry import (register_hardware,
                                                      seconds_to_next_camera_job)
 from solareclipseworkbench.observer import Observer, Observable
@@ -69,7 +70,7 @@ from solareclipseworkbench.reference_moments import calculate_reference_moments,
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget, moved_location_name
 from solareclipseworkbench.tile_map import TileMap, distance_metres, MIN_ZOOM, MAX_ZOOM
 from solareclipseworkbench.constants import SUN_RADIUS, MOON_RADIUS
-from solareclipseworkbench import configuration
+from solareclipseworkbench import configuration, exposure_limits
 
 #: Where the window layout and formats are remembered.  Module level so a test
 #: can point it at a temporary file rather than the user's own settings - a test
@@ -2138,6 +2139,20 @@ class SolarEclipseController(Observer):
                         f"limb correction is on and the lunar limb profile is installed."
                     )
 
+                # Every exposure in the script, resolved through the same code
+                # the run will use.  A frame that will be capped or trimmed is
+                # worth knowing about now rather than finding on the card.
+                try:
+                    rows = exposure_limits.validate_script(filename)
+                    changed = [r for r in rows if not r.ok]
+                    logging.info("Exposure check: %d exposure(s), %d changed by "
+                                 "the limits or the trim (%s)",
+                                 len(rows), len(changed), exposure_limits.describe())
+                    if changed:
+                        ExposureCheckDialog(rows, self.view).exec()
+                except Exception:
+                    logging.exception("Could not check the script's exposures")
+
                 # A loaded script means the eclipse is the thing to watch, so
                 # the bead panel follows the clock from here rather than staying
                 # on whatever second was last scrubbed to.  A starting position,
@@ -3208,6 +3223,72 @@ class CameraSettingsDialog(QDialog):
         buttons.addWidget(close)
         layout.addLayout(buttons)
         self.resize(720, min(150 + 24 * len(rows), 520))
+
+
+class ExposureCheckDialog(QDialog):
+    """Every exposure the script asks for, and what it will actually be.
+
+    Resolved through the code the run uses, so this is a preview rather than a
+    second opinion: asked-for on the left, what the camera will be given on the
+    right, and the reason they differ.
+    """
+
+    def __init__(self, rows, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Exposure check")
+
+        limits = exposure_limits.limits()
+        layout = QVBoxLayout(self)
+        heading = QLabel(
+            f"Limits: {exposure_limits.describe()} — past "
+            f"{exposure_limits.format_speed(limits.mechanical_fastest_s)} the body "
+            f"needs its shutter type on MS+ES or ES.")
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+
+        # Flattened so a bracket's rungs sit under their own line rather than
+        # hiding inside it: a ladder that loses a rung to the cap is the case
+        # this dialog exists for.
+        entries = []
+        for row in rows:
+            entries.append((str(row.line_no), row.command, row.resolved))
+            for n, rung in enumerate(row.rungs, start=1):
+                entries.append(("", f"    rung {n}", rung))
+
+        table = QTableWidget(len(entries), 5)
+        table.setHorizontalHeaderLabels(
+            ["Line", "Command", "Asks for", "Will be", "Why"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+
+        for index, (line_no, command, resolved) in enumerate(entries):
+            unusable = resolved.speed_s is None
+            colour = "#c0392b" if unusable else (
+                "#d68910" if resolved.changed else "#7f8c8d")
+            cells = (line_no, command, resolved.requested_text,
+                     resolved.applied_text, resolved.note_text)
+            for column, text in enumerate(cells):
+                item = QTableWidgetItem(str(text))
+                if column in (2, 3):
+                    item.setFont(mono)
+                item.setForeground(QColor(colour))
+                table.setItem(index, column, item)
+
+        header = table.horizontalHeader()
+        for column in range(4):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        table.resizeRowsToContents()
+        layout.addWidget(table)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        close = QPushButton("Close")
+        close.clicked.connect(self.accept)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        self.resize(860, min(180 + 24 * len(entries), 560))
 
 
 class ProblemsDock(QDockWidget):
@@ -5535,6 +5616,7 @@ class JobsTableColumnNames(Enum):
     EXEC_TIME_UTC = "Execution time (UTC)"
     EXEC_TIME_LOCAL = "Execution time (local)"
     COUNTDOWN = "Countdown"
+    WHAT = "What"
     COMMAND = "Command"
     DESCRIPTION = "Description"
 
@@ -5629,14 +5711,22 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 self.execution_times_local_as_datetime.append(execution_time_local)
                 formatted_execution_time_local = format_time(execution_time_local, self.time_format)
 
+                # What it does, in words, at the exposure the EV box will
+                # actually produce; and the description without the clock the
+                # generator baked in, which belongs to the site the file was
+                # written for and disagrees with the columns beside it.
+                what = job_text.describe_job(job)
+                description = job_text.strip_baked_time(description)
+
                 data.append([countdown, formatted_execution_time_local, formatted_execution_time_utc,
-                             job_string, description])
+                             what, description, job_string])
 
         self._data = pd.DataFrame(data, columns=[JobsTableColumnNames.COUNTDOWN.value,
                                                  JobsTableColumnNames.EXEC_TIME_LOCAL.value,
                                                  JobsTableColumnNames.EXEC_TIME_UTC.value,
-                                                 JobsTableColumnNames.COMMAND.value,
-                                                 JobsTableColumnNames.DESCRIPTION.value])
+                                                 JobsTableColumnNames.WHAT.value,
+                                                 JobsTableColumnNames.DESCRIPTION.value,
+                                                 JobsTableColumnNames.COMMAND.value])
 
     def update_countdown(self):
         """ Update the countdown until execution time."""
@@ -5848,6 +5938,12 @@ def main():
     console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     logging.getLogger().addHandler(console_handler)
     LOGGER.info("Starting up Solar Eclipse Workbench")
+
+    # Before anything can shoot or be validated: the body's limits are an
+    # override, so whatever was configured has to be in force from the start.
+    exposure_limits.load_from_settings(
+        QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat))
+    LOGGER.info("Exposure limits: %s", exposure_limits.describe())
 
     parser = argparse.ArgumentParser(description="Solar Eclipse Workbench")
     parser.add_argument(

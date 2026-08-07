@@ -176,14 +176,23 @@ def test_a_trim_never_asks_for_a_speed_the_body_does_not_own():
         exposure_trim.set_stops(0.0)
 
 
-def test_a_trim_past_the_mechanical_shutter_is_clamped_not_invented():
-    # The body stops at 1/8000 on MS; asking for faster fails outright, so
-    # the trim gives up the last half stop rather than the whole frame.
-    from solareclipseworkbench import exposure_trim
-    from solareclipseworkbench.camera import _usable_speed
+def test_a_trim_past_the_shutter_is_clamped_not_invented():
+    """Past the body's fastest the trim gives up the last stop, not the frame.
 
+    Which speed that is depends on the shutter type - 1/32000 on MS+ES,
+    1/8000 on MS alone - so this asserts against the configured limit rather
+    than a number, and would have caught the clamp being left on the
+    mechanical bound after the dial moved to MS+ES.
+    """
+    from solareclipseworkbench import exposure_limits, exposure_trim
+    from solareclipseworkbench.camera import _speed_to_seconds, _usable_speed
+
+    fastest = exposure_limits.limits().fastest_s
     try:
-        exposure_trim.set_stops(-0.5)
-        assert _usable_speed(exposure_trim.apply_seconds(1.0 / 8000), 'X-T4') == '1/8000'
+        exposure_trim.set_stops(-4.0)          # far past any real limit
+        got = _speed_to_seconds(_usable_speed(
+            exposure_trim.apply_seconds(1.0 / 8000), 'X-T4'))
+        assert abs(got - fastest) < fastest * 0.02, \
+            f'clamped to {got}, not the body fastest {fastest}'
     finally:
         exposure_trim.set_stops(0.0)

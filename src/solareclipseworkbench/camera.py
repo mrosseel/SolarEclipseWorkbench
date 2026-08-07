@@ -1357,16 +1357,20 @@ def _usable_speed(seconds: float, camera_name: str = "") -> str:
     the picture and loud only in the log.
 
     So the result is first clamped to what the shutter can do and then put on
-    the body's own scale.  The clamp is the mechanical limit, not the
-    electronic one: past 1/8000 the body needs MS+ES selected, and asking for
-    a speed that needs a dial nobody has moved fails exactly as before.
+    the body's own scale.  The clamp is whatever the shutter type
+    allows - 1/32000 on MS+ES, 1/8000 on MS alone - which is what
+    exposure_limits.fastest_s records.
 
     When the clamp bites, the trim could not be applied in full - the frame
     will be brighter than asked for - and that is said out loud rather than
     left to be discovered in the frames.
     """
     limits = exposure_limits.limits()
-    floor = max(limits.fastest_s, limits.mechanical_fastest_s)
+    # The body's own fastest, which is the electronic one now that the dial
+    # is on MS+ES - 1/32000 measured.  Put fastest_s back to 1/8000 if that
+    # dial ever goes to MS alone, or the trim will ask for speeds the
+    # mechanical shutter refuses, which is the failure this clamp exists for.
+    floor = limits.fastest_s
     clamped = min(max(seconds, floor), limits.slowest_s)
     snapped = exposure_limits.nearest_accepted(clamped) or clamped
     if snapped < floor:
