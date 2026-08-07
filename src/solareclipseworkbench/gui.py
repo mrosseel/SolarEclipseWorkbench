@@ -5729,15 +5729,16 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 except Exception:
                     logging.debug("Could not clean a description", exc_info=True)
 
-                data.append([countdown, formatted_execution_time_local, formatted_execution_time_utc,
-                             what, description, job_string])
+                data.append([countdown, formatted_execution_time_local,
+                             what, description, job_string,
+                             formatted_execution_time_utc])
 
         self._data = pd.DataFrame(data, columns=[JobsTableColumnNames.COUNTDOWN.value,
                                                  JobsTableColumnNames.EXEC_TIME_LOCAL.value,
-                                                 JobsTableColumnNames.EXEC_TIME_UTC.value,
                                                  JobsTableColumnNames.WHAT.value,
                                                  JobsTableColumnNames.DESCRIPTION.value,
-                                                 JobsTableColumnNames.COMMAND.value])
+                                                 JobsTableColumnNames.COMMAND.value,
+                                                 JobsTableColumnNames.EXEC_TIME_UTC.value])
 
     def update_countdown(self):
         """ Update the countdown until execution time."""
