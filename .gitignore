@@ -191,3 +191,11 @@ SDK/
 # the real one.  One was committed by a `git add -A` on 3 August; they are never
 # wanted in history.
 *sync-conflict-*
+
+# Bench probe output.  Every probe under scripts/ writes a timestamped JSON of
+# its run and a console log beside it, so a night at the telescope leaves a
+# few dozen in the working tree.  The results worth keeping are written up in
+# docs/HARDWARE_FINDINGS.md instead.
+*_probe_*.json
+tap_reliability_*.json
+*_probe_*.log
