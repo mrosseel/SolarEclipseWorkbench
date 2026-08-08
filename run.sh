@@ -6,7 +6,7 @@
 # the top-level `fujixsdk` package (and the SDK libraries under SDK/) are found.
 #
 # Usage:
-#   ./run.sh gui [-s] [--virtual-camera] [-lon X] [-lat Y] [-alt Z] [-d DATE]
+#   ./run.sh [gui] [-s] [--virtual-camera] [-lon X] [-lat Y] [-alt Z] [-d DATE]
 #   ./run.sh wizard
 #   ./run.sh hardware [--simulate]      # relay + mount bench console
 #   ./run.sh <any python args>
@@ -38,7 +38,10 @@ case "$(uname -s)" in
         ;;
 esac
 
-cmd="${1:-wizard}"
+# The GUI, not the wizard.  The wizard builds a script from scratch and is a
+# setup tool; on a night when the schedule already exists, a bare ./run.sh
+# landing in it is one more thing to get out of.  `./run.sh wizard` still works.
+cmd="${1:-gui}"
 shift 2>/dev/null || true
 
 # -d display, -i idle, -m disk, -s system-on-AC, -u count as user activity.
