@@ -109,12 +109,25 @@ FOCAL_RATIO = 6.0          # 80/480 refractor, used for the exposure arithmetic
 # is skipped.  An f-number here makes every frame try to set an aperture the body
 # cannot change, and answer 0x1006 "camera is busy".
 APERTURE_FIELD = "-"
-ND = 4.0                   # Baader AstroSolar PHOTOGRAPHIC film (ND 3.8), not the
-                           # ND 5.0 visual film.  Partial phases only.
+ND = 5.0                   # Baader AstroSolar VISUAL film, ND 5.0.  Partial
+                           # phases only.
+                           #
+                           # The foil was replaced: the old sheet was the
+                           # photographic ND 3.8, the one actually going to Spain
+                           # is ND 5.0, checked 8 August.  This said 4.0 until
+                           # then - a value that matched neither, and that the
+                           # old calculator forced anyway by carrying one table
+                           # per ND.  A whole density is 3.32 stops, so every
+                           # partial in every earlier script was that far under.
 K_EXT = 0.25               # mag / airmass; 0.15 is clear, 0.40 is hazy
 
 XT4 = "Fuji Fujifilm X-T4"
 EOS = "Canon EOS 800D"
+# The mechanical shutter's fast end.  Raising this to the electronic 1/32000 is
+# inert: format_shutter_speed rounds through the calculator's generic camera
+# table, which stops at 1/8000, so the cap is there and not here.  It does not
+# bind at ND 5.0 - the brightest partial wants about 1/2500 - and is left alone
+# rather than made to look like a limit it is not.
 XT4_MAX_SHUTTER = 1 / 8000.0
 EOS_MAX_SHUTTER = 1 / 4000.0
 
@@ -148,7 +161,15 @@ EOS_BURST_FPS = 6.0
 # last place to give a stop of highlights away.  Verified on the body: 100 is
 # accepted, so this was being set, and at 160 the beads want 1/6438, still
 # inside the shutter's range.
-ISO_PARTIAL, ISO_BEADS, ISO_CORONA, ISO_DEEP = 160, 160, 400, 800
+#: Partials sit at 400 rather than the base 160, which buys 1.3 stops of
+#: shutter: at ND 5.0 the filtered disc wants about 1/800 at base ISO, and a
+#: long focal length through an afternoon of Spanish air is better served by
+#: 1/2000.  The argument above for base ISO is about highlight headroom in the
+#: highest-contrast frames of the day - the beads and the diamond ring - and a
+#: filtered solar disc is not one of those: it is a bright, flat subject with
+#: sunspots, nowhere near the sensor's limits, and its noise floor is
+#: irrelevant.  ISO_BEADS stays at 160 for exactly the reason given above.
+ISO_PARTIAL, ISO_BEADS, ISO_CORONA, ISO_DEEP = 400, 160, 400, 800
 
 T = Time(ECLIPSE_DATE + " 00:00:00")
 MOMENTS, MAGNITUDE, TYPE = calculate_reference_moments(LON, LAT, OBS_ALT, T)

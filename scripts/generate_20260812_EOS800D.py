@@ -54,8 +54,11 @@ CAMERA = "Canon EOS 800D"
 MAX_SHUTTER = 1 / 4000.0   # fastest speed the 800D offers
 FOCAL_RATIO = 6.0          # 80/480 refractor
 APERTURE_FIELD = "6.3"     # nearest standard f-stop; read-only on a telescope
-ND = 4.0                   # Baader AstroSolar PHOTOGRAPHIC film (ND 3.8), not the
-                           # ND 5.0 visual film.  Partial phases only.
+ND = 5.0                   # Baader AstroSolar VISUAL film, ND 5.0.  Partial
+                           # phases only.  The foil was replaced - the old sheet
+                           # was the photographic ND 3.8 - and checked 8 August.
+                           # 4.0 until then, which matched neither: a whole
+                           # density is 3.32 stops of underexposure.
 K_EXT = 0.25               # mag / airmass; 0.15 is clear, 0.40 is hazy
 
 T = Time(ECLIPSE_DATE + " 00:00:00")
