@@ -46,8 +46,11 @@ TEST_PRE_STEP = 10.0       # C1->C2 partials, replayed before C2
 TEST_POST_STEP = 18.0      # C3->sunset partials and brackets, replayed after C3
 
 # --- Site and gear -------------------------------------------------------
-SITE = "Palencia, N Spain"
-LAT, LON, OBS_ALT = 42.0095, -4.5289, 740.0
+# The planned site, matching the X-T4 generator.  Palencia until 8 August, which
+# is not just a header: exposures are evaluated at the generating site's sun
+# altitude and height.
+SITE = "Alto de Merendilla, Burgos"
+LAT, LON, OBS_ALT = 41.9847, -3.4125, 1297.0
 ECLIPSE_DATE = "2026-08-12"
 
 CAMERA = "Canon EOS 800D"

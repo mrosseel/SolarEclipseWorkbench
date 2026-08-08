@@ -83,11 +83,22 @@ PARKED = REPO / "scripts" / "test" / "20260812_production_EOS800D.txt"
 ECLIPSE_DATE = "2026-08-12"
 
 _parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-_parser.add_argument("--site", default="Palencia, N Spain",
+# The planned site, not a placeholder near the centreline.  It was Palencia
+# (42.0095, -4.5289, 740 m) until 8 August, and that mattered more than a name
+# in a header: every exposure is evaluated at the generating site's sun altitude
+# and height, and - the part that is easy to miss - the C2 and C3 bursts are
+# sized from the beads windows in that site's limb profile.  Regenerating at
+# Merendilla moves 191 lines and changes the command count, so a script built
+# for one site is not a script built for another that happens to have the same
+# totality.  Totality here is 104 s, which the 1 s grid below can name exactly.
+#
+# Drive somewhere else and this is a re-run, not an edit: pass --lat/--lon/--alt
+# with the GPS reading (scripts/get_gps_location.py) and generate on the spot.
+_parser.add_argument("--site", default="Alto de Merendilla, Burgos",
                      help="name for the file headers")
-_parser.add_argument("--lat", type=float, default=42.0095)
-_parser.add_argument("--lon", type=float, default=-4.5289)
-_parser.add_argument("--alt", type=float, default=740.0, help="site height in metres")
+_parser.add_argument("--lat", type=float, default=41.9847)
+_parser.add_argument("--lon", type=float, default=-3.4125)
+_parser.add_argument("--alt", type=float, default=1297.0, help="site height in metres")
 # A 10 s grid across the plausible range, thickened to 1 s steps over 100-108.
 # The site actually chosen gives about 103.8 s, and the loader picks the largest
 # script that fits: on the coarse grid that rounds 103.8 down to the 100 s file
