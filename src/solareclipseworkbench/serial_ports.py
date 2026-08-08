@@ -84,3 +84,37 @@ def _one_node_per_chip(ports: list) -> list:
             logger.debug("macOS: %s is one adapter behind %s; using %s",
                          ident, [g.device for g in group], group[0].device)
     return kept
+
+
+def resolve_port(requested: str) -> str:
+    """The device node to actually open for a port somebody asked for.
+
+    Two things make a saved port name go stale on this rig.  The adapters
+    swap names when they are replugged - the relay has been usbserial-0001
+    and usbserial-7 on different evenings - and each chip fronts two nodes,
+    so collapsing them to one hides the name a previous run wrote down.  That
+    happened on 7 August: the relay was saved as /dev/cu.usbserial-0001, the
+    scan offered /dev/cu.SLAB_USBtoUART, and the two are one adapter.
+
+    So a request that is not currently offered is matched by physical port -
+    `location` - to the node that is.  If nothing matches, the request is
+    returned unchanged and the caller fails as it would have anyway.
+    """
+    if not requested:
+        return requested
+    offered = usb_serial_ports()
+    if any(p.device == requested for p in offered):
+        return requested
+
+    where = None
+    for p in serial.tools.list_ports.comports():
+        if p.device == requested:
+            where = getattr(p, "location", None)
+            break
+    if where:
+        for p in offered:
+            if getattr(p, "location", None) == where:
+                logger.info("%s is not offered; it is the same adapter as %s "
+                            "(port %s), using that", requested, p.device, where)
+                return p.device
+    return requested

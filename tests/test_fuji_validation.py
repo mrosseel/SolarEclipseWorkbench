@@ -240,20 +240,36 @@ def test_a_trim_cannot_ask_for_a_speed_the_body_has_not_got():
     """
     from fujixsdk._constants import SHUTTER_SPEED_NAMES
 
-    from solareclipseworkbench.fuji_camera import (FASTEST_SHUTTER_S,
-                                                   _parse_shutter_speed)
+    from solareclipseworkbench import exposure_limits
+    from solareclipseworkbench.fuji_camera import _parse_shutter_speed
 
-    for asked in ("1/9051", "1/11314", "1/32000"):
-        value = _parse_shutter_speed(asked)
-        assert value is not None, "%s was rejected outright" % asked
-        assert SHUTTER_SPEED_NAMES.get(value) == '1/8000"', \
-            "%s gave %s, which the body cannot take" % (
-                asked, SHUTTER_SPEED_NAMES.get(value))
+    # The fast end is configurable now; this is the mechanical-shutter case,
+    # where it really is 1/8000.
+    before = exposure_limits.limits()
+    exposure_limits.set_limits(fastest_s=1.0 / 8000)
+    try:
+        for asked in ("1/9051", "1/11314", "1/32000"):
+            value = _parse_shutter_speed(asked)
+            assert value is not None, "%s was rejected outright" % asked
+            assert SHUTTER_SPEED_NAMES.get(value) == '1/8000"', \
+                "%s gave %s, which the body cannot take" % (
+                    asked, SHUTTER_SPEED_NAMES.get(value))
 
-    # Everything inside the range is untouched.
-    assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("1/6400")) == '1/6400"'
-    assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("0.5")) == '1/2"'
-    assert FASTEST_SHUTTER_S == 1.0 / 8000
+        # Everything inside the range is untouched.
+        assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("1/6400")) == '1/6400"'
+        assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("0.5")) == '1/2"'
+
+        # A half-stop speed from another model's scale is refused by this
+        # body, so it must land on the nearest third-stop one instead.
+        assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("1/750")) == '1/800"'
+
+        # With the electronic shutter allowed the same ask is honoured rather
+        # than clamped, which is what the override is for.
+        exposure_limits.set_limits(fastest_s=1.0 / 32000,
+                                   accepted_speeds=exposure_limits.XT4_SPEEDS_S)
+        assert SHUTTER_SPEED_NAMES.get(_parse_shutter_speed("1/16000")) == '1/16000"'
+    finally:
+        exposure_limits.set_limits(**vars(before))
 
 
 def test_a_trimmed_ladder_rung_lands_on_a_real_shutter_speed():
@@ -288,13 +304,24 @@ def test_a_trimmed_ladder_rung_lands_on_a_real_shutter_speed():
 def test_the_fastest_rung_clamps_rather_than_failing():
     from fujixsdk._constants import SHUTTER_SPEED_NAMES
 
+    from solareclipseworkbench import exposure_limits
     from solareclipseworkbench.fuji_camera import snap_to_scale
 
-    # 88 us is 1/8000 trimmed by half a stop; the body stops at 1/8000.
-    assert SHUTTER_SPEED_NAMES[snap_to_scale(88)] == '1/8000"'
-    assert SHUTTER_SPEED_NAMES[snap_to_scale(125)] == '1/8000"'
-    # A positive trim has room and must not be clamped.
-    assert SHUTTER_SPEED_NAMES[snap_to_scale(177)] != '1/8000"'
+    before = exposure_limits.limits()
+    exposure_limits.set_limits(fastest_s=1.0 / 8000)
+    try:
+        # 88 us is 1/8000 trimmed by half a stop; on MS the body stops there.
+        assert SHUTTER_SPEED_NAMES[snap_to_scale(88)] == '1/8000"'
+        assert SHUTTER_SPEED_NAMES[snap_to_scale(125)] == '1/8000"'
+        # A positive trim has room and must not be clamped.
+        assert SHUTTER_SPEED_NAMES[snap_to_scale(177)] != '1/8000"'
+
+        # The slow end clamps the same way: +3 EV on a 4 s corona frame asks
+        # for 32 s, and the body is given the cap rather than a refusal.
+        exposure_limits.set_limits(slowest_s=6.0)
+        assert SHUTTER_SPEED_NAMES[snap_to_scale(32_000_000)] == '6"'
+    finally:
+        exposure_limits.set_limits(**vars(before))
 
 
 def test_a_bracket_past_the_fast_end_does_not_take_the_same_frame_twice():
@@ -313,11 +340,19 @@ def test_a_bracket_past_the_fast_end_does_not_take_the_same_frame_twice():
 
     from fujixsdk._constants import SHUTTER_SPEED_NAMES
 
+    from solareclipseworkbench import exposure_limits
     from solareclipseworkbench.fuji_camera import _distinct, snap_to_scale
 
     ladder = [30, 38, 48, 61, 76, 96, 122, 154, 194, 244, 308, 388, 488]
 
-    kept = _distinct(snap_to_scale(v) for v in ladder)
+    # The mechanical-shutter case: on MS every rung past 1/8000 lands on
+    # 1/8000, and the duplicates must be dropped rather than shot.
+    before = exposure_limits.limits()
+    exposure_limits.set_limits(fastest_s=1.0 / 8000)
+    try:
+        kept = _distinct(snap_to_scale(v) for v in ladder)
+    finally:
+        exposure_limits.set_limits(**vars(before))
 
     assert len(kept) == len(set(kept)), "the same exposure twice in one bracket"
     assert len(kept) < len(ladder), "nothing was dropped"
