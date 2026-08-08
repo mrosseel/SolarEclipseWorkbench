@@ -1,3 +1,5 @@
+import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -334,8 +336,9 @@ def test_a_burst_drains_while_the_contacts_are_still_held():
 
     camera = MagicMock()
     camera._usb_lock = None
-    camera.drain.side_effect = lambda: order.append(
-        ("drain", trigger.closed_channels.copy())) or 0
+    camera.drain.side_effect = lambda rounds=None: order.append(
+        ("drain", rounds, trigger.closed_channels.copy(),
+         threading.current_thread())) or 0
     register_hardware("sdk_camera", camera)
     try:
         relay_burst(trigger, "0.4")
@@ -343,9 +346,17 @@ def test_a_burst_drains_while_the_contacts_are_still_held():
         register_hardware("sdk_camera", None)
 
     assert len(order) >= 2, "the burst never drained during the hold"
-    _, closed_mid_hold = order[0]
+    _, _, closed_mid_hold, thread_mid_hold = order[0]
     assert closed_mid_hold, "the first drain should run with the contacts held"
-    _, closed_at_last = order[-1]
+    # On the burst's own thread, not beside it.  Moving the drain to a worker
+    # so the hold could be timed exactly was measured on 8 August and cost two
+    # thirds of the burst: 95 frames inline against exactly 32 threaded, the
+    # queue full and the body hard-stopped part way through. The drain only
+    # keeps pace with the shutter while it has the thread to itself.
+    assert thread_mid_hold is threading.main_thread(), (
+        "the drain must run inline on the burst's thread; threaded, the body "
+        "hard-stops at a full queue")
+    _, _, closed_at_last, _ = order[-1]
     assert closed_at_last == set(), "the final drain runs after release_all"
 
 

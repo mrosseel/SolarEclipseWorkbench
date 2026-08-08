@@ -890,7 +890,7 @@ class Camera:
     def delete_image(self):
         self._check(self._lib_inst.XSDK_DeleteImage(self._handle))
 
-    def drain_buffer(self) -> int:
+    def drain_buffer(self, budget_s: float = None) -> int:
         """Delete all pending images from the volatile buffer.
 
         One pass is enough, and this is measured rather than assumed: filling the
@@ -901,6 +901,10 @@ class Camera:
         — which is why the caller settles first — but nothing arrives late once
         they are there, and re-reading the buffer only ever returned zero.
 
+        ``budget_s`` overrides how long the pass may take.  A caller draining
+        between the frames of a burst has less time than one draining after it,
+        and is better served by freeing some slots now than all of them late.
+
         Returns the number of images drained.
         """
         captured, total = self.get_buffer_capacity()
@@ -908,7 +912,8 @@ class Camera:
             log.debug("No images to drain (buffer: %d/%d)", captured, total)
             return 0
 
-        drained = self._drain_pass(captured, time.monotonic() + DRAIN_BUDGET_S)
+        budget = DRAIN_BUDGET_S if budget_s is None else max(0.0, float(budget_s))
+        drained = self._drain_pass(captured, time.monotonic() + budget)
         if drained:
             log.info("Drained %d pending image(s) from buffer", drained)
         if drained != captured:
@@ -928,6 +933,18 @@ class Camera:
         """
         drained = 0
         for i in range(captured):
+            # The budget bounds the pass, not just each busy wait inside it.
+            # Until 8 August the deadline was only ever handed to
+            # `_through_busy`, so a pass ran until it had deleted everything
+            # the buffer reported however long that took: measured with the
+            # camera firing, 0.15 s per image and 15 s for a call the caller
+            # had budgeted 2 s for.  A relay burst drains between frames and
+            # cannot stop while a drain is still running, so an unbounded pass
+            # stretches the burst itself.
+            if i and time.monotonic() >= deadline:
+                log.debug("Drain pass out of budget at entry %d of %d; the "
+                          "rest go with the next drain", i, captured)
+                break
             try:
                 info = self._through_busy(self.read_image_info,
                                           f"read image info at entry {i}", deadline)

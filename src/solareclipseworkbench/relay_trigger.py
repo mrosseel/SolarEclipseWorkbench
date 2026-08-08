@@ -42,7 +42,7 @@ import serial.tools.list_ports
 from solareclipseworkbench import hardware_problems
 from solareclipseworkbench.discovery import Candidate
 from solareclipseworkbench.hardware_registry import HARDWARE
-from solareclipseworkbench.serial_ports import usb_serial_ports
+from solareclipseworkbench.serial_ports import resolve_port, usb_serial_ports
 
 try:
     import hid
@@ -50,6 +50,12 @@ except ImportError:
     hid = None
 
 logger = logging.getLogger(__name__)
+
+#: Longest a single mid-burst drain may run before the hold rechecks its own
+#: deadline.  Short enough that a burst ends close to its scripted length, long
+#: enough to free a useful number of slots: the deletes cost about 0.15 s each
+#: while the camera is firing, so this is roughly a dozen frames per pass.
+MID_BURST_DRAIN_S = 2.0
 
 ENTRY_POINT_GROUP = "solareclipseworkbench.relay_backends"
 
@@ -541,6 +547,12 @@ def make_backend(kind: str = "auto", port: Optional[str] = None, **config) -> Ba
     """
     kind = (kind or "auto").lower()
 
+    # A port remembered from a previous run may name the other driver's node
+    # for the same adapter, or a name the adapters have since swapped between.
+    # Resolve it to whatever is actually on the bus before anything is opened.
+    if port:
+        port = resolve_port(port)
+
     if kind != "auto":
         backend_class = get_backend(kind)
         if port:
@@ -917,37 +929,79 @@ def relay_burst(trigger: RelayTrigger, duration: float, interval: Optional[float
 
     owner = HARDWARE.get('sdk_camera')
 
-    if owner is None or interval is not None:
-        logger.info("relay_burst: %.3f s (interval %s), no draining session", duration, interval)
+    if owner is None:
+        # No tether session, so no queue to fill and nothing to drain.
+        logger.info("relay_burst: %.3f s (interval %s), no session", duration, interval)
         pulses = trigger.burst(duration, interval)
         logger.info("relay_burst issued %d pulse(s)", pulses)
         return
 
-    logger.info("relay_burst: %.3f s with the queue drained live", duration)
     drained = 0
     deadline = time.monotonic() + duration
     lock = getattr(owner, '_usb_lock', None)
     acquired = bool(lock and lock.acquire(timeout=2.0))
+
+    # The drain runs INLINE, on this thread, between the contact closing and
+    # opening.  That looks like it stretches the hold - a drain that runs long
+    # delays the release, and on 8 August an 8 s burst held 17.4 s - and the
+    # obvious repair is to move the drain to its own thread and time the hold
+    # exactly.  Measured the same evening, that repair costs two thirds of the
+    # burst: inline, 95 frames with the queue peaking at 30 and coming back
+    # down; threaded, exactly 32 frames, the queue full, the body hard-stopped
+    # and the contact clicking against a shutter that would not fire.
+    #
+    # So the drain keeps up only while it has this thread to itself.  A burst
+    # that runs long and shoots is worth more than one that stops on time and
+    # does not, and the overrun is handled where it belongs - by pricing the
+    # hold in the schedule.  Do not thread this again without re-measuring the
+    # frame count; the wall clock alone says the opposite of the truth.
+    if interval is not None:
+        logger.warning("relay_burst: paced at %.3f s - the queue is drained "
+                       "between pulses, which the body may outrun", interval)
+    logger.info("relay_burst: %.3f s %s, queue drained live", duration,
+                "held" if interval is None else f"paced at {interval:.3f} s")
     try:
-        with trigger.pressed():
-            while time.monotonic() < deadline:
-                try:
-                    drained += owner.drain()
-                except Exception:
-                    logger.warning("relay_burst: mid-hold drain failed; the burst "
-                                   "runs on and may cap at the queue", exc_info=True)
-                    time.sleep(max(0.0, deadline - time.monotonic()))
-                    break
-                time.sleep(0.25)
+        if interval is None:
+            with trigger.pressed():
+                while True:
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        break
+                    try:
+                        # One round, no settle, and never more time than the
+                        # burst has left.  The hold cannot end while a drain is
+                        # running, so an unbounded drain IS the overrun: 8 s
+                        # asked for, 18.7 s held, measured 8 August.  The settle
+                        # is for frames still arriving after the shutter stops;
+                        # mid-burst they are already there.
+                        drained += owner.drain(rounds=1, settle_s=0.0,
+                                               budget_s=min(MID_BURST_DRAIN_S, left))
+                    except TypeError:
+                        # A camera whose drain predates these arguments.
+                        drained += owner.drain()
+                    except Exception:
+                        logger.warning("relay_burst: mid-hold drain failed; the "
+                                       "burst runs on and may cap at the queue",
+                                       exc_info=True)
+                        time.sleep(max(0.0, deadline - time.monotonic()))
+                        break
+                    time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+        else:
+            # Paced.  The pulse train blocks, so the only room for a drain is
+            # between pulses; `trigger.burst` owns the timing and this owns
+            # nothing until it returns.
+            pulses = trigger.burst(duration, interval)
+            logger.info("relay_burst issued %d pulse(s)", pulses)
     finally:
         trigger.release_all()
         try:
+            # Now the contact is open the tail can be chased properly.
             drained += owner.drain()
         except Exception:
             logger.warning("relay_burst: final drain failed", exc_info=True)
         if acquired:
             lock.release()
-    logger.info("relay_burst drained %d frame(s) across the hold", drained)
+    logger.info("relay_burst drained %d frame(s) across the burst", drained)
 
 
 def relay_bulb(trigger: RelayTrigger, seconds: float) -> None:

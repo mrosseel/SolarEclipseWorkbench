@@ -1032,7 +1032,8 @@ class FujiCamera(BaseCamera):
         """The relay trigger driving this body, or None if none is connected."""
         return HARDWARE.get('relay')
 
-    def drain(self, rounds: int = None) -> int:
+    def drain(self, rounds: int = None, settle_s: float = None,
+              budget_s: float = None) -> int:
         """Discard the queued PC transfers once shooting has stopped.
 
         Every frame taken with an SDK session open holds one of 32 buffer
@@ -1052,20 +1053,31 @@ class FujiCamera(BaseCamera):
         that only need slots back rather than an empty queue.  Chasing the tail
         of a burst costs six seconds, and at C2 that is worth more than a clean
         buffer nobody is waiting on.
+
+        ``settle_s`` and ``budget_s`` are for the one caller draining while the
+        shutter is still going: a burst.  The settle exists because frames take
+        up to 0.75 s to appear in the count, which matters when shooting has
+        stopped and the tail is still arriving — mid-burst the queue is never
+        empty and the wait is pure cost.  The budget bounds how long the pass
+        may run, so the burst can check its own deadline between drains rather
+        than being held open by one.  Defaults keep the after-the-fact
+        behaviour every other caller wants.
         """
         drained = 0
-        settle = SETTLE_BEFORE_DRAIN_S
+        settle = SETTLE_BEFORE_DRAIN_S if settle_s is None else settle_s
         for _ in range(max(1, DRAIN_ROUNDS if rounds is None else rounds)):
-            time.sleep(settle)
+            if settle > 0:
+                time.sleep(settle)
             try:
-                this_round = self._sdk.drain_buffer()
+                this_round = self._sdk.drain_buffer(budget_s=budget_s)
             except Exception:
                 logging.exception('%s: drain failed; shooting is unaffected', self.name)
                 break
             drained += this_round
             if this_round == 0:
                 break
-            settle = SETTLE_BETWEEN_DRAINS_S
+            if settle_s is None:
+                settle = SETTLE_BETWEEN_DRAINS_S
         return drained
 
     def buffer_is_filling(self) -> bool:
