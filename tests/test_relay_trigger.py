@@ -1,6 +1,6 @@
 import threading
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -457,3 +457,55 @@ def test_relay_arm_catches_up_blocked_exposure_before_closing_s1():
         register_hardware('sdk_camera', None)
 
     assert order == [("catchup", 0.8), ("s1",)]
+
+
+def test_the_relay_port_is_reopened_after_a_transient_lock():
+    """macOS holds the exclusive lock on a /dev/cu device after it is closed.
+
+    The scan that identifies the relay closes the port immediately before the
+    connect opens it, so the connect meets a lock that is on its way out.
+    Measured on the adapter, 8 August: reopening after a close failed 12/12 at
+    no delay, 3/12 at 0.10 s and 0/12 at 0.30 s, always "[Errno 35] Could not
+    exclusively lock port".  One attempt therefore failed every connect that
+    followed a scan - the whole of "the relay is flaky".
+    """
+    import serial as serial_mod
+    from solareclipseworkbench.relay_trigger import DsdSerialBackend
+
+    attempts = []
+
+    class _FakeSerial:
+        def __init__(self, *args, **kwargs):
+            attempts.append(1)
+            if len(attempts) < 3:            # locked, then free
+                raise serial_mod.SerialException(
+                    "[Errno 35] Could not exclusively lock port")
+        def write(self, data): pass
+        def flush(self): pass
+        def close(self): pass
+        def read(self, size): return b"OK+CH1=0\n"
+        def reset_input_buffer(self): pass
+
+    with patch.object(serial_mod, "Serial", _FakeSerial):
+        backend = DsdSerialBackend(port="/dev/fake")
+
+    assert len(attempts) == 3, "the open was not retried through the lock"
+    assert backend.port == "/dev/fake"
+
+
+def test_a_relay_port_that_never_opens_still_gives_up():
+    """The retry must not hang a connect on a port that is simply not there."""
+    import serial as serial_mod
+    from solareclipseworkbench import relay_trigger as rt
+    from solareclipseworkbench.relay_trigger import DsdSerialBackend
+
+    class _NeverOpens:
+        def __init__(self, *args, **kwargs):
+            raise serial_mod.SerialException("[Errno 2] No such file or directory")
+
+    with patch.object(rt, "OPEN_RETRY_S", 0.3), \
+         patch.object(serial_mod, "Serial", _NeverOpens):
+        started = time.monotonic()
+        with pytest.raises(RelayError, match="cannot open relay"):
+            DsdSerialBackend(port="/dev/nope")
+        assert time.monotonic() - started < 2.0

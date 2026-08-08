@@ -57,6 +57,13 @@ logger = logging.getLogger(__name__)
 #: while the camera is firing, so this is roughly a dozen frames per pass.
 MID_BURST_DRAIN_S = 2.0
 
+#: How long to keep trying to open the relay's serial port, and how often.
+#: The exclusive lock on a macOS /dev/cu device outlives the close by about
+#: 0.3 s; 5 s covers a replug settling as well, and nothing waits on this but
+#: the connect itself.
+OPEN_RETRY_S = 5.0
+OPEN_RETRY_STEP_S = 0.1
+
 ENTRY_POINT_GROUP = "solareclipseworkbench.relay_backends"
 
 # Time to let the camera wake and arm after S1 closes, before S2 is asserted.
@@ -394,13 +401,33 @@ class DsdSerialBackend(Backend):
 
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 0.2):
         self.port = port
+        # Retried, not opened once.  macOS keeps the exclusive lock on a
+        # /dev/cu device for a moment after it is closed, and the scan that
+        # identifies the relay closes the port immediately before the connect
+        # opens it.  Measured on this adapter, 8 August, reopening after a
+        # close: 12/12 failed at no delay, 12/12 at 0.05 s, 3/12 at 0.10 s and
+        # 0/12 at 0.30 s, every failure "[Errno 35] Could not exclusively lock
+        # port".  A single attempt therefore fails the connect that follows
+        # every scan, which is the whole of "the relay is flaky".
+        deadline = time.monotonic() + OPEN_RETRY_S
+        while True:
+            try:
+                self._serial = serial.Serial(port, baudrate, timeout=timeout,
+                                             exclusive=True)
+                break
+            except serial.SerialException as exc:
+                if time.monotonic() >= deadline:
+                    raise RelayError(
+                        f"cannot open relay on {port} after "
+                        f"{OPEN_RETRY_S:.0f}s: {exc}") from exc
+                time.sleep(OPEN_RETRY_STEP_S)
         try:
-            self._serial = serial.Serial(port, baudrate, timeout=timeout, exclusive=True)
             # Terminate whatever half-command the firmware may still be
             # holding, so the first real command is parsed clean.
             self._serial.write(b"\r\n")
             self._serial.flush()
         except serial.SerialException as exc:
+            self.close()
             raise RelayError(f"cannot open relay on {port}: {exc}") from exc
         # The SH-UR firmware acknowledges every command with "OK+...", so
         # unlike most relay boards this one can prove what it is - worth

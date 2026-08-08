@@ -126,17 +126,36 @@ REFERENCE_MOMENTS = ["C1", "C2", "MAX", "C3", "C4", "sunset", "sunrise"]
 
 LOGGER = logging.getLogger("Solar Eclipse Workbench UI")
 _LOG_FILE = "/tmp/solareclipseworkbench.log"
+#: How many past sessions to keep.  Rehearsals come in bursts - start, stop,
+#: fix something, start again - and the answer to "what did that run do" is
+#: usually two or three sessions back, not one.
+_LOG_KEEP = 12
 if __name__ == "__main__":
-    # Keep exactly one previous session: filemode='w' truncates on start, and
-    # on 6 August that wiped a rehearsal's log out from under its post-mortem.
+    # Archive the previous session under its own name.  filemode='w' truncates
+    # on start, and on 6 August that wiped a rehearsal's log out from under its
+    # post-mortem.  Renaming to a single .prev fixed that and then failed the
+    # same way on 8 August, one remove further along: a run with the hardware
+    # connected was rehearsed, stopped, and started again, and the second start
+    # overwrote the only copy of the first run's log.  The evidence for "almost
+    # no beads photos" went with it.  One slot is one slot however it is named.
     #
-    # Only when this module is the program being run.  Rotating on import
-    # meant every `import gui` - every test run - renamed the log of the app
-    # running in the other window, which then went on writing to a file that
-    # no longer had its name.  Measured the same evening, hunting for a log
-    # that was never missing, only moved.
+    # Only when this module is the program being run.  Rotating on import meant
+    # every `import gui` - every test run - renamed the log of the app running
+    # in the other window, which then went on writing to a file that no longer
+    # had its name.  Measured the same evening, hunting for a log that was never
+    # missing, only moved.
+    _log_path = Path(_LOG_FILE)
     try:
-        Path(_LOG_FILE).rename(_LOG_FILE + ".prev")
+        if _log_path.exists():
+            _stamp = datetime.datetime.fromtimestamp(
+                _log_path.stat().st_mtime).strftime("%Y%m%d-%H%M%S")
+            _log_path.rename(f"{_LOG_FILE}.{_stamp}")
+            # Newest first, drop the tail.  Nothing here is worth an exception
+            # on the way into the application.
+            _old = sorted(_log_path.parent.glob(_log_path.name + ".2*"),
+                          reverse=True)
+            for _stale in _old[_LOG_KEEP:]:
+                _stale.unlink(missing_ok=True)
     except OSError:
         pass
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%a, %d %b %Y %H:%M:%S', filename=_LOG_FILE, filemode='w')
