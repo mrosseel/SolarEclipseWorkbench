@@ -88,8 +88,14 @@ _parser.add_argument("--site", default="Palencia, N Spain",
 _parser.add_argument("--lat", type=float, default=42.0095)
 _parser.add_argument("--lon", type=float, default=-4.5289)
 _parser.add_argument("--alt", type=float, default=740.0, help="site height in metres")
+# A 10 s grid across the plausible range, thickened to 1 s steps over 100-108.
+# The site actually chosen gives about 103.8 s, and the loader picks the largest
+# script that fits: on the coarse grid that rounds 103.8 down to the 100 s file
+# and throws away nearly four seconds of totality, which is most of a corona
+# ladder.  Around the number we expect to fly, the grid is worth a second.
+_DURATIONS_DEFAULT = sorted(set(range(40, 170, 10)) | set(range(100, 109)))
 _parser.add_argument("--durations", type=float, nargs="+",
-                     default=[float(d) for d in range(40, 170, 10)],
+                     default=[float(d) for d in _DURATIONS_DEFAULT],
                      help="totality durations to write a script for, in seconds")
 _args = _parser.parse_args()
 
@@ -412,11 +418,9 @@ LADDER_PITCH_MIN_S = 10.3
 #: cost (0.8 s) plus clearance.  It was 2.5 s of standoff, which priced the
 #: third single out of every gap for no measured reason.
 GAP_SINGLE_COST_S = 1.1
-# The first ladder waits for the C2 burst to be released and its frames drained.
-# 8.5, was 6.0: the C2 burst with live draining keeps the camera until about
-# C2+7.6 (contact to +3.5, queue tail ~4 s), and ladder 1 at C2+6 was dropped
-# against it on the 5 August run - seven frames of corona.
-TOTALITY_HEAD_S = 8.5
+# The first ladder waits for the C2 burst to be released and its frames drained;
+# derived from the burst geometry below rather than guessed, so it follows the
+# owner's margins if those ever move.  See TOTALITY_HEAD_S after RELAY_C3_N.
 # and the last has to be out of the way before the C3 bead sequence loads.
 TOTALITY_TAIL_MARGIN_S = 2.0
 
@@ -572,6 +576,26 @@ RELAY_LATENCY_S = 0.045
 # black frame at beads exposure.
 RELAY_C2_N = math.ceil(RELAY_C2_S * XT4_RELAY_FPS)
 RELAY_C3_N = math.ceil(RELAY_C3_S * XT4_RELAY_FPS)
+
+#: How long the burst keeps the camera after its contact opens.  relay_burst
+#: holds the USB lock across a final drain that empties the whole queue, and
+#: every ladder command needs that lock.  Measured 8 August over three bursts:
+#: 2.97, 3.75 and 5.04 s.  Take the worst.
+BURST_TAIL_DRAIN_S = 5.0
+
+#: When the first corona ladder may start: after the C2 burst's contact opens,
+#: and after the queue behind it is drained.
+#:
+#: Was a flat 8.5, reasoning that the burst "keeps the camera until about
+#: C2+7.6".  Both halves of that were wrong before 8 August, in opposite
+#: directions: the burst overran its hold badly - an unbounded mid-burst drain
+#: held an 8 s burst open for 18.7 s - so the camera was really busy until
+#: about C2+17.9, and ladder 1 landed on top of the burst, the C2+17.9 single
+#: and ladder 2 behind it.  With the drain bounded the hold is honest, and this
+#: can be derived instead of estimated.
+_C2_BURST_END_S = ((MOMENTS["BEADS_C2_END"].time_utc - c2).total_seconds()
+                   + RELAY_C2_TAIL_S)
+TOTALITY_HEAD_S = round(_C2_BURST_END_S + BURST_TAIL_DRAIN_S + 0.5, 1)
 
 EOS_C2_BURST_S, EOS_C3_BURST_S = 3, 5
 
