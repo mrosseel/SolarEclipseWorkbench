@@ -177,6 +177,11 @@ EXPOSURE_BUDGET_S = 1.5      # the whole of `configure`, every setting together
 # Below this there is no point starting a catch-up write: a single exposure
 # write on a free body measures ~0.3 s, so less budget than that is a skip.
 MIN_CATCHUP_BUDGET_S = 0.25
+# The most a pre-burst speed verification may spend.  A read is ~20 ms and a
+# rewrite ~200 ms, so 0.6 s allows the read and two rewrites and still leaves
+# the relay's 0.8 s arm budget - and the 1.2 s of slack behind it - intact.
+# Nothing waits on this that is worth a late burst.
+VERIFY_SPEED_BUDGET_S = 0.6
 # One speed change between two taps.  Measured on the body, 40 writes: median
 # 178 ms, 90th 206 ms, worst 256 ms, and up to 490 ms with taps interleaved.
 # The old 0.3 s against a 0.3 s backoff was one attempt, and it was under the
@@ -855,6 +860,15 @@ class FujiCamera(BaseCamera):
         """
         pending = dict(getattr(self, '_pending', None) or {})
         if not pending:
+            # Nothing was blocked - but a write that reported success is not
+            # proof the body took it.  On the 11 August rehearsal both beads
+            # loads wrote 1/6400, raised nothing, and the body exposed 1/8000:
+            # the load frame and the 164 burst frames behind it, a third of a
+            # stop dark.  So the speed is read back here, in the slack before
+            # the contacts close, and put right if it drifted.  Silent by
+            # design: this runs seconds before totality, where a raised error
+            # helps nobody and a lost frame cannot be retaken.
+            self._verify_speed(budget_s)
             return True
         if budget_s is not None and budget_s < MIN_CATCHUP_BUDGET_S:
             logging.info("%s: %d setting(s) still blocked, and %.2fs of budget "
@@ -868,6 +882,49 @@ class FujiCamera(BaseCamera):
             logging.warning("%s: some blocked settings still did not go on",
                             self.name, exc_info=True)
         return not getattr(self, '_pending', None)
+
+    def _verify_speed(self, budget_s: Optional[float] = None) -> None:
+        """Check the body is on the speed last asked for, and put it back if not.
+
+        Never raises and never spends more than it is given.  Both are
+        deliberate: this runs in the seconds before a contact burst, where the
+        only thing that matters is that the next frames are exposed correctly.
+
+        The read costs about 20 ms and the rewrite about 200 ms, against the
+        0.8 s the relay's arm allows and the 1.2 s of schedule slack behind it.
+        """
+        wanted = self._applied_speed
+        if wanted is None:
+            return
+        deadline = time.monotonic() + min(
+            budget_s if budget_s is not None else VERIFY_SPEED_BUDGET_S,
+            VERIFY_SPEED_BUDGET_S)
+        try:
+            with self._lock:
+                got, _bulb = self._sdk.get_shutter_speed()
+                if got == wanted:
+                    return
+                logging.warning(
+                    '%s: the body is on %s but %s was set; putting it back',
+                    self.name, SHUTTER_SPEED_NAMES.get(got, got),
+                    SHUTTER_SPEED_NAMES.get(wanted, wanted))
+                while time.monotonic() < deadline:
+                    try:
+                        self._sdk.set_shutter_speed(wanted)
+                    except Exception:
+                        time.sleep(0.05)
+                        continue
+                    got, _bulb = self._sdk.get_shutter_speed()
+                    if got == wanted:
+                        logging.info('%s: speed restored to %s', self.name,
+                                     SHUTTER_SPEED_NAMES.get(wanted, wanted))
+                        return
+                logging.warning('%s: could not put the speed back inside %.2fs; '
+                                'the frames run at what the body has',
+                                self.name, deadline - time.monotonic())
+        except Exception:
+            # A verification that throws would be worse than no verification.
+            logging.debug('%s: speed verification failed', self.name, exc_info=True)
 
     def configure(self, budget_s: Optional[float] = None, **kwargs: Any) -> None:
         """Apply camera settings via SDK.
