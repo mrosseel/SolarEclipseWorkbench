@@ -599,13 +599,26 @@ BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
 # different reading of the same phenomena.  The owner has now specified the
 # target; margin changes from here require the owner, not an argument.
 #
-#     C2:  head 1.9 (crescent, beads forming)  window 3.25  tail 2.6 (SMALL DIAMOND)
-#     C3:  head 2.6 (SMALL DIAMOND)  window 4.05  tail 1.1 (beads fading, crescent)
-RELAY_C2_HEAD_S = 1.9
-RELAY_C2_TAIL_S = 2.6
+# OWNER'S DECISION, 11 August, superseding the C2 margins above:
+#
+#   "the bailys beads are king so we should probably do the max burst
+#    centered on c2 regardless of bead window"
+#
+# So the C2 burst is a fixed 12 s centered on C2 itself - C2-6 to C2+6 -
+# anchored to the contact and not to the solved bead window.  That covers the
+# 1.75 s window with about 5 s of slack on EACH side, so a limb-solve or
+# position error cannot move the beads out of the burst; and anchoring on C2
+# means the burst exists even when the limb solve fails and the BEADS moments
+# are never published.  Twelve seconds is inside what the bench has proven
+# (18.7 s held, ~100 frames, the queue never full, 8 August) and ends early
+# enough that no ladder is lost to it.
+#
+# C3 keeps the window-plus-margins geometry as specified on the 8th:
+#     C3:  head 2.6 (SMALL DIAMOND)  window 4.05  tail 1.1 (beads fading)
+C2_BURST_HALF_S = 6.0
 RELAY_C3_HEAD_S = 2.6
 RELAY_C3_TAIL_S = 1.1
-RELAY_C2_S = BEADS_C2_S + RELAY_C2_HEAD_S + RELAY_C2_TAIL_S
+RELAY_C2_S = 2 * C2_BURST_HALF_S
 RELAY_C3_S = BEADS_C3_S + RELAY_C3_HEAD_S + RELAY_C3_TAIL_S
 
 # Trigger latency, measured on the bench 1 August 2026, and it depends entirely on
@@ -637,8 +650,8 @@ BURST_TAIL_DRAIN_S = 5.0
 #: about C2+17.9, and ladder 1 landed on top of the burst, the C2+17.9 single
 #: and ladder 2 behind it.  With the drain bounded the hold is honest, and this
 #: can be derived instead of estimated.
-_C2_BURST_END_S = ((MOMENTS["BEADS_C2_END"].time_utc - c2).total_seconds()
-                   + RELAY_C2_TAIL_S)
+# The burst is centered on C2, so it ends C2_BURST_HALF_S after the contact.
+_C2_BURST_END_S = C2_BURST_HALF_S
 TOTALITY_HEAD_S = round(_C2_BURST_END_S + BURST_TAIL_DRAIN_S + 0.5, 1)
 
 EOS_C2_BURST_S, EOS_C3_BURST_S = 3, 5
@@ -896,12 +909,14 @@ def _totality_block(target_s: float) -> None:
     emit("# The beads run %.2f s at C2 and %.2f s at C3, and the bursts hold %.1f s and %.1f s."
          % (BEADS_C2_S, BEADS_C3_S, RELAY_C2_S, RELAY_C3_S))
     emit("# Owner's specification: the SMALL diamond - 'one or two beads left' - on the")
-    emit("# totality side of each bead window.  The deep margin sits there at both")
-    emit("# contacts; the crescent side gets the remainder of the hold.  Bursts drain")
-    emit("# their tether queue live, so a hold is no longer capped at 32 frames.")
-    emit("# Priority: small diamond ring, then beads, then everything else.")
-    emit("# C2 head %.1f / tail %.1f;  C3 head %.1f / tail %.1f."
-         % (RELAY_C2_HEAD_S, RELAY_C2_TAIL_S, RELAY_C3_HEAD_S, RELAY_C3_TAIL_S))
+    emit("# Bursts drain their tether queue live, so a hold is no longer capped at")
+    emit("# 32 frames.  Priority (owner, 11 August): the beads are king.")
+    emit("# C2: %.0f s CENTERED ON THE CONTACT, C2-%.0f to C2+%.0f - anchored to C2"
+         % (RELAY_C2_S, C2_BURST_HALF_S, C2_BURST_HALF_S))
+    emit("# itself, not the solved bead window, so a limb-solve error or a failed")
+    emit("# solve cannot move the beads out of the burst.")
+    emit("# C3: window plus margins, head %.1f / tail %.1f (small diamond on the head)."
+         % (RELAY_C3_HEAD_S, RELAY_C3_TAIL_S))
     emit("#")
     emit("# %d and %d frames, at the %.1f fps measured on this body with the drive dial on CL"
          % (RELAY_C2_N, RELAY_C3_N, XT4_RELAY_FPS))
@@ -928,21 +943,28 @@ def _totality_block(target_s: float) -> None:
     # exposure needs the shutter two thirds of a stop faster.  Changing the
     # gain and leaving the speeds would have brightened the ring by that much.
     ring_ladder = "1/250;1/125;1/60"
-    _c2_burst_off = RELAY_C2_S + RELAY_LATENCY_S - RELAY_C2_TAIL_S
-    bracket(XT4, "BEADS_C2_END", "-", _c2_burst_off + 6.5, "1/250", ISO_BEADS,
+    # Anchored to C2, not BEADS_C2_END: the burst is centered on the contact
+    # (owner, 11 August), which also means it survives an unresolved limb
+    # solve - the BEADS moments are only published when the solve closes.
+    _c2_burst_off = C2_BURST_HALF_S + RELAY_LATENCY_S
+    # The ring bracket needs ~7 s at the measured 1.55 s write-wait per rung,
+    # so it sits 9.5 s ahead of the burst start rather than 6.5 - at 6.5 its
+    # last rung was still writing when the beads exposure tried to load.
+    bracket(XT4, "C2", "-", _c2_burst_off + 9.5, "1/250", ISO_BEADS,
             ring_ladder, 3, "Framed diamond ring, big diamond forming")
-    picture(XT4, "BEADS_C2_END", "-", _c2_burst_off + 2.5, beads_x, ISO_BEADS,
+    picture(XT4, "C2", "-", _c2_burst_off + 2.5, beads_x, ISO_BEADS,
             "Load the beads exposure before the relay burst")
-    relay_arm("BEADS_C2_END", "-", _c2_burst_off + 1.2, "Pre-arm S1 for the C2 burst")
+    relay_arm("C2", "-", _c2_burst_off + 1.2, "Pre-arm S1 for the C2 burst")
     burst(EOS, "BEADS_C2", "-", EOS_C2_BURST_S / 2, beads_e, ISO_BEADS, EOS_C2_BURST_S,
           int(EOS_C2_BURST_S * EOS_BURST_FPS), "Diamond ring and Baily's beads at C2")
-    relay_burst("BEADS_C2_END", "-", _c2_burst_off,
+    relay_burst("C2", "-", _c2_burst_off,
                 RELAY_C2_S, RELAY_C2_N,
-                "Diamond ring and Baily's beads at C2, relay at %.0f fps" % XT4_RELAY_FPS)
+                "Baily's beads and diamond ring centered on C2, relay at %.0f fps"
+                % XT4_RELAY_FPS)
     # Tracks the tail: the safety release must fire AFTER the hold lets go, or
     # it is not a safety net but a guillotine - at tail 2.0 a release at +1.5
     # would open the contacts half a second before the ring was done.
-    relay_release("BEADS_C2_END", "+", RELAY_C2_TAIL_S + 1.2,
+    relay_release("C2", "+", C2_BURST_HALF_S + 1.2,
                   "Open every contact after the C2 burst")
     announce("C2", "-", 0, "C2", "Second contact - filters off, totality has begun")
     if inside(4.0, target_s):

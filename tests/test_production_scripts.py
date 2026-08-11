@@ -78,9 +78,9 @@ def test_the_beads_load_and_arm_precede_the_burst_by_construction():
         text = script.read_text()
         offsets = {}
         for kind, pattern in (
-                ("load", r'take_picture, BEADS_C2_END, -, (\d+):(\d+):([\d.]+).*Load the beads'),
-                ("arm", r'relay_arm, BEADS_C2_END, -, (\d+):(\d+):([\d.]+)'),
-                ("burst", r'relay_burst, BEADS_C2_END, -, (\d+):(\d+):([\d.]+)')):
+                ("load", r'take_picture, C2, -, (\d+):(\d+):([\d.]+).*Load the beads'),
+                ("arm", r'relay_arm, C2, -, (\d+):(\d+):([\d.]+)'),
+                ("burst", r'relay_burst, C2, -, (\d+):(\d+):([\d.]+)')):
             m = re.search(pattern, text)
             assert m, "%s missing the %s" % (script.name, kind)
             offsets[kind] = int(m.group(1))*3600 + int(m.group(2))*60 + float(m.group(3))
@@ -107,9 +107,9 @@ def test_the_safety_release_fires_after_the_hold_lets_go():
     for script in pathlib.Path("scripts/real/durations").glob("20260812_production_*s.txt"):
         text = script.read_text()
         c2_hold = float(re.search(
-            r'relay_burst, BEADS_C2_END, -, \d+:\d+:[\d.]+, ([\d.]+)', text).group(1))
-        c2_start = offset(text, r'relay_burst, BEADS_C2_END, -, (\d+):(\d+):([\d.]+)')
-        c2_release = offset(text, r'relay_release, BEADS_C2_END, \+, (\d+):(\d+):([\d.]+)')
+            r'relay_burst, C2, -, \d+:\d+:[\d.]+, ([\d.]+)', text).group(1))
+        c2_start = offset(text, r'relay_burst, C2, -, (\d+):(\d+):([\d.]+)')
+        c2_release = offset(text, r'relay_release, C2, \+, (\d+):(\d+):([\d.]+)')
         assert c2_release > c2_hold - c2_start + 0.5, \
             "%s: the C2 release fires inside the hold" % script.name
 
