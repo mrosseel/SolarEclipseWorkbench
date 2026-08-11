@@ -50,6 +50,7 @@ from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get
     get_shooting_mode, get_focus_mode, set_time, CameraSettings, LiveViewThread, \
     get_sony_save_destination, get_sony_image_quality
 from solareclipseworkbench.fuji_camera import maybe_reexec_for_fuji_sdk
+from solareclipseworkbench import camera as camera_module
 from solareclipseworkbench import exposure_trim, hardware_problems
 from solareclipseworkbench.coverage_ui import CoverageDock
 from solareclipseworkbench import job_text
@@ -1373,6 +1374,23 @@ class SolarEclipseView(QMainWindow, Observable):
         exposure_trim.set_stops(value)
         settings = QSettings(str(SETTINGS_PATH), QSettings.Format.IniFormat)
         settings.setValue("exposure/trim_stops", value)
+        # Redraw the jobs table so the new exposures are visible, not just
+        # announced: dialling a correction that moves nothing on screen gives
+        # the observer no way to check it took, and inviting them to dial again
+        # is how a haze correction becomes three stops of one.
+        try:
+            controller = getattr(self, "controller", None)
+            if controller is not None and getattr(controller, "jobs_model", None) is not None:
+                # Rebuilt the way the script load builds it - the rows carry the
+                # exposures as strings, so there is nothing to update in place.
+                controller.jobs_model = JobsTableModel(controller.scheduler, controller)
+                self.jobs_table.setModel(controller.jobs_model)
+                controller.jobs_model.add_observer(self.jobs_table)
+                self.jobs_table.resizeColumnsToContents()
+        except Exception:
+            LOGGER.exception("Could not refresh the jobs table after a trim "
+                             "change; the trim itself is applied")
+
         if hasattr(self, "statusBar"):
             self.statusBar().showMessage(
                 f"Exposure trim {exposure_trim.describe()} - applies to every "
@@ -5629,6 +5647,32 @@ class CameraOverviewTableModel(QAbstractTableModel):
             logging.exception('Error while polling for pending camera overview data')
 
 
+def _shown_speed(shutter_speed) -> str:
+    """The exposure as the camera will actually take it, trim included.
+
+    The jobs table used to show the script's own figure, so dialling a trim
+    changed every future frame and moved nothing on screen - the observer had
+    only a status line to go on, and no way to see which frames were affected.
+
+    Display only, and deliberately defensive: the camera reads the trim itself
+    when the job fires, so a wrong answer here is a wrong number on a screen
+    and never a wrong frame.  Anything unexpected falls back to the script's
+    value rather than raising - a table that throws would take the window down
+    in the one hour it has to stay up.
+    """
+    try:
+        if not exposure_trim.stops():
+            return str(shutter_speed)
+        seconds = camera_module._speed_to_seconds(shutter_speed)
+        if seconds is None:
+            return str(shutter_speed)
+        return camera_module._usable_speed(exposure_trim.apply_seconds(seconds))
+    except Exception:
+        LOGGER.debug("Could not show the trimmed exposure for %r",
+                     shutter_speed, exc_info=True)
+        return str(shutter_speed)
+
+
 class JobsTableColumnNames(Enum):
     """ Enumeration of the column names for the table with the scheduled jobs. """
 
@@ -5679,7 +5723,7 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 if job.func.__name__ == "take_picture":
                     camera_settings: CameraSettings = job.args[1]
                     camera_name = camera_settings.camera_name
-                    shutter_speed = camera_settings.shutter_speed
+                    shutter_speed = _shown_speed(camera_settings.shutter_speed)
                     aperture = camera_settings.aperture
                     iso = camera_settings.iso
 
@@ -5688,7 +5732,7 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 elif job.func.__name__ == "take_burst":
                     camera_settings: CameraSettings = job.args[1]
                     camera_name = camera_settings.camera_name
-                    shutter_speed = camera_settings.shutter_speed
+                    shutter_speed = _shown_speed(camera_settings.shutter_speed)
                     aperture = camera_settings.aperture
                     iso = camera_settings.iso
                     duration = job.args[2]
@@ -5698,7 +5742,7 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 elif job.func.__name__ == "take_bracket":
                     camera_settings: CameraSettings = job.args[1]
                     camera_name = camera_settings.camera_name
-                    shutter_speed = camera_settings.shutter_speed
+                    shutter_speed = _shown_speed(camera_settings.shutter_speed)
                     aperture = camera_settings.aperture
                     iso = camera_settings.iso
                     step = job.args[2]
@@ -5708,7 +5752,7 @@ class JobsTableModel(QAbstractTableModel, Observable):
                 elif job.func.__name__ == "take_hdr":
                     camera_settings: CameraSettings = job.args[1]
                     camera_name = camera_settings.camera_name
-                    shutter_speed = camera_settings.shutter_speed
+                    shutter_speed = _shown_speed(camera_settings.shutter_speed)
                     aperture = camera_settings.aperture
                     iso = camera_settings.iso
                     stops = job.args[2]
