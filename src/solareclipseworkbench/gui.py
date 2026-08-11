@@ -1379,7 +1379,14 @@ class SolarEclipseView(QMainWindow, Observable):
         # the observer no way to check it took, and inviting them to dial again
         # is how a haze correction becomes three stops of one.
         try:
-            controller = getattr(self, "controller", None)
+            # Through the observer list, not self.controller: that attribute is
+            # set to None when the window is built and never assigned - the
+            # controller registers itself as an observer instead.  Reaching for
+            # it skipped this refresh silently, which is exactly the failure
+            # this function exists to prevent.
+            controller = next(
+                (o for o in getattr(self, "observers", [])
+                 if hasattr(o, "jobs_model") and hasattr(o, "scheduler")), None)
             if controller is not None and getattr(controller, "jobs_model", None) is not None:
                 # Rebuilt the way the script load builds it - the rows carry the
                 # exposures as strings, so there is nothing to update in place.
