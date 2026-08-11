@@ -8,7 +8,7 @@
 #   too small  you lose a few seconds of corona at the end of totality
 #   too large  the last ladder is still exposing after C3, filter off
 #
-# 5 corona ladders.  The planned site has 104 s, which makes
+# 4 corona ladders.  The planned site has 104 s, which makes
 # 20260812_production_103s.txt the one to load unless you have moved.
 # ##########################################################################
 #
@@ -186,7 +186,7 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # The X-T4 take_picture before each burst exists to load the beads exposure before
 # the relay takes over - the relay fires whatever is already dialled in.
 #
-# This file fills 110 s of totality: 5 corona ladders of 7 frames, the first
+# This file fills 110 s of totality: 4 corona ladders of 7 frames, the first
 # 11.5 s after C2 and the last finishing 10.5 s before C3.  Load it only when Solar
 # Eclipse Workbench reports totality of at least 110 s for where you are standing;
 # at less than that the last ladder is still exposing when the sun comes back.
@@ -224,15 +224,23 @@ relay_arm, C2, -, 0:00:07.2, "Pre-arm S1 for the C2 burst @ C2-7.2 s, sun 7.9 de
 relay_burst, C2, -, 0:00:06.0, 12.00, "Baily's beads and diamond ring centered on C2, relay at 8 fps @ C2-6.0 s, sun 7.9 deg"
 relay_release, C2, +, 0:00:07.2, "Open every contact after the C2 burst @ C2+7.2 s, sun 7.9 deg"
 voice_prompt, C2, -, 0:00:00.0, C2, "Second contact - filters off, totality has begun"
-take_bracket, C2, +, 0:00:11.5, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 1 of 5, inner edge to outer streamers @ C2+11.5 s, sun 7.9 deg"
-take_bracket, C2, +, 0:00:29.5, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 2 of 5, inner edge to outer streamers @ C2+29.5 s, sun 7.9 deg"
+take_bracket, C2, +, 0:00:11.5, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 1 of 4, inner edge to outer streamers @ C2+11.5 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:29.9, Fuji Fujifilm X-T4, 1/250, -, 1600, "Corona single at 1/250, filling between the ladder's stops @ C2+29.9 s, sun 7.9 deg"
 voice_prompt, C2, +, 0:00:30.0, C2_PLUS_30_SECONDS, "Thirty seconds into totality"
-take_bracket, C2, +, 0:00:47.6, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 3 of 5, inner edge to outer streamers @ C2+47.6 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:30.9, Fuji Fujifilm X-T4, 1/1000, -, 1600, "Corona single at 1/1000, filling between the ladder's stops @ C2+30.9 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:31.9, Fuji Fujifilm X-T4, 1/4000, -, 1600, "Corona single at 1/4000, filling between the ladder's stops @ C2+31.9 s, sun 7.9 deg"
+take_bracket, C2, +, 0:00:34.8, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 2 of 4, inner edge to outer streamers @ C2+34.8 s, sun 7.9 deg"
 voice_prompt, MAX, -, 0:00:05.0, MAX_IN_5_SECONDS, "Five seconds to maximum eclipse"
+take_picture, C2, +, 0:00:53.3, Fuji Fujifilm X-T4, 1/4, -, 1600, "Corona single at 1/4, filling between the ladder's stops @ C2+53.3 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:54.3, Fuji Fujifilm X-T4, 1/15, -, 1600, "Corona single at 1/15, filling between the ladder's stops @ C2+54.3 s, sun 7.9 deg"
 voice_prompt, MAX, -, 0:00:00.0, MAX, "Maximum eclipse"
+take_picture, C2, +, 0:00:55.3, Fuji Fujifilm X-T4, 1/60, -, 1600, "Corona single at 1/60, filling between the ladder's stops @ C2+55.3 s, sun 7.9 deg"
+take_bracket, C2, +, 0:00:58.2, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 3 of 4, inner edge to outer streamers @ C2+58.2 s, sun 7.9 deg"
 voice_prompt, C3, -, 0:00:45.0, C3_IN_45_SECONDS, "Forty-five seconds of totality left"
-take_bracket, C2, +, 0:01:05.6, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 4 of 5, inner edge to outer streamers @ C2+65.6 s, sun 7.9 deg"
-take_bracket, C2, +, 0:01:23.6, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 5 of 5, inner edge to outer streamers @ C2+83.6 s, sun 7.9 deg"
+take_picture, C2, +, 0:01:16.6, Fuji Fujifilm X-T4, 1/1000, -, 1600, "Corona single at 1/1000, filling between the ladder's stops @ C2+76.6 s, sun 7.9 deg"
+take_picture, C2, +, 0:01:17.6, Fuji Fujifilm X-T4, 1/4000, -, 1600, "Corona single at 1/4000, filling between the ladder's stops @ C2+77.6 s, sun 7.9 deg"
+take_picture, C2, +, 0:01:18.6, Fuji Fujifilm X-T4, 1, -, 1600, "Corona single at 1, filling between the ladder's stops @ C2+78.6 s, sun 7.9 deg"
+take_bracket, C2, +, 0:01:21.5, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 4 of 4, inner edge to outer streamers @ C2+81.5 s, sun 7.9 deg"
 voice_prompt, C3, -, 0:00:20.0, C3_IN_20_SECONDS, "Twenty seconds to third contact"
 take_picture, C3, -, 0:00:08.5, Fuji Fujifilm X-T4, 1/6400, -, 160, "Load the beads exposure before the relay burst @ C3-8.5 s, sun 7.9 deg"
 voice_prompt, C3, -, 0:00:08.0, C3_IN_8_SECONDS, "Eight seconds - look away from the eyepiece"

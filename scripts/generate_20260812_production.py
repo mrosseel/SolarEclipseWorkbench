@@ -444,7 +444,15 @@ LADDER_TAP_GAP_S = 0.35
 # directions: a fast body just idles between ladders, while the old figure
 # scheduled 8 ladders of which 4 ran and every gap single was dropped against
 # "camera still busy" - the 8 August rehearsal in one line.
-LADDER_PER_RUNG_USB_S = 1.55
+# 1.85, was 1.55 for one evening: 1.55 priced the bench ladder (14.5-14.6 s,
+# five consecutive runs) but not the ladder inside the app, which measured
+# 14-17 s on the 11 August rehearsal - scheduler start lateness and the jobs
+# around it ride on top of the bench figure.  At 15.8 s modelled, one gap
+# single fit ahead of each ladder, delayed it ~1.5 s, and the late ladder then
+# swallowed the single behind it: 3 of 4 singles dropped.  At 17.9 s modelled
+# no single fits, which is the honest outcome - the rehearsal kept every
+# ladder rung and lost only singles, twice in a row.
+LADDER_PER_RUNG_USB_S = 1.85
 # 2.0: the final drain is one round since 10 August (rounds=1), measured
 # 1.49 s on the bench the same day.
 LADDER_DRAIN_S = 2.0
@@ -454,7 +462,9 @@ LADDER_DRAIN_S = 2.0
 # job - the model's cost is now 15.8 s and the floor sits above it with
 # clearance.  At 104 s of totality this schedules 5 ladders that all run,
 # against 8 scheduled of which 4 ran on 8 August.
-LADDER_PITCH_MIN_S = 17.0
+# 19.0, above the 17.9 s modelled ladder: the floor must clear the ladder
+# itself or the next one queues behind it.
+LADDER_PITCH_MIN_S = 19.0
 
 #: How close the last gap single may sit to the next ladder: its own modelled
 #: cost plus clearance.  2.4, was 1.1: a single now pays the same ~1.5 s
