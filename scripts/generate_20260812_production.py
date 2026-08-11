@@ -542,11 +542,13 @@ def totality_tail_s() -> float:
 
     The C3 block opens by loading the beads exposure, and that is a camera
     command like any other: a ladder still running when it fires takes it out.
-    Where the bead window sits relative to C3 comes from the limb profile at
-    this site, so this is measured off the moments rather than assumed.
+    Since 11 August the burst is centered on C3 itself rather than sized off
+    the solved bead window, so this is plain geometry, not the limb profile.
     """
-    first_c3_command = moment_time("BEADS_C3", "-", 6.0)
-    return (c3 - first_c3_command).total_seconds() + TOTALITY_TAIL_MARGIN_S
+    # The load sits 2.5 s ahead of the burst start, which is C3_BURST_HALF_S
+    # before C3 plus the trigger latency - the same run-in as C2's.
+    first_c3_command_s = C3_BURST_HALF_S + RELAY_LATENCY_S + 2.5
+    return first_c3_command_s + TOTALITY_TAIL_MARGIN_S
 
 # How wide the beads actually are here, from the limb profile rather than
 # assumed: the bursts are sized off these.
@@ -613,13 +615,14 @@ BEADS_C3_S = (MOMENTS["BEADS_C3_END"].time_utc
 # (18.7 s held, ~100 frames, the queue never full, 8 August) and ends early
 # enough that no ladder is lost to it.
 #
-# C3 keeps the window-plus-margins geometry as specified on the 8th:
-#     C3:  head 2.6 (SMALL DIAMOND)  window 4.05  tail 1.1 (beads fading)
+# C3 is the mirror, widened on the owner's word the same day: 12 s centered
+# on C3, C3-6 to C3+6.  The small diamond rides just before C3 and the beads
+# just after, both deep inside the hold; after C3 there is no ladder pressure,
+# so the width costs only partial-phase idle.
 C2_BURST_HALF_S = 6.0
-RELAY_C3_HEAD_S = 2.6
-RELAY_C3_TAIL_S = 1.1
+C3_BURST_HALF_S = 6.0
 RELAY_C2_S = 2 * C2_BURST_HALF_S
-RELAY_C3_S = BEADS_C3_S + RELAY_C3_HEAD_S + RELAY_C3_TAIL_S
+RELAY_C3_S = 2 * C3_BURST_HALF_S
 
 # Trigger latency, measured on the bench 1 August 2026, and it depends entirely on
 # the path: S1 pre-armed and held gives 43-48 ms, S2 alone with S1 never asserted
@@ -915,8 +918,9 @@ def _totality_block(target_s: float) -> None:
          % (RELAY_C2_S, C2_BURST_HALF_S, C2_BURST_HALF_S))
     emit("# itself, not the solved bead window, so a limb-solve error or a failed")
     emit("# solve cannot move the beads out of the burst.")
-    emit("# C3: window plus margins, head %.1f / tail %.1f (small diamond on the head)."
-         % (RELAY_C3_HEAD_S, RELAY_C3_TAIL_S))
+    emit("# C3: the mirror, %.0f s centered on C3, C3-%.0f to C3+%.0f - the small"
+         % (RELAY_C3_S, C3_BURST_HALF_S, C3_BURST_HALF_S))
+    emit("# diamond just before C3 and the beads just after, both deep in the hold.")
     emit("#")
     emit("# %d and %d frames, at the %.1f fps measured on this body with the drive dial on CL"
          % (RELAY_C2_N, RELAY_C3_N, XT4_RELAY_FPS))
@@ -1055,18 +1059,23 @@ def _totality_block(target_s: float) -> None:
     for _, call, arguments in sorted(timeline, key=lambda event: event[0]):
         call(*arguments)
 
-    picture(XT4, "BEADS_C3", "-", 6.0, beads_x, ISO_BEADS, "Load the beads exposure before the relay burst")
+    # The mirror of C2: anchored to C3 itself, not the solved bead window, so
+    # the burst exists even when the limb solve does not close.
+    _c3_burst_off = C3_BURST_HALF_S + RELAY_LATENCY_S
+    picture(XT4, "C3", "-", _c3_burst_off + 2.5, beads_x, ISO_BEADS,
+            "Load the beads exposure before the relay burst")
     if inside(8.0, target_s):
         announce("C3", "-", 8, "C3_IN_8_SECONDS", "Eight seconds - look away from the eyepiece")
-    relay_arm("BEADS_C3", "-", 4.0, "Pre-arm S1 for the C3 burst")
+    relay_arm("C3", "-", _c3_burst_off + 1.2, "Pre-arm S1 for the C3 burst")
     burst(EOS, "BEADS_C3", "-", EOS_C3_BURST_S / 2, beads_e, ISO_BEADS, EOS_C3_BURST_S,
           int(EOS_C3_BURST_S * EOS_BURST_FPS), "Baily's beads and diamond ring at C3")
-    relay_burst("BEADS_C3_START", "-", RELAY_LATENCY_S + RELAY_C3_HEAD_S,
+    relay_burst("C3", "-", _c3_burst_off,
                 RELAY_C3_S, RELAY_C3_N,
-                "Baily's beads and diamond ring at C3, relay at %.0f fps" % XT4_RELAY_FPS)
-    bracket(XT4, "BEADS_C3_START", "+", RELAY_C3_S + 5.5, "1/250", ISO_BEADS,
+                "Baily's beads and diamond ring centered on C3, relay at %.0f fps"
+                % XT4_RELAY_FPS)
+    bracket(XT4, "C3", "+", C3_BURST_HALF_S + 7.5, "1/250", ISO_BEADS,
             ring_ladder, 3, "Framed diamond ring, big diamond fading")
-    relay_release("BEADS_C3_START", "+", RELAY_C3_S + 1.5,
+    relay_release("C3", "+", C3_BURST_HALF_S + 1.2,
                   "Open every contact after the C3 burst")
     for n, name in ((5, "C3_IN_5_SECONDS"), (4, "C3_IN_4_SECONDS"), (3, "C3_IN_3_SECONDS"),
                     (2, "C3_IN_2_SECONDS"), (1, "C3_IN_1_SECOND")):

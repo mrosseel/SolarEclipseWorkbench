@@ -191,7 +191,7 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # the relay takes over - the relay fires whatever is already dialled in.
 #
 # This file fills 101 s of totality: 4 corona ladders of 7 frames, the first
-# 11.5 s after C2 and the last finishing 8.4 s before C3.  Load it only when Solar
+# 11.5 s after C2 and the last finishing 10.5 s before C3.  Load it only when Solar
 # Eclipse Workbench reports totality of at least 101 s for where you are standing;
 # at less than that the last ladder is still exposing when the sun comes back.
 #
@@ -206,16 +206,17 @@ voice_prompt, C2, -, 0:00:01.0, C2_IN_1_SECOND, "1 to totality"
 # installed and the correction switched on; without it they are skipped, and
 # Solar Eclipse Workbench says so when the script is loaded.
 #
-# The beads run 1.75 s at C2 and 2.70 s at C3, and the bursts hold 12.0 s and 6.4 s.
+# The beads run 1.75 s at C2 and 2.70 s at C3, and the bursts hold 12.0 s and 12.0 s.
 # Owner's specification: the SMALL diamond - 'one or two beads left' - on the
 # Bursts drain their tether queue live, so a hold is no longer capped at
 # 32 frames.  Priority (owner, 11 August): the beads are king.
 # C2: 12 s CENTERED ON THE CONTACT, C2-6 to C2+6 - anchored to C2
 # itself, not the solved bead window, so a limb-solve error or a failed
 # solve cannot move the beads out of the burst.
-# C3: window plus margins, head 2.6 / tail 1.1 (small diamond on the head).
+# C3: the mirror, 12 s centered on C3, C3-6 to C3+6 - the small
+# diamond just before C3 and the beads just after, both deep in the hold.
 #
-# 93 and 50 frames, at the 7.7 fps measured on this body with the drive dial on CL
+# 93 and 93 frames, at the 7.7 fps measured on this body with the drive dial on CL
 # and CL LOW SPEED BURST set to 8 fps.  Both are menu settings on a dial position
 # that cannot be read back - GetDriveMode answers the same wherever the dial is - so
 # the pre-flight checks them by eye.  On CH as found (28 fps) the window would want
@@ -228,29 +229,29 @@ relay_burst, C2, -, 0:00:06.0, 12.00, "Baily's beads and diamond ring centered o
 relay_release, C2, +, 0:00:07.2, "Open every contact after the C2 burst @ C2+7.2 s, sun 7.9 deg"
 voice_prompt, C2, -, 0:00:00.0, C2, "Second contact - filters off, totality has begun"
 take_bracket, C2, +, 0:00:11.5, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 1 of 4, inner edge to outer streamers @ C2+11.5 s, sun 7.9 deg"
-take_picture, C2, +, 0:00:28.4, Fuji Fujifilm X-T4, 1/250, -, 1600, "Corona single at 1/250, filling between the ladder's stops @ C2+28.4 s, sun 7.9 deg"
-take_picture, C2, +, 0:00:29.4, Fuji Fujifilm X-T4, 1/1000, -, 1600, "Corona single at 1/1000, filling between the ladder's stops @ C2+29.4 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:27.6, Fuji Fujifilm X-T4, 1/250, -, 1600, "Corona single at 1/250, filling between the ladder's stops @ C2+27.6 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:28.6, Fuji Fujifilm X-T4, 1/1000, -, 1600, "Corona single at 1/1000, filling between the ladder's stops @ C2+28.6 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:29.6, Fuji Fujifilm X-T4, 1/4000, -, 1600, "Corona single at 1/4000, filling between the ladder's stops @ C2+29.6 s, sun 7.9 deg"
 voice_prompt, C2, +, 0:00:30.0, C2_PLUS_30_SECONDS, "Thirty seconds into totality"
-take_picture, C2, +, 0:00:30.4, Fuji Fujifilm X-T4, 1/4000, -, 1600, "Corona single at 1/4000, filling between the ladder's stops @ C2+30.4 s, sun 7.9 deg"
-take_bracket, C2, +, 0:00:33.3, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 2 of 4, inner edge to outer streamers @ C2+33.3 s, sun 7.9 deg"
+take_bracket, C2, +, 0:00:32.5, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 2 of 4, inner edge to outer streamers @ C2+32.5 s, sun 7.9 deg"
 voice_prompt, MAX, -, 0:00:05.0, MAX_IN_5_SECONDS, "Five seconds to maximum eclipse"
-take_picture, C2, +, 0:00:50.1, Fuji Fujifilm X-T4, 1/4, -, 1600, "Corona single at 1/4, filling between the ladder's stops @ C2+50.1 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:48.7, Fuji Fujifilm X-T4, 1/4, -, 1600, "Corona single at 1/4, filling between the ladder's stops @ C2+48.7 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:49.7, Fuji Fujifilm X-T4, 1/15, -, 1600, "Corona single at 1/15, filling between the ladder's stops @ C2+49.7 s, sun 7.9 deg"
 voice_prompt, MAX, -, 0:00:00.0, MAX, "Maximum eclipse"
-take_picture, C2, +, 0:00:51.1, Fuji Fujifilm X-T4, 1/15, -, 1600, "Corona single at 1/15, filling between the ladder's stops @ C2+51.1 s, sun 7.9 deg"
-take_picture, C2, +, 0:00:52.1, Fuji Fujifilm X-T4, 1/60, -, 1600, "Corona single at 1/60, filling between the ladder's stops @ C2+52.1 s, sun 7.9 deg"
-take_bracket, C2, +, 0:00:55.0, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 3 of 4, inner edge to outer streamers @ C2+55.0 s, sun 7.9 deg"
+take_picture, C2, +, 0:00:50.7, Fuji Fujifilm X-T4, 1/60, -, 1600, "Corona single at 1/60, filling between the ladder's stops @ C2+50.7 s, sun 7.9 deg"
+take_bracket, C2, +, 0:00:53.6, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 3 of 4, inner edge to outer streamers @ C2+53.6 s, sun 7.9 deg"
 voice_prompt, C3, -, 0:00:45.0, C3_IN_45_SECONDS, "Forty-five seconds of totality left"
-take_picture, C2, +, 0:01:11.9, Fuji Fujifilm X-T4, 1/1000, -, 1600, "Corona single at 1/1000, filling between the ladder's stops @ C2+71.9 s, sun 7.9 deg"
-take_picture, C2, +, 0:01:12.9, Fuji Fujifilm X-T4, 1/4000, -, 1600, "Corona single at 1/4000, filling between the ladder's stops @ C2+72.9 s, sun 7.9 deg"
-take_picture, C2, +, 0:01:13.9, Fuji Fujifilm X-T4, 1, -, 1600, "Corona single at 1, filling between the ladder's stops @ C2+73.9 s, sun 7.9 deg"
-take_bracket, C2, +, 0:01:16.8, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 4 of 4, inner edge to outer streamers @ C2+76.8 s, sun 7.9 deg"
+take_picture, C2, +, 0:01:09.7, Fuji Fujifilm X-T4, 1/1000, -, 1600, "Corona single at 1/1000, filling between the ladder's stops @ C2+69.7 s, sun 7.9 deg"
+take_picture, C2, +, 0:01:10.7, Fuji Fujifilm X-T4, 1/4000, -, 1600, "Corona single at 1/4000, filling between the ladder's stops @ C2+70.7 s, sun 7.9 deg"
+take_picture, C2, +, 0:01:11.7, Fuji Fujifilm X-T4, 1, -, 1600, "Corona single at 1, filling between the ladder's stops @ C2+71.7 s, sun 7.9 deg"
+take_bracket, C2, +, 0:01:14.6, Fuji Fujifilm X-T4, 1/8000, -, 1600, 1/8000;1/2000;1/500;1/125;1/30;1/8;0.5, "Corona ladder 4 of 4, inner edge to outer streamers @ C2+74.6 s, sun 7.9 deg"
 voice_prompt, C3, -, 0:00:20.0, C3_IN_20_SECONDS, "Twenty seconds to third contact"
-take_picture, BEADS_C3, -, 0:00:06.0, Fuji Fujifilm X-T4, 1/6400, -, 160, "Load the beads exposure before the relay burst @ BEADS_C3-6.0 s, sun 7.9 deg"
+take_picture, C3, -, 0:00:08.5, Fuji Fujifilm X-T4, 1/6400, -, 160, "Load the beads exposure before the relay burst @ C3-8.5 s, sun 7.9 deg"
 voice_prompt, C3, -, 0:00:08.0, C3_IN_8_SECONDS, "Eight seconds - look away from the eyepiece"
-relay_arm, BEADS_C3, -, 0:00:04.0, "Pre-arm S1 for the C3 burst @ BEADS_C3-4.0 s, sun 7.9 deg"
-relay_burst, BEADS_C3_START, -, 0:00:02.6, 6.40, "Baily's beads and diamond ring at C3, relay at 8 fps @ BEADS_C3_START-2.6 s, sun 7.9 deg"
-take_bracket, BEADS_C3_START, +, 0:00:11.9, Fuji Fujifilm X-T4, 1/250, -, 160, 1/250;1/125;1/60, "Framed diamond ring, big diamond fading @ BEADS_C3_START+11.9 s, sun 7.9 deg"
-relay_release, BEADS_C3_START, +, 0:00:07.9, "Open every contact after the C3 burst @ BEADS_C3_START+7.9 s, sun 7.9 deg"
+relay_arm, C3, -, 0:00:07.2, "Pre-arm S1 for the C3 burst @ C3-7.2 s, sun 7.9 deg"
+relay_burst, C3, -, 0:00:06.0, 12.00, "Baily's beads and diamond ring centered on C3, relay at 8 fps @ C3-6.0 s, sun 7.9 deg"
+take_bracket, C3, +, 0:00:13.5, Fuji Fujifilm X-T4, 1/250, -, 160, 1/250;1/125;1/60, "Framed diamond ring, big diamond fading @ C3+13.5 s, sun 7.9 deg"
+relay_release, C3, +, 0:00:07.2, "Open every contact after the C3 burst @ C3+7.2 s, sun 7.9 deg"
 voice_prompt, C3, -, 0:00:05.0, C3_IN_5_SECONDS, "5 to third contact"
 voice_prompt, C3, -, 0:00:04.0, C3_IN_4_SECONDS, "4 to third contact"
 voice_prompt, C3, -, 0:00:03.0, C3_IN_3_SECONDS, "3 to third contact"

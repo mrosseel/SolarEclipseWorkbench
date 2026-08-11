@@ -58,6 +58,13 @@ COSTS = {
     "sync_cameras": 1.0,
     "voice_prompt": 0.0,      # runs off-camera, takes no lock
     "play": 0.0,
+    # Relay-only commands: they speak to the serial relay and never take the
+    # camera lock.  Pricing them as camera work made the C3 safety release
+    # look droppable behind its own burst's tail drain, which is exactly the
+    # window the safety net exists for.
+    "relay_arm": 0.0,
+    "relay_release": 0.0,
+    "relay_shoot": 0.0,
 }
 DEFAULT_COST = 1.0
 
@@ -218,7 +225,7 @@ def scheduled_commands(script: Path, duration_s: float) -> list:
             continue
         seconds = h * 3600 + m * 60 + s
         when = moments[ref].time_utc + timedelta(seconds=-seconds if sign == "-" else seconds)
-        out.append(((when - c2).total_seconds(), command, parts[4:], line))
+        out.append(((when - c2).total_seconds(), command, parts[4:], line, ref))
     return sorted(out, key=lambda row: row[0])
 
 
@@ -226,11 +233,17 @@ def simulate(script: Path, duration_s: float, verbose: bool = False) -> tuple[in
     """Walk the schedule, dropping what the camera lock would drop."""
     commands = scheduled_commands(script, duration_s)
     busy_until = float("-inf")
+    # Where the C2-side schedule stops holding the camera.  The C3 block
+    # shoots past C3 BY DESIGN since 11 August - the burst is centered on the
+    # contact, so half of it and the fading-ring bracket land after C3 - so
+    # only work anchored to the C2 side may be flagged for running long.
+    busy_c2_side = float("-inf")
     dropped, ran, notes = 0, 0, []
 
-    for at, command, args, raw in commands:
-        # Only what happens inside totality is at stake here.
-        if at < -5 or at > duration_s + 5:
+    for at, command, args, raw, ref in commands:
+        # Only what happens inside totality is at stake here.  The window
+        # extends past C3 for the C3 block itself.
+        if at < -5 or at > duration_s + 25:
             continue
         cost = cost_of(command, args)
         if cost == 0:
@@ -248,11 +261,13 @@ def simulate(script: Path, duration_s: float, verbose: bool = False) -> tuple[in
             start = max(at, busy_until)
             busy_until = start + cost
             ran += 1
+            if ref != "C3":
+                busy_c2_side = busy_until
             if verbose:
                 notes.append((at, command, f"runs {start - at:+.1f}s late, "
                                            f"holds until C2{busy_until:+.1f}s"))
-    if busy_until > duration_s:
-        notes.append((duration_s, "—", f"still shooting {busy_until - duration_s:.1f}s "
+    if busy_c2_side > duration_s:
+        notes.append((duration_s, "—", f"still shooting {busy_c2_side - duration_s:.1f}s "
                                        f"after C3"))
     return ran, dropped, notes
 

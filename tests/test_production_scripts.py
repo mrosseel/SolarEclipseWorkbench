@@ -114,8 +114,8 @@ def test_the_safety_release_fires_after_the_hold_lets_go():
             "%s: the C2 release fires inside the hold" % script.name
 
         c3_hold = float(re.search(
-            r'relay_burst, BEADS_C3_START, -, \d+:\d+:[\d.]+, ([\d.]+)', text).group(1))
-        c3_start = offset(text, r'relay_burst, BEADS_C3_START, -, (\d+):(\d+):([\d.]+)')
-        c3_release = offset(text, r'relay_release, BEADS_C3_START, \+, (\d+):(\d+):([\d.]+)')
+            r'relay_burst, C3, -, \d+:\d+:[\d.]+, ([\d.]+)', text).group(1))
+        c3_start = offset(text, r'relay_burst, C3, -, (\d+):(\d+):([\d.]+)')
+        c3_release = offset(text, r'relay_release, C3, \+, (\d+):(\d+):([\d.]+)')
         assert c3_release > c3_hold - c3_start + 0.5, \
             "%s: the C3 release fires inside the hold" % script.name
