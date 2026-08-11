@@ -211,6 +211,27 @@ def _on_job_problem(event) -> None:
 _JOB_NAMES: dict = {}
 
 
+class _DeviceAtRuntime:
+    """Stands in for a relay or mount until the job actually fires.
+
+    The registry is consulted on every attribute access, so a device connected
+    any time before the job runs is the one used.  A device still missing when
+    the job needs it raises, which the job wrapper records as the failure it
+    is - the same outcome the old schedule-time skip produced, minus the trap
+    where connecting late silently disarmed the whole script.
+    """
+
+    def __init__(self, kind: str, command: str):
+        self._kind, self._command = kind, command
+
+    def __getattr__(self, name):
+        device = HARDWARE.get(self._kind)
+        if device is None:
+            raise RuntimeError(
+                f'no {self._kind} is connected, so "{self._command}" cannot run')
+        return getattr(device, name)
+
+
 def _timed(func, intended: datetime, description: str):
     """Carry the intended time into the job, so the row can be written.
 
@@ -387,17 +408,21 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
 
     if func_name in HARDWARE_COMMANDS:
         # Relay and mount commands take their device as the first argument, the
-        # way camera commands take a camera.
+        # way camera commands take a camera - but the device is looked up when
+        # the job FIRES, not here.  Deciding at schedule time turned a late
+        # connection into a silent no-op: on 8 August the relay registered 34 s
+        # after the script was loaded, every relay command had already been
+        # marked skipped, and both contact bursts - the beads and the diamond
+        # ring - were dead before the run started.  A device that is still
+        # missing when the job fires is logged and skipped then, which is the
+        # same outcome an hour earlier and a working burst otherwise.
         kind = HARDWARE_COMMANDS[func_name]
-        device = HARDWARE.get(kind)
-        if device is None:
+        if HARDWARE.get(kind) is None:
             logging.warning(
-                'schedule_command: no %s is connected, so "%s" will be skipped.  '
-                'Connect the %s before the eclipse starts, or remove the command from the script.',
-                kind, func_name, kind,
-            )
-            return
-        args = [device] + [arg.strip() for arg in args if arg.strip()]
+                'schedule_command: no %s is connected yet; "%s" runs if one is '
+                'connected before it fires.', kind, func_name)
+        args = [_DeviceAtRuntime(kind, func_name)] \
+            + [arg.strip() for arg in args if arg.strip()]
     elif func_name == "voice_prompt":
         # Resolve the prompt now rather than when the job fires: a typo would
         # otherwise raise mid-eclipse and the prompt would simply not be heard.

@@ -354,7 +354,17 @@ class _RelayShooter:
         # The last rung is still being written, and whatever `configure` is
         # asked for next has to wait for it like any other frame.
         self.camera._note_frame_fired()
-        self.camera.drain()
+        # One round, not four.  A full drain chases the tail of the ladder, and
+        # the tail keeps arriving for seconds after the last rung: measured
+        # 8 August, seven rungs cost about 6.5 s and the drain behind them took
+        # the ladder to 16 s against a 10.6 s pitch.  Every ladder therefore
+        # overran into the next job, and the run lost four of its eight corona
+        # ladders and all four gap singles to "camera was still busy".
+        #
+        # Slots are what the next job needs, not an empty queue, and
+        # `_keep_buffer_clear` above already drains mid-ladder when the queue
+        # is genuinely filling.  Same reasoning as the C2 burst, same evening.
+        self.camera.drain(rounds=1)
         return taken
 
     def _keep_buffer_clear(self, relay):
@@ -379,7 +389,11 @@ class _RelayShooter:
 
         logging.info('%s: draining mid-bracket', self.camera.name)
         relay.release_all()
-        self.camera.drain()
+        # One round: this runs inside a ladder that has to finish within its
+        # pitch, and the rungs still to come need slots rather than an empty
+        # queue.  A full drain here put the ladder over 16 s against a 10.6 s
+        # pitch on 8 August.
+        self.camera.drain(rounds=1)
         # No re-press: the ladder no longer holds S1 between rungs, and
         # re-closing it here would restart the very drive that made the body
         # refuse every speed.
@@ -1201,10 +1215,16 @@ class FujiCamera(BaseCamera):
         frame occupies one of 32 slots.  Paying that after every single frame
         spends the entire gap between two scripted frames to reclaim a slot that
         was not needed, which during totality is frames not taken.
+
+        One round when it does run.  A full drain chases frames that are still
+        arriving, which costs 3-9 s: measured 8 August, that is longer than the
+        1.6 s a corona single has before the next ladder, so the drain a single
+        pays for drops the ladder behind it.  A pass frees the slots that exist
+        now, which is what the next job needs.
         """
         if not self.buffer_is_filling():
             return 0
-        return self.drain()
+        return self.drain(rounds=1)
 
     def capture(self):
         """Fire the shutter, through the relay when one is connected.

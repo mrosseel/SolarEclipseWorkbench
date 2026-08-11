@@ -421,35 +421,35 @@ sys.stderr.write(
 # the validator agrees with what was laid out here.
 LADDER_TAP_GAP_S = 0.35
 # The speed change between two taps: the USB write plus the body settling.
-# 0.5, was 0.35: measured 7 August on the fixed ladder, ten consecutive
-# seven-rung ladders ran 6.32-6.54 s where the model said 5.43, so the old
-# figure under-priced every ladder by about a second - eight of those is most
-# of a ninth ladder, and under-pricing is the direction that runs the last
-# one past C3.
-LADDER_PER_RUNG_USB_S = 0.5
-# 2.0, recalibrated 5 August: the eight hardware ladders of the 4 August
-# rehearsal ran 6.38-6.90 s INCLUDING their drain, which prices the drain
-# near 1.2 s under the lazy-drain rework.  The old 3.0 predates that rework
-# and reserved 1.8 s per ladder of nothing - the reserve that was blocking a
-# second single per gap.  Worst measured plus half a second of margin.
+# 1.55, was 0.5, and the difference is not drift - it is which state the body
+# was measured in.  The 0.18 s median write of 7 August was measured standalone,
+# no frames in flight; interleaved with taps the body refuses the next speed
+# until the previous frame has finished writing to card, and on 10 August that
+# wait measured 1.4-1.55 s on every rung.  The same probe that ran 6.3-6.5 s a
+# ladder on 7 August ran 13.1 s on 10 August with identical code, so the body's
+# own per-frame write has slowed since - card, slot mode, or quality setting;
+# check the body on eclipse morning.  Pricing the slow reality is safe in both
+# directions: a fast body just idles between ladders, while the old figure
+# scheduled 8 ladders of which 4 ran and every gap single was dropped against
+# "camera still busy" - the 8 August rehearsal in one line.
+LADDER_PER_RUNG_USB_S = 1.55
+# 2.0: the final drain is one round since 10 August (rounds=1), measured
+# 1.49 s on the bench the same day.
 LADDER_DRAIN_S = 2.0
 # Below this the next ladder is starting while the one before it still has the
-# camera.  Seven ladders ran 6.4-6.9 s each on the 4 August rehearsal against
-# a 13.2 s pitch - which is 47% duty and 6.6 s of idle shutter between
-# ladders, the "density much too low" complaint in one number.  10 s keeps
-# 3 s of clearance over the worst measured ladder and lifts the count.
-# 11.0: the floor the gap single's spacing rule allows - the model's ladder
-# cost (8.4 s, deliberately pessimistic) plus the single and margins is 11.2,
-# and the spread stretches actual pitches above the floor anyway.  Measured
-# honestly against the 4 August ladder times, mid-totality duty lands around
-# two thirds; the earlier "near 70%" was arithmetic against the floor rather
-# than the stretched pitch, and overstated it.
-LADDER_PITCH_MIN_S = 10.3
+# camera.  17.0, was 10.3: five consecutive production ladders measured
+# 14.51-14.62 s on 10 August, so at 10.3 every ladder overran into the next
+# job - the model's cost is now 15.8 s and the floor sits above it with
+# clearance.  At 104 s of totality this schedules 5 ladders that all run,
+# against 8 scheduled of which 4 ran on 8 August.
+LADDER_PITCH_MIN_S = 17.0
 
 #: How close the last gap single may sit to the next ladder: its own modelled
-#: cost (0.8 s) plus clearance.  It was 2.5 s of standoff, which priced the
-#: third single out of every gap for no measured reason.
-GAP_SINGLE_COST_S = 1.1
+#: cost plus clearance.  2.4, was 1.1: a single now pays the same ~1.5 s
+#: write-wait as a ladder rung (measured 10 August), so 1.1 s of standoff put
+#: every single inside the next ladder's start - all four were dropped on
+#: 8 August against "camera still busy".
+GAP_SINGLE_COST_S = 2.4
 # The first ladder waits for the C2 burst to be released and its frames drained;
 # derived from the burst geometry below rather than guessed, so it follows the
 # owner's margins if those ever move.  See TOTALITY_HEAD_S after RELAY_C3_N.
@@ -728,7 +728,8 @@ emit("#   [ ] load this script LAST - commands bind to their devices at load tim
 emit("#       so a relay connected afterwards leaves every relay_* line skipped and")
 emit("#       the X-T4 loses both contact bursts")
 emit("#   [ ] run the relay smoke test below and confirm the body actually fires")
-emit("#   [ ] check the clock: sync_cameras runs at C1-20m and again at C1-2m")
+emit("#   [ ] set the X-T4 clock BY HAND - the Fuji SDK cannot sync it; sync_cameras")
+emit("#       runs at C1-20m and C1-2m for the 800D only")
 emit("#")
 emit("#   STILL UNTESTED - bench these before the day")
 emit("#   [ ] firing the remote jack while the SDK holds the session")
@@ -800,7 +801,13 @@ announce("C2", "-", 90, "C2_IN_90_SECONDS", "Ninety seconds to totality")
 announce("C2", "-", 60, "C2_IN_60_SECONDS", "One minute to totality - get ready")
 announce("C2", "-", 40, "C2_IN_40_SECONDS", "Forty seconds to totality")
 announce("C2", "-", 30, "C2_IN_30_SECONDS", "FILTERS OFF BOTH SCOPES")
-sync("C2", "-", 26, "Last sync before totality")
+# No sync 26 s before totality.  The X-T4 cannot be synced at all: the Fuji
+# Shooting SDK exposes no date/time call - the model headers list a SetDateTime
+# code, the public headers declare no entry point, and XAPI exports none - and
+# the gphoto2 set_config is a no-op on this body.  The command therefore did
+# nothing here but take the USB link and raise a warning, 26 seconds before the
+# beads.  The two syncs at C1-20m and C1-2m stay, for the 800D, where the call
+# does work.  Set the X-T4's clock by hand and note the offset.
 announce("C2", "-", 20, "C2_IN_20_SECONDS", "Twenty seconds - filters off, glasses off at C2")
 announce("C2", "-", 10, "C2_IN_10_SECONDS", "Ten seconds to totality")
 for n, name in ((5, "C2_IN_5_SECONDS"), (4, "C2_IN_4_SECONDS"), (3, "C2_IN_3_SECONDS"),
