@@ -984,33 +984,6 @@ class FujiCamera(BaseCamera):
                 _through_busy(lambda: self._sdk.set_shutter_speed(value),
                               f'{self.name}: set shutter speed {raw}', deadline,
                               self.recover_session)
-                # Verified, not trusted.  On the 11 August rehearsal both beads
-                # loads wrote 1/6400, reported success, and the frames came out
-                # at 1/8000 - the body can accept a write in name and sit on a
-                # different speed (the shutter_value_probe saw the same class of
-                # failure on 5 August).  Four bench reproductions of the exact
-                # pattern landed clean, so the trigger is unknown; the read-back
-                # costs ~30 ms and makes the write true regardless.
-                for attempt in (1, 2):
-                    try:
-                        got, _bulb = self._sdk.get_shutter_speed()
-                    except Exception:
-                        break                      # unreadable: keep the write
-                    if got == value:
-                        break
-                    logging.warning(
-                        '%s: shutter speed %s accepted but the body sits on %s'
-                        '%s', self.name, raw, got,
-                        ' - rewriting' if attempt == 1 else '; giving up')
-                    if attempt == 2:
-                        self._applied_speed = None
-                        failures.append(
-                            f"shutter speed={raw!r} accepted in name only; "
-                            f"the body is on {got}")
-                        return False
-                    _through_busy(lambda: self._sdk.set_shutter_speed(value),
-                                  f'{self.name}: re-set shutter speed {raw}',
-                                  deadline, self.recover_session)
                 self._applied_speed = value
                 return True
             except Exception as exc:
