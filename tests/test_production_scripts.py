@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-SCRIPTS = sorted((REPO / "scripts" / "real").glob("20260812_production_*s.txt"))
+SCRIPTS = sorted((REPO / "scripts" / "real" / "durations").glob("20260812_production_*s.txt"))
 
 # The checker lives in scripts/, which is not a package, so it is loaded by path
 # rather than imported - the alternative is putting scripts/ on sys.path, and
@@ -74,7 +74,7 @@ def test_the_beads_load_and_arm_precede_the_burst_by_construction():
     import pathlib
     import re
 
-    for script in pathlib.Path("scripts/real").glob("20260812_production_*s.txt"):
+    for script in pathlib.Path("scripts/real/durations").glob("20260812_production_*s.txt"):
         text = script.read_text()
         offsets = {}
         for kind, pattern in (
@@ -104,7 +104,7 @@ def test_the_safety_release_fires_after_the_hold_lets_go():
         assert m, pattern
         return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
 
-    for script in pathlib.Path("scripts/real").glob("20260812_production_*s.txt"):
+    for script in pathlib.Path("scripts/real/durations").glob("20260812_production_*s.txt"):
         text = script.read_text()
         c2_hold = float(re.search(
             r'relay_burst, BEADS_C2_END, -, \d+:\d+:[\d.]+, ([\d.]+)', text).group(1))

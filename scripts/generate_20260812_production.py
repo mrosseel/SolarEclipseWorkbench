@@ -74,7 +74,10 @@ from skyfield.api import load, wgs84
 from solareclipseworkbench.reference_moments import calculate_reference_moments
 from solareclipseworkbench.exposure_calculator import calculate_exposure, format_shutter_speed
 
-OUTPUT_DIR = REPO / "scripts" / "real"
+# The duration grid is the fallback for an unplanned site; the files to load
+# at the two planned sites live above it, named for the site, and are written
+# by --site-file.
+OUTPUT_DIR = REPO / "scripts" / "real" / "durations"
 PARKED = REPO / "scripts" / "test" / "20260812_production_EOS800D.txt"
 
 # --- Site -----------------------------------------------------------------
@@ -105,6 +108,15 @@ _parser.add_argument("--alt", type=float, default=1297.0, help="site height in m
 # and throws away nearly four seconds of totality, which is most of a corona
 # ladder.  Around the number we expect to fly, the grid is worth a second.
 _DURATIONS_DEFAULT = sorted(set(range(40, 170, 10)) | set(range(100, 109)))
+_parser.add_argument("--site-file", default=None, metavar="PATH",
+                     help="also write the one script this site should load, "
+                          "under this name.  It is the largest duration that "
+                          "fits totality MINUS the safety step (below), so a "
+                          "limb-solve error eats margin rather than the last "
+                          "ladder.")
+_parser.add_argument("--site-safety", type=float, default=2.0,
+                     help="seconds held back from totality when picking the "
+                          "site file's duration (default 2.0)")
 _parser.add_argument("--durations", type=float, nargs="+",
                      default=[float(d) for d in _DURATIONS_DEFAULT],
                      help="totality durations to write a script for, in seconds")
@@ -1163,6 +1175,27 @@ for target, path, ladders, frames in written:
     print("%-34s  %6.0f s  %7d  %6d" % (path.name, target, ladders, frames))
 print("\nAt %s totality is %.0f s, so the one to load is %s."
       % (SITE, totality, site_script()))
+
+if _args.site_file:
+    # The one script this site loads.  Held back --site-safety seconds from the
+    # computed totality before picking the duration, so a limb-solve or GPS
+    # error shortens idle margin instead of running the last ladder into the
+    # C3 bead sequence.  The content is the same production the grid carries
+    # for that duration; the name is the site, which is what gets found in the
+    # dark.
+    _safe = totality - _args.site_safety
+    _fits = [d for d in DURATIONS if d <= _safe] or [DURATIONS[0]]
+    _pick = max(_fits)
+    _src = next(p for t, p, _l, _f in written if t == _pick)
+    _dst = Path(_args.site_file)
+    _dst.write_text(
+        "# %s: totality %.1f s here; this is the %.0f s production script,\n"
+        "# picked %.1f s under totality on purpose - the shortfall is margin\n"
+        "# against limb-solve and position error, not lost coverage.\n#\n"
+        % (SITE, totality, _pick, totality - _pick)
+        + _src.read_text())
+    print("site file: %s (%.0f s script for %.1f s of totality)"
+          % (_dst, _pick, totality))
 
 _stale = OUTPUT_DIR / "20260812_production.txt"
 if _stale.exists():
